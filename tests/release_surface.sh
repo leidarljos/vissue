@@ -4,7 +4,7 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo_root"
 
-for path in README.md CHANGELOG.md CONTRIBUTING.md SECURITY.md CITATION.cff LICENSE; do
+for path in README.md CHANGELOG.md CONTRIBUTING.md RELEASING.md SECURITY.md CITATION.cff LICENSE; do
   test -s "$path" || {
     echo "missing release document: $path" >&2
     exit 1
@@ -29,6 +29,7 @@ grep -q 'aarch64-apple-darwin' dist-workspace.toml
 grep -q 'x86_64-unknown-linux-gnu' dist-workspace.toml
 grep -q 'cargo-dist-installer.sh' .github/workflows/release.yml
 grep -q 'crates-io-auth-action@v1' .github/workflows/publish-crates.yml
+grep -Fq "vars.PUBLIC_RELEASE_ENABLED == 'true'" .github/workflows/publish-crates.yml
 grep -q 'cargo publish --locked -p vissue-core' .github/workflows/publish-crates.yml
 grep -q 'cargo publish --locked -p vissue-cli' .github/workflows/publish-crates.yml
 grep -q 'cargo publish --locked -p vissue-mcp' .github/workflows/publish-crates.yml
