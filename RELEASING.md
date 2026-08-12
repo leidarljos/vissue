@@ -44,11 +44,10 @@ For each crate, add a crates.io trusted publisher with:
 - environment: `crates-io`
 
 Create the matching GitHub environment without adding a long-lived registry
-secret, then arm public publication:
+secret. Keep `PUBLIC_RELEASE_ENABLED` absent through the first GitHub release:
 
 ```console
 $ gh api --method PUT repos/HaoZeke/vissue/environments/crates-io
-$ gh variable set PUBLIC_RELEASE_ENABLED --repo HaoZeke/vissue --body true
 ```
 
 ## Tag-driven releases
@@ -61,8 +60,15 @@ $ git tag -s v0.1.0 -m 'vissue 0.1.0'
 $ git push origin v0.1.0
 ```
 
-`release.yml` builds platform archives and creates the GitHub release.
-`publish-crates.yml` publishes the matching registry version through OIDC.
+`release.yml` builds platform archives and creates the GitHub release. The
+dormant `publish-crates.yml` job skips this manually bootstrapped version.
+After the first GitHub release exists, arm OIDC publication for later versions:
+
+```console
+$ gh variable set PUBLIC_RELEASE_ENABLED --repo HaoZeke/vissue --body true
+```
+
+`publish-crates.yml` publishes later matching registry versions through OIDC.
 Update `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md`, and `CITATION.cff` together
 for every later version, run the private preparation gate, and push only the
 matching signed tag.
