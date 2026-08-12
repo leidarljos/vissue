@@ -187,6 +187,18 @@ enum Command {
     },
     /// Issues whose `:PARENT:` matches this id.
     Children { id: String },
+    /// Blockers transitively required by this issue.
+    Ancestors {
+        id: String,
+        #[arg(short, long, default_value = "3")]
+        depth: usize,
+    },
+    /// Issues transitively waiting on this issue.
+    Impact {
+        id: String,
+        #[arg(short, long, default_value = "3")]
+        depth: usize,
+    },
     /// Open issues whose `:CREATED:` is older than N days.
     Stale {
         #[arg(short, long, default_value = "30")]
@@ -446,6 +458,8 @@ fn run() -> Result<()> {
             print!("{}", report::search(&layout, &query, limit)?)
         }
         Command::Children { id } => print!("{}", report::children(&layout, &id)?),
+        Command::Ancestors { id, depth } => print!("{}", report::ancestors(&layout, &id, depth)?),
+        Command::Impact { id, depth } => print!("{}", report::impact(&layout, &id, depth)?),
         Command::Stale { days, project } => {
             print!("{}", report::stale(&layout, days, project.as_deref())?)
         }

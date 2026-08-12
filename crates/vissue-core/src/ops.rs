@@ -5,6 +5,7 @@ use chrono::NaiveDate;
 use std::collections::BTreeMap;
 
 use crate::config::{Layout, VissueConfig};
+use crate::graph::DependencyGraph;
 use crate::model::{today_inactive_bracket, IssueHeading, LogEntry, TODO_KEYWORDS};
 use crate::store::{
     collect_org_ids, detect_project_from_ctx, find_by_id, generate_id, load_all,
@@ -185,6 +186,8 @@ pub fn update(
         if let Some(blk) = block_add {
             let mut current = h.blocked_by();
             if !current.iter().any(|x| x == blk) {
+                let graph = DependencyGraph::from_issues(&load_all(layout)?)?;
+                graph.accepts_edge(blk, id)?;
                 current.push(blk.to_string());
                 h.properties.insert("BLOCKED_BY".into(), current.join(","));
                 if h.state == "TODO" || h.state == "STARTED" {
@@ -584,6 +587,22 @@ mod tests {
         let h = issue_at(&layout, "sample", &first);
         assert_eq!(h.state, "TODO");
         assert!(h.blocked_by().is_empty());
+    }
+
+    #[test]
+    fn blocker_cycle_is_rejected_before_writing() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = fresh_layout(dir.path());
+        create(&layout, "sample", "first", CreateOpts::default()).unwrap();
+        create(&layout, "sample", "second", CreateOpts::default()).unwrap();
+        let doc = IssueDoc::parse_file("sample", &layout.project_issues_path("sample")).unwrap();
+        let first = doc.headings[0].id.clone();
+        let second = doc.headings[1].id.clone();
+
+        update(&layout, &first, None, None, Some(&second), None).unwrap();
+        let err = update(&layout, &second, None, None, Some(&first), None).unwrap_err();
+        assert!(err.to_string().contains("blocker cycle"), "{err}");
+        assert!(issue_at(&layout, "sample", &second).blocked_by().is_empty());
     }
 
     #[test]

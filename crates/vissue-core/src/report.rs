@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
 
 use crate::config::Layout;
+use crate::graph::DependencyGraph;
 use crate::model::{IssueHeading, READY_STATES};
 use crate::store::{collect_org_ids, find_by_id, list_projects, load_all, IssueDoc};
 
@@ -678,6 +679,26 @@ pub fn cycles(layout: &Layout) -> Result<String> {
     Ok(out)
 }
 
+/// Transitive blocker ancestors, limited to a bounded number of hops.
+pub fn ancestors(layout: &Layout, id: &str, depth: usize) -> Result<String> {
+    let graph = DependencyGraph::from_issues(&load_all(layout)?)?;
+    let mut out = String::new();
+    for (distance, ancestor) in graph.ancestors(id, depth)? {
+        writeln!(out, "{distance} {ancestor}")?;
+    }
+    Ok(out)
+}
+
+/// Transitive issues waiting on this issue, limited to a bounded number of hops.
+pub fn impact(layout: &Layout, id: &str, depth: usize) -> Result<String> {
+    let graph = DependencyGraph::from_issues(&load_all(layout)?)?;
+    let mut out = String::new();
+    for (distance, descendant) in graph.descendants(id, depth)? {
+        writeln!(out, "{distance} {descendant}")?;
+    }
+    Ok(out)
+}
+
 /// The whole blocker and parent graph as Graphviz DOT. Node fill encodes state.
 pub fn graph(layout: &Layout, project_filter: Option<&str>) -> Result<String> {
     let all = load_all(layout)?;
@@ -901,6 +922,13 @@ pub fn check(layout: &Layout) -> Result<CheckReport> {
                 h.id, project, h.state
             )?;
             warnings += 1;
+        }
+    }
+
+    if errors == 0 {
+        if let Err(err) = DependencyGraph::from_issues(&all) {
+            writeln!(out, "[err]  blocker graph: {err}")?;
+            errors += 1;
         }
     }
 

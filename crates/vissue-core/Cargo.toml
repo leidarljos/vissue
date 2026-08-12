@@ -18,7 +18,9 @@ workspace = true
 [dependencies]
 anyhow.workspace = true
 chrono.workspace = true
+daggy.workspace = true
 fs2.workspace = true
+petgraph.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true

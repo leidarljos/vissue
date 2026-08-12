@@ -10,6 +10,7 @@ pub mod agent;
 pub mod config;
 pub mod digest;
 pub mod events;
+pub mod graph;
 pub mod mirror;
 pub mod model;
 pub mod ops;

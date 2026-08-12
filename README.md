@@ -357,7 +357,7 @@ and which root are in play before you commit to a mutation.
 | `claims` | Every live claim, oldest first: who holds what, for how long |
 | `fold` | Turn an inbox org file's unstamped `* TODO` headings into issues, stamping in place |
 | `whoami` | The identity a claim would record |
-| `ready`, `count`, `search`, `children`, `stale` | Query the corpus |
+| `ready`, `count`, `search`, `children`, `ancestors`, `impact`, `stale` | Query the corpus; bounded dependency traversal |
 | `agenda` | Deadlines and scheduled starts inside a horizon, overdue first |
 | `export` | JSONL, one object per issue |
 | `tree`, `graph`, `cycles`, `backlinks` | Relationships |
