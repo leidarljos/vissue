@@ -187,3 +187,14 @@ fn the_root_may_come_from_the_environment() {
         .expect("run vissue");
     assert_eq!(String::from_utf8(out.stdout).unwrap(), "atlas\nbeacon\n");
 }
+
+#[test]
+fn the_shared_issue_root_environment_is_supported() {
+    let out = Command::new(env!("CARGO_BIN_EXE_vissue"))
+        .env_remove("VISSUE_ROOT")
+        .env("ISSUE_ROOT", fixture_root())
+        .arg("projects")
+        .output()
+        .expect("run vissue");
+    assert_eq!(String::from_utf8(out.stdout).unwrap(), "atlas\nbeacon\n");
+}

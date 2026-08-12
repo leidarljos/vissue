@@ -18,7 +18,7 @@ use vissue_core::{agent, events, report};
     about = "Plain-text issue tracking over per-project orgmode files"
 )]
 struct Cli {
-    /// Tracker root. Falls back to VISSUE_ROOT, then the current directory.
+    /// Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory.
     #[arg(long, global = true)]
     root: Option<PathBuf>,
 

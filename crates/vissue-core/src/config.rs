@@ -1,9 +1,9 @@
 //! Root and layout resolution plus the optional on-disk configuration.
 //!
 //! A tracker lives under `<root>/<prefix>`, one directory per project, each
-//! holding an `issues.org`. `root` comes from the caller, the `VISSUE_ROOT`
-//! environment variable, or the current directory. `prefix` comes from the
-//! caller, `VISSUE_PREFIX`, `<root>/vissue.toml`, or the `Software` default.
+//! holding an `issues.org`. `root` comes from the caller, `ISSUE_ROOT`,
+//! `VISSUE_ROOT`, or the current directory. `prefix` comes from the caller,
+//! `VISSUE_PREFIX`, `<root>/vissue.toml`, or the `Software` default.
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
@@ -38,10 +38,12 @@ impl Layout {
     pub fn resolve(root: Option<&Path>, prefix: Option<&str>) -> Result<Self> {
         let root = match root {
             Some(p) => p.to_path_buf(),
-            None => match std::env::var_os("VISSUE_ROOT") {
-                Some(v) => PathBuf::from(v),
-                None => std::env::current_dir().context("resolve current directory as root")?,
-            },
+            None => {
+                match std::env::var_os("ISSUE_ROOT").or_else(|| std::env::var_os("VISSUE_ROOT")) {
+                    Some(v) => PathBuf::from(v),
+                    None => std::env::current_dir().context("resolve current directory as root")?,
+                }
+            }
         };
         let prefix = match prefix {
             Some(p) if !p.is_empty() => p.to_string(),
