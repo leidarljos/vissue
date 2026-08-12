@@ -65,6 +65,30 @@ fn add_evidence(candidate: &mut Candidate, score: f64, evidence: &str) {
     }
 }
 
+fn org_link_targets(body: &str, known_ids: &HashSet<&str>) -> Vec<String> {
+    let mut targets = Vec::new();
+    let mut rest = body;
+    while let Some(start) = rest.find("[[") {
+        let after_start = &rest[start + 2..];
+        let Some(end) = after_start.find("]]") else {
+            break;
+        };
+        let raw = &after_start[..end];
+        let target = raw.split_once("][").map_or(raw, |(target, _)| target);
+        let target = target.trim();
+        let target = target.strip_prefix("id:").unwrap_or(target);
+        let target = target.rsplit_once("::").map_or(target, |(_, fragment)| {
+            fragment.strip_prefix('#').unwrap_or(fragment)
+        });
+        let target = target.strip_prefix('#').unwrap_or(target);
+        if known_ids.contains(target) {
+            targets.push(target.to_string());
+        }
+        rest = &after_start[end + 2..];
+    }
+    targets
+}
+
 fn org_link(layout: &Layout, project: &str, id: &str) -> String {
     let path = layout.project_issues_path(project);
     let relative = path
@@ -126,7 +150,7 @@ pub fn related(
                         evidence: Vec::new(),
                     }),
                     idf * idf,
-                    "shared_terms",
+                    &format!("term:{term}"),
                 );
             }
         }
@@ -138,6 +162,7 @@ pub fn related(
         .enumerate()
         .map(|(index, (_, issue))| (issue.id.as_str(), index))
         .collect();
+    let known_ids: HashSet<&str> = ids.keys().copied().collect();
     for (index, (_, issue)) in all.iter().enumerate() {
         if let Some(parent) = issue.parent().and_then(|parent| ids.get(parent).copied()) {
             neighbors.entry(index).or_default().push(parent);
@@ -148,6 +173,21 @@ pub fn related(
                 neighbors.entry(index).or_default().push(blocker);
                 neighbors.entry(blocker).or_default().push(index);
             }
+        }
+        if let Some(origin) = issue
+            .properties
+            .get("DISCOVERED_FROM")
+            .and_then(|origin| ids.get(origin.as_str()).copied())
+        {
+            neighbors.entry(index).or_default().push(origin);
+            neighbors.entry(origin).or_default().push(index);
+        }
+        for linked_id in org_link_targets(&issue.body, &known_ids) {
+            let Some(linked) = ids.get(linked_id.as_str()).copied() else {
+                continue;
+            };
+            neighbors.entry(index).or_default().push(linked);
+            neighbors.entry(linked).or_default().push(index);
         }
     }
 
@@ -195,6 +235,24 @@ pub fn related(
         if issue.parent() == Some(id) {
             explicit.push("child");
         }
+        if issue.properties.get("DISCOVERED_FROM").map(String::as_str) == Some(id) {
+            explicit.push("discovered_from");
+        }
+        if target.properties.get("DISCOVERED_FROM").map(String::as_str) == Some(issue.id.as_str()) {
+            explicit.push("source_of");
+        }
+        if org_link_targets(&target.body, &known_ids)
+            .iter()
+            .any(|linked_id| linked_id == &issue.id)
+        {
+            explicit.push("org_link");
+        }
+        if org_link_targets(&issue.body, &known_ids)
+            .iter()
+            .any(|linked_id| linked_id == id)
+        {
+            explicit.push("org_link");
+        }
         if !explicit.is_empty() {
             for relation in explicit {
                 add_evidence(
@@ -219,6 +277,16 @@ pub fn related(
                 }),
                 25.0 * shared_tags as f64,
                 "shared_tags",
+            );
+        }
+        if terms[target_idx].project == terms[index].project {
+            add_evidence(
+                candidates.entry(index).or_insert_with(|| Candidate {
+                    score: 0.0,
+                    evidence: Vec::new(),
+                }),
+                2.0,
+                "same_project",
             );
         }
     }

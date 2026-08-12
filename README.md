@@ -179,6 +179,16 @@ $ vissue tree parser-3xq7
 $ vissue graph --project parser | dot -Tsvg > backlog.svg
 ```
 
+`related` provides a bounded, derived neighborhood for an issue. Explicit
+`:PARENT:`, `:BLOCKED_BY:`, `:DISCOVERED_FROM:`, and Org body links rank above
+shared tags and rare terms. The result names its evidence and does not write
+inferred links into the source files. Use `--format org` for pasteable Org
+links back to the headings:
+
+```console
+$ vissue related parser-k29f --depth 2 --limit 20 --format org
+```
+
 **Keep the corpus honest.** `check` validates every parent and blocker edge,
 every date, and the uniqueness of ids, and exits non-zero on an error.
 `hygiene` adds the claims that are not actually workable.
@@ -397,7 +407,7 @@ carry `timestamp`, `from`, `to`, and `note`.
 its root from `VISSUE_ROOT` and `VISSUE_PREFIX`. Tools mirror the CLI verbs:
 `vissue_list`, `vissue_ready`, `vissue_show`, `vissue_create`, `vissue_update`,
 `vissue_claim`, `vissue_count`, `vissue_search`, `vissue_children`,
-`vissue_backlinks`, `vissue_waiting_on`, `vissue_body_excerpt`, `vissue_tree`,
+`vissue_backlinks`, `vissue_related`, `vissue_waiting_on`, `vissue_body_excerpt`, `vissue_tree`,
 `vissue_graph`, `vissue_roadmap`, `vissue_export`, `vissue_check`,
 `vissue_hygiene`, `vissue_mirror`, `vissue_projects`, and `vissue_identity`.
 

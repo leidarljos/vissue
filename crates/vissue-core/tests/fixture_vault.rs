@@ -641,6 +641,28 @@ fn related_uses_org_relations_and_emits_org_links() {
 }
 
 #[test]
+fn related_reads_org_body_links_and_discovered_from_properties() {
+    let (_dir, layout) = writable_copy();
+    let path = layout.project_issues_path("atlas");
+    let mut text = fs::read_to_string(&path).unwrap();
+    text = text.replace(
+        "Done-when: a malformed header names the offending line number.",
+        "Done-when: a malformed header names the offending line number.\nSee [[id:atlas-3e4f][the release notes]] for the downstream contract.",
+    );
+    text = text.replace(
+        ":TYPE:       chore\n:END:",
+        ":TYPE:       chore\n:DISCOVERED_FROM: atlas-1a2b\n:END:",
+    );
+    fs::write(path, text).unwrap();
+
+    let related = report::related(&layout, "atlas-1a2b", 1, 10, "text").unwrap();
+    assert!(related.contains("atlas-3e4f"), "{related}");
+    assert!(related.contains("org_link"), "{related}");
+    assert!(related.contains("atlas-4g5h"), "{related}");
+    assert!(related.contains("discovered_from"), "{related}");
+}
+
+#[test]
 fn show_reports_the_file_range_without_the_body() {
     let layout = fixture_layout();
     let text = report::show(&layout, "atlas-2c3d").unwrap();
