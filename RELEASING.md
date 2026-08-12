@@ -24,8 +24,15 @@ private preparation.
 
 crates.io requires the first version of a new crate to be published with an
 API token before GitHub OIDC trusted publishing can be configured. When public
-release is explicitly authorized, publish the packages from the verified tag
-checkout in this order:
+release is explicitly authorized, create the signed tag locally from the
+verified commit and keep it unpushed while the registry bootstrap runs:
+
+```console
+$ git tag -s v0.1.0 -m 'vissue 0.1.0'
+$ git switch --detach v0.1.0
+```
+
+Publish the packages from that tag checkout in this order:
 
 ```console
 $ cargo publish --locked -p vissue-core
@@ -52,11 +59,10 @@ $ gh api --method PUT repos/HaoZeke/vissue/environments/crates-io
 
 ## Tag-driven releases
 
-After the first-version bootstrap and trusted-publisher configuration, push a
-signed tag matching the prepared version:
+After the first-version bootstrap and trusted-publisher configuration, push the
+matching signed tag while public publication remains disarmed:
 
 ```console
-$ git tag -s v0.1.0 -m 'vissue 0.1.0'
 $ git push origin v0.1.0
 ```
 
