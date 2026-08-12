@@ -636,10 +636,7 @@ fn related_uses_org_relations_and_emits_org_links() {
     assert!(!text.contains("term:created"), "{text}");
 
     let org = report::related(&layout, "atlas-1a2b", 2, 10, "org").unwrap();
-    assert!(
-        org.contains("[[file:Software/atlas/issues.org::#atlas-3e4f][atlas-3e4f]]"),
-        "{org}"
-    );
+    assert!(org.contains("[[id:atlas-3e4f][atlas-3e4f]]"), "{org}");
 }
 
 #[test]

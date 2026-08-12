@@ -3,7 +3,6 @@
 use anyhow::{bail, Result};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Write as _;
-use std::path::Path;
 
 use crate::config::Layout;
 use crate::model::IssueHeading;
@@ -103,15 +102,8 @@ fn org_link_targets(body: &str, known_ids: &HashSet<&str>) -> Vec<String> {
     targets
 }
 
-fn org_link(layout: &Layout, project: &str, id: &str) -> String {
-    let path = layout.project_issues_path(project);
-    let relative = path
-        .strip_prefix(layout.root())
-        .unwrap_or(Path::new(&path))
-        .display()
-        .to_string()
-        .replace('\\', "/");
-    format!("file:{relative}::#{id}")
+fn org_link(id: &str) -> String {
+    format!("id:{id}")
 }
 
 /// Rank local, derived connections for an issue. Explicit Org relations and
@@ -322,7 +314,7 @@ pub fn related(
             writeln!(
                 out,
                 "- [[{}][{}]] :: {:.3} {}",
-                org_link(layout, &terms[index].project, &issue.id),
+                org_link(&issue.id),
                 issue.id,
                 candidate.score,
                 candidate.evidence.join(", ")
