@@ -20,8 +20,10 @@ cargo clippy --locked --workspace --all-targets -- -D warnings
 bash tests/release_surface.sh
 dist generate --check
 
-for package in vissue-core vissue-cli vissue-mcp; do
-  cargo publish --locked --dry-run -p "$package"
+cargo publish --locked --dry-run -p vissue-core
+core_patch="patch.crates-io.vissue-core.path=\"$repo_root/crates/vissue-core\""
+for package in vissue-cli vissue-mcp; do
+  cargo --config "$core_patch" publish --locked --dry-run -p "$package"
 done
 
 dist build --artifacts=all --output-format=json

@@ -30,12 +30,14 @@ jobs:
           test -n "$version"
           test "v$version" = "${{ github.event.release.tag_name }}"
       - name: Validate all packages
+        shell: bash
         run: |
           cargo test --locked --workspace
           cargo clippy --locked --workspace --all-targets -- -D warnings
           cargo publish --locked --dry-run -p vissue-core
-          cargo publish --locked --dry-run -p vissue-cli
-          cargo publish --locked --dry-run -p vissue-mcp
+          core_patch='patch.crates-io.vissue-core.path="${{ github.workspace }}/crates/vissue-core"'
+          cargo --config "$core_patch" publish --locked --dry-run -p vissue-cli
+          cargo --config "$core_patch" publish --locked --dry-run -p vissue-mcp
       - name: Authenticate with crates.io
         id: auth
         uses: rust-lang/crates-io-auth-action@v1

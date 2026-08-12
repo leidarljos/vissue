@@ -32,6 +32,8 @@ grep -q 'crates-io-auth-action@v1' .github/workflows/publish-crates.yml
 grep -q 'cargo publish --locked -p vissue-core' .github/workflows/publish-crates.yml
 grep -q 'cargo publish --locked -p vissue-cli' .github/workflows/publish-crates.yml
 grep -q 'cargo publish --locked -p vissue-mcp' .github/workflows/publish-crates.yml
+grep -q 'patch.crates-io.vissue-core.path' scripts/release-prepare.sh
+grep -q 'patch.crates-io.vissue-core.path' .github/workflows/publish-crates.yml
 
 for manifest in crates/vissue-core/Cargo.toml crates/vissue-cli/Cargo.toml crates/vissue-mcp/Cargo.toml; do
   grep -q '^description = ' "$manifest"
