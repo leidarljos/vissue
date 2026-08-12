@@ -14,6 +14,12 @@ done
 grep -q '^## Ecosystem$' README.md
 grep -q 'https://github.com/HaoZeke/orgaw' README.md
 grep -q 'orgaw' CHANGELOG.md
+awk '
+  /^## \[0\.1\.0\]/ { release = 1; next }
+  /^## \[/ && release { exit }
+  release && /orgaw/ { found = 1 }
+  END { exit !found }
+' CHANGELOG.md
 grep -q 'orgaw' CITATION.cff
 
 test -s scripts/release-prepare.sh || {
