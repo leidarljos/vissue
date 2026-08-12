@@ -44,6 +44,12 @@ grep -q 'patch.crates-io.vissue-core.path' .github/workflows/publish-crates.yml
 grep -q 'dist build --artifacts=local --target="\$host_target"' scripts/release-prepare.sh
 ! grep -q 'dist build --artifacts=all' scripts/release-prepare.sh
 
+tag_line=$(grep -n '^\$ git push origin v' RELEASING.md | head -n 1 | cut -d: -f1)
+arm_line=$(grep -n '^\$ gh variable set PUBLIC_RELEASE_ENABLED' RELEASING.md | head -n 1 | cut -d: -f1)
+test -n "$tag_line"
+test -n "$arm_line"
+test "$tag_line" -lt "$arm_line"
+
 for manifest in crates/vissue-core/Cargo.toml crates/vissue-cli/Cargo.toml crates/vissue-mcp/Cargo.toml; do
   grep -q '^description = ' "$manifest"
   grep -q '^readme.workspace = true$' "$manifest"
