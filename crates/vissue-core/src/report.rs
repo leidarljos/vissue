@@ -10,6 +10,51 @@ use crate::config::Layout;
 use crate::model::{IssueHeading, READY_STATES};
 use crate::store::{collect_org_ids, find_by_id, list_projects, load_all, IssueDoc};
 
+struct GraphIndex<'a> {
+    by_id: HashMap<&'a str, &'a IssueHeading>,
+    children: HashMap<&'a str, Vec<&'a str>>,
+    blockers: HashMap<&'a str, Vec<&'a str>>,
+}
+
+impl<'a> GraphIndex<'a> {
+    fn new(all: &'a [(String, IssueHeading)]) -> Self {
+        let mut index = Self {
+            by_id: HashMap::with_capacity(all.len()),
+            children: HashMap::new(),
+            blockers: HashMap::new(),
+        };
+        for (_, h) in all {
+            index.by_id.insert(h.id.as_str(), h);
+        }
+        for (_, h) in all {
+            if let Some(parent) = h.parent() {
+                index
+                    .children
+                    .entry(parent)
+                    .or_default()
+                    .push(h.id.as_str());
+            }
+            let blockers = blocker_ids(h).collect::<Vec<_>>();
+            if !blockers.is_empty() {
+                index.blockers.insert(h.id.as_str(), blockers);
+            }
+        }
+        for children in index.children.values_mut() {
+            children.sort_unstable();
+        }
+        index
+    }
+}
+
+fn blocker_ids(h: &IssueHeading) -> impl Iterator<Item = &str> {
+    h.properties
+        .get("BLOCKED_BY")
+        .into_iter()
+        .flat_map(|raw| raw.split(|c: char| c == ',' || c.is_whitespace()))
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+}
+
 /// One row per issue: id, state, priority cookie, title.
 pub fn list(
     layout: &Layout,
@@ -467,49 +512,32 @@ pub fn export(layout: &Layout, project_filter: Option<&str>) -> Result<String> {
 /// Children and blockers below `root_id`, as indented text or Graphviz DOT.
 pub fn tree(layout: &Layout, root_id: &str, format: &str) -> Result<String> {
     let all = load_all(layout)?;
-    let by_id: HashMap<String, &IssueHeading> =
-        all.iter().map(|(_, h)| (h.id.clone(), h)).collect();
-    if !by_id.contains_key(root_id) {
+    let graph = GraphIndex::new(&all);
+    if !graph.by_id.contains_key(root_id) {
         bail!("issue {root_id} not found");
     }
-    let mut children_map: HashMap<String, Vec<String>> = HashMap::new();
-    for (_, h) in &all {
-        if let Some(parent) = h.parent() {
-            children_map
-                .entry(parent.to_string())
-                .or_default()
-                .push(h.id.clone());
-        }
-    }
     let mut out = String::new();
+    let root = graph.by_id.get(root_id).unwrap().id.as_str();
     match format {
-        "ascii" | "text" => tree_ascii(
-            &by_id,
-            &children_map,
-            root_id,
-            0,
-            &mut HashSet::new(),
-            &mut out,
-        ),
-        "dot" => tree_dot(&by_id, &children_map, root_id, &mut out),
+        "ascii" | "text" => tree_ascii(&graph, root, 0, &mut HashSet::new(), &mut out),
+        "dot" => tree_dot(&graph, root, &mut out),
         _ => bail!("unknown format {format:?}; allowed: ascii, dot"),
     }
     Ok(out)
 }
 
-fn tree_ascii(
-    by_id: &HashMap<String, &IssueHeading>,
-    children_map: &HashMap<String, Vec<String>>,
-    id: &str,
+fn tree_ascii<'a>(
+    graph: &GraphIndex<'a>,
+    id: &'a str,
     depth: usize,
-    seen: &mut HashSet<String>,
+    seen: &mut HashSet<&'a str>,
     out: &mut String,
 ) {
-    if !seen.insert(id.to_string()) {
+    if !seen.insert(id) {
         let _ = writeln!(out, "{}{id} (cycle, stopping)", "  ".repeat(depth));
         return;
     }
-    let Some(h) = by_id.get(id) else {
+    let Some(h) = graph.by_id.get(id) else {
         let _ = writeln!(out, "{}{id} (missing)", "  ".repeat(depth));
         return;
     };
@@ -521,39 +549,32 @@ fn tree_ascii(
         h.priority,
         h.title
     );
-    for blocker in h.blocked_by() {
-        if !blocker.is_empty() {
+    if let Some(blockers) = graph.blockers.get(id) {
+        for blocker in blockers {
             let _ = writeln!(out, "{}* blocked-by {blocker}", "  ".repeat(depth + 1));
         }
     }
-    if let Some(kids) = children_map.get(id) {
-        let mut kids = kids.clone();
-        kids.sort();
+    if let Some(kids) = graph.children.get(id) {
         for k in kids {
-            tree_ascii(by_id, children_map, &k, depth + 1, seen, out);
+            tree_ascii(graph, k, depth + 1, seen, out);
         }
     }
 }
 
-fn tree_dot(
-    by_id: &HashMap<String, &IssueHeading>,
-    children_map: &HashMap<String, Vec<String>>,
-    root_id: &str,
-    out: &mut String,
-) {
+fn tree_dot<'a>(graph: &GraphIndex<'a>, root_id: &str, out: &mut String) {
     let _ = writeln!(out, "digraph vissue_tree {{");
     let _ = writeln!(out, "  rankdir=LR;");
     let _ = writeln!(
         out,
         "  node [shape=box, fontname=\"Jost\", style=filled, fillcolor=\"#E0F2F1\"];"
     );
-    let mut visited: HashSet<String> = HashSet::new();
-    let mut stack = vec![root_id.to_string()];
+    let mut visited: HashSet<&str> = HashSet::new();
+    let mut stack = vec![graph.by_id.get(root_id).unwrap().id.as_str()];
     while let Some(id) = stack.pop() {
-        if !visited.insert(id.clone()) {
+        if !visited.insert(id) {
             continue;
         }
-        if let Some(h) = by_id.get(&id) {
+        if let Some(h) = graph.by_id.get(id) {
             let _ = writeln!(
                 out,
                 "  \"{}\" [label=\"{}\\n{} [#{}]\"];",
@@ -562,14 +583,14 @@ fn tree_dot(
                 h.state,
                 h.priority
             );
-            if let Some(kids) = children_map.get(&id) {
+            if let Some(kids) = graph.children.get(id) {
                 for k in kids {
                     let _ = writeln!(out, "  \"{}\" -> \"{}\" [color=\"#00897B\"];", h.id, k);
-                    stack.push(k.clone());
+                    stack.push(k);
                 }
             }
-            for b in h.blocked_by() {
-                if !b.is_empty() {
+            if let Some(blockers) = graph.blockers.get(id) {
+                for b in blockers {
                     let _ = writeln!(
                         out,
                         "  \"{}\" -> \"{}\" [style=dashed, color=\"#FF7043\", label=\"blocks\"];",
@@ -586,7 +607,7 @@ fn tree_dot(
 /// Cycles in the blocker graph, one per line, or a line saying there are none.
 pub fn cycles(layout: &Layout) -> Result<String> {
     let all = load_all(layout)?;
-    let by_id: HashMap<&str, &IssueHeading> = all.iter().map(|(_, h)| (h.id.as_str(), h)).collect();
+    let graph = GraphIndex::new(&all);
 
     // Colored depth-first search over BLOCKED_BY edges. Grey marks the
     // current stack, black a finished node, so a shared blocker reached
@@ -599,21 +620,21 @@ pub fn cycles(layout: &Layout) -> Result<String> {
 
     fn dfs<'a>(
         id: &'a str,
-        by_id: &HashMap<&'a str, &'a IssueHeading>,
+        graph: &GraphIndex<'a>,
         color: &mut HashMap<&'a str, u8>,
         path: &mut Vec<&'a str>,
         found: &mut Vec<Vec<String>>,
     ) {
         color.insert(id, GREY);
         path.push(id);
-        if let Some(h) = by_id.get(id) {
-            for b in h.blocked_by() {
-                let Some((&b, _)) = by_id.get_key_value(b.as_str()) else {
+        if let Some(blockers) = graph.blockers.get(id) {
+            for b in blockers {
+                if !graph.by_id.contains_key(b) {
                     continue; // a broken edge cannot close a loop; `check` reports it
-                };
+                }
                 match color.get(b).copied().unwrap_or(WHITE) {
                     GREY => {
-                        let start = path.iter().position(|&x| x == b).unwrap();
+                        let start = path.iter().position(|&x| x == *b).unwrap();
                         let mut cycle: Vec<String> =
                             path[start..].iter().map(|s| s.to_string()).collect();
                         // Rotate so the smallest id leads: one canonical form
@@ -630,7 +651,7 @@ pub fn cycles(layout: &Layout) -> Result<String> {
                             found.push(cycle);
                         }
                     }
-                    WHITE => dfs(b, by_id, color, path, found),
+                    WHITE => dfs(b, graph, color, path, found),
                     _ => {}
                 }
             }
@@ -642,7 +663,7 @@ pub fn cycles(layout: &Layout) -> Result<String> {
     for (_, start) in &all {
         if color.get(start.id.as_str()).copied().unwrap_or(WHITE) == WHITE {
             let mut path = Vec::new();
-            dfs(start.id.as_str(), &by_id, &mut color, &mut path, &mut found);
+            dfs(start.id.as_str(), &graph, &mut color, &mut path, &mut found);
         }
     }
 
@@ -660,6 +681,7 @@ pub fn cycles(layout: &Layout) -> Result<String> {
 /// The whole blocker and parent graph as Graphviz DOT. Node fill encodes state.
 pub fn graph(layout: &Layout, project_filter: Option<&str>) -> Result<String> {
     let all = load_all(layout)?;
+    let graph = GraphIndex::new(&all);
     let mut out = String::new();
     writeln!(out, "digraph vissue_graph {{")?;
     writeln!(out, "  rankdir=LR;")?;
@@ -694,8 +716,8 @@ pub fn graph(layout: &Layout, project_filter: Option<&str>) -> Result<String> {
                 continue;
             }
         }
-        for b in h.blocked_by() {
-            if !b.is_empty() {
+        if let Some(blockers) = graph.blockers.get(h.id.as_str()) {
+            for b in blockers {
                 writeln!(out, "  \"{}\" -> \"{}\" [color=\"#FF7043\"];", b, h.id)?;
             }
         }
