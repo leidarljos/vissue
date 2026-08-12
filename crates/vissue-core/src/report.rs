@@ -93,7 +93,7 @@ pub fn list(
                 if !READY_STATES.contains(&h.state.as_str()) {
                     continue;
                 }
-                if h.blocked_by().iter().any(|b| active_blockers.contains(b)) {
+                if blocker_ids(h).any(|b| active_blockers.contains(b)) {
                     continue;
                 }
             }
@@ -460,7 +460,7 @@ pub fn count(
                 if !READY_STATES.contains(&h.state.as_str()) {
                     return false;
                 }
-                if h.blocked_by().iter().any(|b| active_blockers.contains(b)) {
+                if blocker_ids(h).any(|b| active_blockers.contains(b)) {
                     return false;
                 }
             }
@@ -791,7 +791,7 @@ pub fn roadmap(layout: &Layout, project_filter: Option<&str>) -> Result<String> 
                     .deadline()
                     .map(|d| format!(" :: deadline {d}"))
                     .unwrap_or_default();
-                let blockers = h.blocked_by();
+                let blockers = blocker_ids(h).collect::<Vec<_>>();
                 let blocked_by = if blockers.is_empty() {
                     String::new()
                 } else {
@@ -864,8 +864,8 @@ pub fn check(layout: &Layout) -> Result<CheckReport> {
                 errors += 1;
             }
         }
-        for blk in h.blocked_by() {
-            if !by_id.contains_key(&blk) {
+        for blk in blocker_ids(h) {
+            if !by_id.contains_key(blk) {
                 writeln!(
                     out,
                     "[err]  {} (in {}) :BLOCKED_BY: {} -> not found",
@@ -930,7 +930,7 @@ pub fn backlinks(layout: &Layout, target_id: &str) -> Result<String> {
             continue;
         }
         let mut hit = false;
-        if h.blocked_by().iter().any(|b| b == target_id) {
+        if blocker_ids(h).any(|b| b == target_id) {
             let _ = writeln!(out, "{:<22} (blocked-by) ({})", h.id, project);
             hit = true;
         }
