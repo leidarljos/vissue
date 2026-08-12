@@ -26,6 +26,8 @@ for package in vissue-cli vissue-mcp; do
   cargo --config "$core_patch" publish --locked --dry-run -p "$package"
 done
 
-dist build --artifacts=all --output-format=json
+host_target=$(rustc -vV | sed -n 's/^host: //p')
+test -n "$host_target"
+dist build --artifacts=local --target="$host_target" --output-format=json
 
 echo "dry release artifacts: target/distrib"
