@@ -218,6 +218,20 @@ impl VissueServer {
         ))
     }
 
+    #[tool(description = "Explain bounded Org and lexical connections around an issue.")]
+    async fn vissue_related(
+        &self,
+        Parameters(args): Parameters<RelatedArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        text(report::related(
+            &self.layout,
+            &args.issue_id,
+            args.depth.unwrap_or(2),
+            args.limit.unwrap_or(20),
+            args.format.as_deref().unwrap_or("text"),
+        ))
+    }
+
     #[tool(description = "List issues whose PARENT property matches this id.")]
     async fn vissue_children(
         &self,
@@ -499,6 +513,17 @@ mod tests {
             .vissue_search(Parameters(SearchArgs {
                 query: "fixture".into(),
                 limit: Some(5),
+            }))
+            .await
+            .unwrap()
+            .is_error
+            .unwrap_or(false));
+        assert!(!server
+            .vissue_related(Parameters(RelatedArgs {
+                issue_id: "atlas-1a2b".into(),
+                depth: Some(2),
+                limit: Some(5),
+                format: Some("org".into()),
             }))
             .await
             .unwrap()

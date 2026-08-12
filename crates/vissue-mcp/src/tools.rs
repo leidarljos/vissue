@@ -74,6 +74,18 @@ pub struct SearchArgs {
 }
 
 #[derive(Deserialize, JsonSchema)]
+pub struct RelatedArgs {
+    /// Issue id used as the center of the derived relation query.
+    pub issue_id: String,
+    /// Maximum Org relation hops to traverse.
+    pub depth: Option<usize>,
+    /// Maximum rows returned.
+    pub limit: Option<usize>,
+    /// Output format: text or org.
+    pub format: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
 pub struct TreeArgs {
     /// Root issue id.
     pub issue_id: String,

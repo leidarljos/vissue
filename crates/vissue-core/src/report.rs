@@ -9,6 +9,7 @@ use std::fmt::Write as _;
 use crate::config::Layout;
 use crate::graph::DependencyGraph;
 use crate::model::{IssueHeading, READY_STATES};
+pub use crate::related::related;
 use crate::store::{collect_org_ids, find_by_id, list_projects, load_all, IssueDoc};
 
 struct GraphIndex<'a> {

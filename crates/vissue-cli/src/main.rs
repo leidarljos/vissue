@@ -199,6 +199,17 @@ enum Command {
         #[arg(short, long, default_value = "3")]
         depth: usize,
     },
+    /// Explain bounded Org and lexical connections around an issue.
+    Related {
+        id: String,
+        #[arg(short, long, default_value = "2")]
+        depth: usize,
+        #[arg(short = 'n', long, default_value = "20")]
+        limit: usize,
+        /// text or org; org emits links to the source headings.
+        #[arg(long, default_value = "text")]
+        format: String,
+    },
     /// Open issues whose `:CREATED:` is older than N days.
     Stale {
         #[arg(short, long, default_value = "30")]
@@ -460,6 +471,12 @@ fn run() -> Result<()> {
         Command::Children { id } => print!("{}", report::children(&layout, &id)?),
         Command::Ancestors { id, depth } => print!("{}", report::ancestors(&layout, &id, depth)?),
         Command::Impact { id, depth } => print!("{}", report::impact(&layout, &id, depth)?),
+        Command::Related {
+            id,
+            depth,
+            limit,
+            format,
+        } => print!("{}", report::related(&layout, &id, depth, limit, &format)?),
         Command::Stale { days, project } => {
             print!("{}", report::stale(&layout, days, project.as_deref())?)
         }

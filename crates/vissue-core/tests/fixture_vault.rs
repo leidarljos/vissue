@@ -625,6 +625,22 @@ fn children_lists_issues_under_a_parent() {
 }
 
 #[test]
+fn related_uses_org_relations_and_emits_org_links() {
+    let layout = fixture_layout();
+    let text = report::related(&layout, "atlas-1a2b", 2, 10, "text").unwrap();
+    assert!(text.contains("atlas-3e4f"), "{text}");
+    assert!(text.contains("blocks"), "{text}");
+    assert!(text.contains("atlas-2c3d"), "{text}");
+    assert!(text.contains("child"), "{text}");
+
+    let org = report::related(&layout, "atlas-1a2b", 2, 10, "org").unwrap();
+    assert!(
+        org.contains("[[file:Software/atlas/issues.org::#atlas-3e4f][atlas-3e4f]]"),
+        "{org}"
+    );
+}
+
+#[test]
 fn show_reports_the_file_range_without_the_body() {
     let layout = fixture_layout();
     let text = report::show(&layout, "atlas-2c3d").unwrap();
