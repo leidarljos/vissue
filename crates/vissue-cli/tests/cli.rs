@@ -203,21 +203,33 @@ fn the_shared_issue_root_environment_is_supported() {
 fn the_read_only_command_surface_dispatches_against_the_fixture() {
     let cases: &[(&[&str], &str)] = &[
         (&["list", "--json"], "\"id\": \"atlas-3e4f\""),
-        (&["show", "atlas-1a2b"], "Title:    Parse the manifest header"),
+        (
+            &["show", "atlas-1a2b"],
+            "Title:    Parse the manifest header",
+        ),
         (&["ready", "--json"], "\"id\": \"atlas-1a2b\""),
         (&["claims"], "fixture-agent"),
         (&["agenda", "--days", "5000"], "beacon-5j6k"),
         (&["hygiene", "--stale-days", "1"], "stale_claims=1"),
         (&["waiting-on", "atlas-1a2b"], "atlas-3e4f"),
-        (&["body-excerpt", "atlas-1a2b"], "* STARTED [#A] Parse the manifest header"),
+        (
+            &["body-excerpt", "atlas-1a2b"],
+            "* STARTED [#A] Parse the manifest header",
+        ),
         (&["search", "parser"], "atlas-1a2b"),
         (&["children", "atlas-1a2b"], "atlas-2c3d"),
         (&["ancestors", "atlas-3e4f", "--depth", "3"], "1 atlas-1a2b"),
         (&["impact", "atlas-1a2b", "--depth", "3"], "1 atlas-3e4f"),
-        (&["related", "atlas-1a2b", "--format", "org"], "[[id:atlas-2c3d]"),
+        (
+            &["related", "atlas-1a2b", "--format", "org"],
+            "[[id:atlas-2c3d]",
+        ),
         (&["stale", "--days", "1"], "beacon-5j6k"),
         (&["count", "--state", "TODO"], "2\n"),
-        (&["tree", "atlas-1a2b", "--format", "dot"], "digraph vissue_tree"),
+        (
+            &["tree", "atlas-1a2b", "--format", "dot"],
+            "digraph vissue_tree",
+        ),
         (&["cycles"], "no cycles"),
         (&["graph", "--project", "atlas"], "digraph vissue_graph"),
         (&["backlinks", "atlas-1a2b"], "atlas-2c3d"),
