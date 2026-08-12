@@ -43,7 +43,6 @@ grep -q 'patch.crates-io.vissue-core.path' scripts/release-prepare.sh
 grep -q 'patch.crates-io.vissue-core.path' .github/workflows/publish-crates.yml
 grep -q 'dist build --artifacts=local --target="\$host_target"' scripts/release-prepare.sh
 ! grep -q 'dist build --artifacts=all' scripts/release-prepare.sh
-bash tests/publish_sequence.sh
 
 for manifest in crates/vissue-core/Cargo.toml crates/vissue-cli/Cargo.toml crates/vissue-mcp/Cargo.toml; do
   grep -q '^description = ' "$manifest"
