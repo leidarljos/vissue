@@ -44,10 +44,16 @@ grep -q 'patch.crates-io.vissue-core.path' .github/workflows/publish-crates.yml
 grep -q 'dist build --artifacts=local --target="\$host_target"' scripts/release-prepare.sh
 ! grep -q 'dist build --artifacts=all' scripts/release-prepare.sh
 
+tag_create_line=$(grep -n '^\$ git tag -s v' RELEASING.md | head -n 1 | cut -d: -f1)
+publish_line=$(grep -n '^\$ cargo publish --locked -p vissue-core' RELEASING.md | head -n 1 | cut -d: -f1)
 tag_line=$(grep -n '^\$ git push origin v' RELEASING.md | head -n 1 | cut -d: -f1)
 arm_line=$(grep -n '^\$ gh variable set PUBLIC_RELEASE_ENABLED' RELEASING.md | head -n 1 | cut -d: -f1)
+test -n "$tag_create_line"
+test -n "$publish_line"
 test -n "$tag_line"
 test -n "$arm_line"
+test "$tag_create_line" -lt "$publish_line"
+test "$publish_line" -lt "$tag_line"
 test "$tag_line" -lt "$arm_line"
 
 for manifest in crates/vissue-core/Cargo.toml crates/vissue-cli/Cargo.toml crates/vissue-mcp/Cargo.toml; do
