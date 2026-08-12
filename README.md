@@ -1,5 +1,11 @@
 # vissue
 
+[![CI](https://github.com/HaoZeke/vissue/actions/workflows/ci_test.yml/badge.svg)](https://github.com/HaoZeke/vissue/actions/workflows/ci_test.yml)
+[![crates.io](https://img.shields.io/crates/v/vissue-cli.svg)](https://crates.io/crates/vissue-cli)
+[![docs.rs](https://docs.rs/vissue-core/badge.svg)](https://docs.rs/vissue-core)
+[![MSRV](https://img.shields.io/badge/MSRV-1.88-blue.svg)](https://www.rust-lang.org/)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Issue tracking in plain orgmode files, one file per project, with a CLI and an
 MCP server over the same library.
 
@@ -14,6 +20,36 @@ rest of the repository it lives in.
 
 `Software` is the default prefix and is configurable. `<root>` comes from
 `--root`, the `VISSUE_ROOT` environment variable, or the current directory.
+
+## Ecosystem
+
+`vissue` manages intentional work items; [orgaw](https://github.com/HaoZeke/orgaw)
+records intentional time and evidence against them. The projects remain
+independently installable and communicate through the `vissue` command-line
+protocol, with Org issue headings and their CLOCK entries as the shared data.
+
+```mermaid
+flowchart LR
+    corpus["Org issues and CLOCK entries"]
+    vissue["vissue: work items"]
+    protocol["CLI provider protocol"]
+    orgaw["orgaw: time and evidence"]
+    corpus <--> vissue
+    vissue --> protocol --> orgaw
+    orgaw --> corpus
+```
+
+Install both tools for the integrated path:
+
+```console
+$ cargo install vissue-cli
+$ cargo install orgaw
+$ export ISSUE_ROOT=/path/to/notes
+$ vissue ready
+$ orgaw issues
+$ orgaw in project-id
+$ orgaw out
+```
 
 ## Install
 

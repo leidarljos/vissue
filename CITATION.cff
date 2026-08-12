@@ -23,3 +23,8 @@ abstract: >-
   library, providing queries over state, priority, parent and blocker edges,
   a JSONL export, and a read-only projection for sharing a backlog with
   collaborators who cannot read the tracker directly.
+references:
+  - type: software
+    title: "orgaw: intentional time and evidence over Org issue headings"
+    repository-code: "https://github.com/HaoZeke/orgaw"
+    notes: "Ecosystem project that uses vissue as its reference issue provider."
