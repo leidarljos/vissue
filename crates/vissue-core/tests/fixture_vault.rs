@@ -632,6 +632,8 @@ fn related_uses_org_relations_and_emits_org_links() {
     assert!(text.contains("blocks"), "{text}");
     assert!(text.contains("atlas-2c3d"), "{text}");
     assert!(text.contains("child"), "{text}");
+    assert!(text.contains("term:parser"), "{text}");
+    assert!(!text.contains("term:created"), "{text}");
 
     let org = report::related(&layout, "atlas-1a2b", 2, 10, "org").unwrap();
     assert!(

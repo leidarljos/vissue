@@ -30,6 +30,7 @@ struct Candidate {
 fn tokens(text: &str) -> impl Iterator<Item = String> + '_ {
     text.split(|c: char| !c.is_alphanumeric())
         .filter(|token| token.len() > 2)
+        .filter(|token| token.chars().any(char::is_alphabetic))
         .map(str::to_lowercase)
         .filter(|token| !STOP_WORDS.contains(&token.as_str()))
 }
@@ -40,7 +41,20 @@ fn issue_terms(project: &str, issue: &IssueHeading) -> IssueTerms {
     text.push(' ');
     text.push_str(&issue.body);
     for (key, value) in &issue.properties {
-        if !matches!(key.as_str(), "ID" | "BLOCKED_BY" | "PARENT") {
+        if matches!(key.as_str(), "TYPE" | "TAGS") {
+            text.push(' ');
+            text.push_str(value);
+        } else if !matches!(
+            key.as_str(),
+            "ID" | "CREATED"
+                | "BLOCKED_BY"
+                | "PARENT"
+                | "DEADLINE"
+                | "SCHEDULED"
+                | "CLAIMED_BY"
+                | "CLAIMED_AT"
+                | "DISCOVERED_FROM"
+        ) {
             text.push(' ');
             text.push_str(key);
             text.push(' ');
