@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   publish:
-    if: ${{ !github.event.release.prerelease }}
+    if: ${{ !github.event.release.prerelease && vars.PUBLIC_RELEASE_ENABLED == 'true' }}
     runs-on: ubuntu-22.04
     environment: crates-io
     permissions:

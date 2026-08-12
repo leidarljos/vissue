@@ -29,3 +29,6 @@ changes under `Unreleased` in `CHANGELOG.md`. Security reports follow
 [orgaw](https://github.com/HaoZeke/orgaw) consumes the public command protocol.
 Changes to `identity`, `ready`, `list`, `export`, `show`, or `claim` output need
 an integration test against orgaw before release.
+
+The maintainer release sequence, including the private publication arm and
+first-version crates.io bootstrap, is documented in `RELEASING.md`.
