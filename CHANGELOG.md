@@ -11,7 +11,8 @@ All notable changes to vissue are recorded here. The format follows
 - A documentation site at [vissue.rgoswami.me](https://vissue.rgoswami.me),
   written as Org under `docs/orgmode/` and rendered with Sphinx. The pages
   keep to one Diataxis quadrant each, and the README is a front door rather
-  than the whole manual.
+  than the whole manual. The site is a managed Cloudflare Pages target,
+  deployed with `ttech-ops site deploy vissue`.
 - `vissue completions <shell>` and `vissue man`, generated from the CLI
   definition so they cannot drift, with copies committed under `completions/`
   and `man/`.

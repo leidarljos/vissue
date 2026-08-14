@@ -28,7 +28,10 @@ with Sphinx. Edit the Org, never `docs/source/*.rst`, which is generated.
 bash docs/build.sh          # export, install deps into .venv-docs, render
 ```
 
-It has to finish with no Sphinx warnings. Keep each page in its own Diataxis
+It has to finish with no Sphinx warnings. Publication is not a repository
+workflow: the site is a managed Cloudflare Pages target under `ttech-ops`,
+deployed with `ttech-ops site deploy vissue`, which reads its credentials
+from `pass` rather than from repository secrets. Keep each page in its own Diataxis
 quadrant: `getting-started` teaches one path, `howto` answers one task per
 section, `reference` describes, `explanation` argues.
 
