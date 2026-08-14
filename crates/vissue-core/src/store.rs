@@ -50,6 +50,15 @@ impl Drop for CrossProcessLock {
     }
 }
 
+/// Write `bytes` and flush them to the device, so the caller may rename the
+/// file knowing the contents are durable.
+fn write_synced(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    let mut file = fs::File::create(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()
+}
+
 fn issues_lock_path(path: &Path) -> PathBuf {
     let mut s = path.as_os_str().to_owned();
     s.push(".lock");
@@ -201,7 +210,13 @@ impl IssueDoc {
                 nanos,
                 seq
             ));
-        fs::write(&tmp, out.as_bytes()).with_context(|| format!("write temp {}", tmp.display()))?;
+        // Flush the bytes to the device before the rename publishes them.
+        // Rename is atomic against a concurrent reader, not against a crash:
+        // an unsynced temporary can land as a truncated issues.org.
+        if let Err(e) = write_synced(&tmp, out.as_bytes()) {
+            let _ = fs::remove_file(&tmp);
+            return Err(e).with_context(|| format!("write temp {}", tmp.display()));
+        }
         if let Err(e) = fs::rename(&tmp, &self.path) {
             let _ = fs::remove_file(&tmp);
             return Err(e)
@@ -258,16 +273,9 @@ fn parse_heading(lines: &[&str], start: usize) -> Result<(IssueHeading, usize)> 
         return Err(anyhow!("unknown TODO keyword {:?}", state));
     }
 
-    let (priority, title) = if after.starts_with("[#") && after.len() >= 4 {
-        let pri_token: String = after.chars().take(4).collect();
-        if pri_token.ends_with(']') {
-            let p = pri_token.chars().nth(2).unwrap();
-            (p, after[4..].trim().to_string())
-        } else {
-            ('C', after.to_string())
-        }
-    } else {
-        ('C', after.to_string())
+    let (priority, title) = match parse_priority_cookie(after) {
+        Some((p, rest)) => (p, rest.trim().to_string()),
+        None => ('C', after.to_string()),
     };
 
     let mut properties = BTreeMap::new();
@@ -343,6 +351,23 @@ fn parse_heading(lines: &[&str], start: usize) -> Result<(IssueHeading, usize)> 
     ))
 }
 
+/// Split a leading `[#A]` cookie off a heading, returning the cookie character
+/// and the rest of the line. Any other shape yields `None`, so a title that
+/// merely opens with a bracket keeps its text.
+///
+/// The cookie character is taken as a character, not a byte: an issues.org is
+/// hand-editable, and `[#<multibyte>]` is text a person can type.
+fn parse_priority_cookie(after: &str) -> Option<(char, &str)> {
+    let rest = after.strip_prefix("[#")?;
+    let mut chars = rest.char_indices();
+    let (_, priority) = chars.next()?;
+    let (close, bracket) = chars.next()?;
+    if bracket != ']' {
+        return None;
+    }
+    Some((priority, &rest[close + 1..]))
+}
+
 pub fn default_preamble(project: &str) -> String {
     format!(
         "#+TITLE: {project} issues\n#+FILETAGS: :issues:{project}:\n#+DATE: {}\n#+DESCRIPTION: Issue tracking file for {project} specs, plans, and implementation tasks.\n#+STATUS: Active\n{}",
@@ -392,6 +417,19 @@ pub fn resolve_existing_project_case(layout: &Layout, project: &str) -> Result<S
             "project {project:?} is ambiguous; case-insensitive matches: {}",
             matches.join(", ")
         )),
+    }
+}
+
+/// Whether a project belongs to a `--project` selection.
+///
+/// Case folds, because the directory on disk is what names a project and
+/// [`resolve_existing_project_case`] already folds case for every verb that
+/// writes. A query that dropped `-p Atlas` on a tracker holding `atlas` would
+/// answer "no issues" to a question that has issues.
+pub fn project_selected(project: &str, filter: Option<&str>) -> bool {
+    match filter {
+        None => true,
+        Some(p) => project.eq_ignore_ascii_case(p),
     }
 }
 
@@ -575,6 +613,23 @@ mod tests {
         let doc = IssueDoc::parse("x", PathBuf::from("/tmp/x.org"), content).unwrap();
         assert_eq!(doc.headings[0].priority, 'C');
         assert_eq!(doc.headings[0].title, "Just a title");
+    }
+
+    #[test]
+    fn a_multibyte_priority_cookie_parses_instead_of_panicking() {
+        let content = "#+TITLE: x issues\n\n* TODO [#\u{2192}] Hand edited\n:PROPERTIES:\n:ID:         x-aaaa\n:END:\n";
+        let doc = IssueDoc::parse("x", PathBuf::from("/tmp/x.org"), content).unwrap();
+        assert_eq!(doc.headings[0].priority, '\u{2192}');
+        assert_eq!(doc.headings[0].title, "Hand edited");
+    }
+
+    #[test]
+    fn a_title_opening_with_a_bracket_keeps_its_text() {
+        let content =
+            "#+TITLE: x issues\n\n* TODO [#not a cookie] stays\n:PROPERTIES:\n:ID:         x-bbbb\n:END:\n";
+        let doc = IssueDoc::parse("x", PathBuf::from("/tmp/x.org"), content).unwrap();
+        assert_eq!(doc.headings[0].priority, 'C');
+        assert_eq!(doc.headings[0].title, "[#not a cookie] stays");
     }
 
     #[test]
