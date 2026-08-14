@@ -3,10 +3,14 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use vissue_core::catalog::{excerpt_from, load_recs, CatalogService};
 use vissue_core::config::{Layout, DEFAULT_PREFIX};
+use vissue_core::error::Error;
+use vissue_core::graph::DependencyGraph;
 use vissue_core::mirror::{self, Format};
 use vissue_core::report;
 use vissue_core::store::{self, IssueDoc};
+use vissue_core::views::ListQuery;
 
 fn fixture_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixture_vault")
@@ -977,4 +981,209 @@ fn a_configured_prefix_finds_no_projects_where_there_are_none() {
     let layout = Layout::new(fixture_root(), "Elsewhere");
     assert!(store::list_projects(&layout).unwrap().is_empty());
     assert_eq!(report::count(&layout, None, None, false).unwrap(), "0\n");
+}
+
+#[test]
+fn issues_rows_cover_the_fixture_and_use_claimed_by() {
+    let layout = fixture_layout();
+    let recs = load_recs(&layout).unwrap();
+    let rows = CatalogService::from_recs(&recs)
+        .issues_rows(ListQuery::default())
+        .unwrap();
+    assert_eq!(rows.len(), 6);
+
+    let listed = serde_json::to_value(&rows).unwrap();
+    for row in listed.as_array().unwrap() {
+        assert!(
+            row.get("claimed_by").is_some(),
+            "list row missing claimed_by: {row}"
+        );
+        assert!(row.get("holder").is_none(), "list row leaked holder: {row}");
+    }
+
+    let via_json = vissue_core::agent::issues_json(&layout, None, None, false).unwrap();
+    assert_eq!(via_json.as_array().unwrap().len(), 6);
+    assert!(via_json[0].get("claimed_by").is_some(), "{via_json}");
+    assert!(via_json[0].get("holder").is_none(), "{via_json}");
+    assert_eq!(via_json, listed);
+
+    let claimed = rows.iter().find(|r| r.id == "atlas-1a2b").unwrap();
+    assert_eq!(claimed.claimed_by.as_deref(), Some("fixture-agent"));
+    assert_eq!(
+        claimed.claimed_at.as_deref(),
+        Some("[2026-01-14 Wed 09:12]")
+    );
+}
+
+#[test]
+fn claims_rows_use_holder_not_claimed_by() {
+    let layout = fixture_layout();
+    let recs = load_recs(&layout).unwrap();
+    let rows = CatalogService::from_recs(&recs).claims(None, None).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, "atlas-1a2b");
+    assert_eq!(rows[0].holder.as_deref(), Some("fixture-agent"));
+    assert_eq!(
+        rows[0].claimed_at.as_deref(),
+        Some("[2026-01-14 Wed 09:12]")
+    );
+    assert!(rows[0].age_days >= 0);
+
+    let structured = serde_json::to_value(&rows).unwrap();
+    assert!(structured[0].get("holder").is_some(), "{structured}");
+    assert!(
+        structured[0].get("claimed_by").is_none(),
+        "claims row leaked claimed_by: {structured}"
+    );
+
+    let via_report: serde_json::Value =
+        serde_json::from_str(&report::claims(&layout, None, None, true).unwrap()).unwrap();
+    assert_eq!(via_report, structured);
+}
+
+#[test]
+fn excerpt_from_reads_the_on_disk_heading_range() {
+    let layout = fixture_layout();
+    let recs = load_recs(&layout).unwrap();
+    let rec = recs
+        .iter()
+        .find(|r| r.heading.id == "atlas-1a2b")
+        .expect("parser issue");
+    let excerpt = excerpt_from(rec).unwrap();
+    assert!(!excerpt.suppressed, "{excerpt:?}");
+    assert!(
+        excerpt.text.contains(":CLAIMED_BY: fixture-agent"),
+        "PROPERTIES drawer missing from excerpt: {}",
+        excerpt.text
+    );
+    assert!(
+        excerpt.text.contains("CLOCK:"),
+        "LOGBOOK missing from excerpt: {}",
+        excerpt.text
+    );
+    assert!(
+        excerpt.text.contains("Scope: read the header block"),
+        "{}",
+        excerpt.text
+    );
+    assert_eq!(excerpt.id, "atlas-1a2b");
+    assert!(
+        excerpt.file.ends_with("atlas/issues.org"),
+        "{}",
+        excerpt.file
+    );
+
+    let wrapped = vissue_core::agent::body_excerpt(&layout, "atlas-1a2b").unwrap();
+    assert!(wrapped.contains(":CLAIMED_BY: fixture-agent"), "{wrapped}");
+    assert!(
+        wrapped.contains("* STARTED [#A] Parse the manifest header"),
+        "{wrapped}"
+    );
+}
+
+#[test]
+fn excerpt_from_suppresses_a_credential_shaped_line() {
+    let (_dir, layout) = writable_copy();
+    let path = layout.project_issues_path("atlas");
+    let text = fs::read_to_string(&path).unwrap().replace(
+        "Scope: read the header block before the first record.",
+        "Scope: read the header block before the first record.\napi_key = 9f8e7d6c5b4a3210ff",
+    );
+    fs::write(&path, text).unwrap();
+
+    let recs = load_recs(&layout).unwrap();
+    let rec = recs
+        .iter()
+        .find(|r| r.heading.id == "atlas-1a2b")
+        .expect("parser issue");
+    let excerpt = excerpt_from(rec).unwrap();
+    assert!(excerpt.suppressed, "{excerpt:?}");
+    assert!(
+        excerpt.text.contains("excerpt suppressed"),
+        "{}",
+        excerpt.text
+    );
+    assert!(
+        !excerpt.text.contains("9f8e7d6c5b4a3210ff"),
+        "secret leaked: {}",
+        excerpt.text
+    );
+}
+
+#[test]
+fn claim_as_stamps_the_passed_identity() {
+    let _guard = EVENTS_ENV.lock().unwrap_or_else(|p| p.into_inner());
+    let (_dir, layout) = writable_copy();
+    std::env::set_var("VISSUE_AGENT", "env-agent");
+    let claimed = vissue_core::ops::claim_as(&layout, "atlas-2c3d", false, "passed-identity");
+    std::env::remove_var("VISSUE_AGENT");
+    claimed.unwrap();
+
+    let h = store::find_by_id(&layout, "atlas-2c3d").unwrap().unwrap().0;
+    assert_eq!(h.claimed_by(), Some("passed-identity"));
+    assert_ne!(h.claimed_by(), Some("env-agent"));
+}
+
+#[test]
+fn claim_conflict_is_matchable_without_parsing_display() {
+    let _guard = EVENTS_ENV.lock().unwrap_or_else(|p| p.into_inner());
+    let (_dir, layout) = writable_copy();
+    std::env::set_var("VISSUE_AGENT", "someone-else");
+    let refused = vissue_core::ops::claim(&layout, "atlas-1a2b", false);
+    std::env::remove_var("VISSUE_AGENT");
+
+    let err = refused.unwrap_err();
+    let typed = err
+        .downcast_ref::<Error>()
+        .expect("claim conflict should be a typed Error");
+    match typed {
+        Error::ClaimConflict { id, holder } => {
+            assert_eq!(id, "atlas-1a2b");
+            assert_eq!(holder, "fixture-agent");
+        }
+        other => panic!("expected ClaimConflict, got {other:?}"),
+    }
+    assert!(err.to_string().contains("claimed by fixture-agent"));
+    assert!(err.to_string().contains("--force"));
+}
+
+#[test]
+fn accepts_edge_cycle_is_a_typed_blocker_cycle() {
+    let layout = fixture_layout();
+    let all = store::load_all(&layout).unwrap();
+    let graph = DependencyGraph::from_issues(&all).unwrap();
+    // atlas-3e4f already waits on atlas-1a2b; the reverse edge closes a loop.
+    let err = graph.accepts_edge("atlas-3e4f", "atlas-1a2b").unwrap_err();
+    match &err {
+        Error::BlockerCycle { blocker, issue } => {
+            assert_eq!(blocker, "atlas-3e4f");
+            assert_eq!(issue, "atlas-1a2b");
+        }
+        other => panic!("expected BlockerCycle, got {other:?}"),
+    }
+    assert!(err.to_string().contains("blocker cycle"));
+}
+
+#[test]
+fn ready_from_is_corpus_wide() {
+    let (_dir, layout) = writable_copy();
+    let beacon = layout.project_issues_path("beacon");
+    let text = fs::read_to_string(&beacon).unwrap().replace(
+        ":ID:         beacon-5j6k\n",
+        ":ID:         beacon-5j6k\n:BLOCKED_BY: atlas-1a2b\n",
+    );
+    fs::write(&beacon, text).unwrap();
+
+    let recs = load_recs(&layout).unwrap();
+    let ready = CatalogService::from_recs(&recs)
+        .ready(Some("beacon"))
+        .unwrap();
+    assert!(
+        ready.iter().all(|r| r.id != "beacon-5j6k"),
+        "cross-project blocker ignored: {ready:?}"
+    );
+    assert_eq!(
+        CatalogService::from_recs(&recs).ready(None).unwrap().len(),
+        2
+    );
 }

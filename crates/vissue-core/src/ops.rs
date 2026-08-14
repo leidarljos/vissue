@@ -5,6 +5,7 @@ use chrono::NaiveDate;
 use std::collections::BTreeMap;
 
 use crate::config::{Layout, VissueConfig};
+use crate::error::Error;
 use crate::graph::DependencyGraph;
 use crate::model::{today_inactive_bracket, IssueHeading, LogEntry, TODO_KEYWORDS};
 use crate::store::{
@@ -159,7 +160,7 @@ pub fn update(
     block_clear: Option<&str>,
 ) -> Result<UpdateOutcome> {
     let (_h0, path, project) =
-        find_by_id(layout, id)?.ok_or_else(|| anyhow!("issue {id} not found"))?;
+        find_by_id(layout, id)?.ok_or_else(|| Error::IssueNotFound { id: id.to_string() })?;
     let identity = crate::config::identity(layout);
 
     let (final_state, changed) = with_issues_lock(&path, || {
@@ -175,7 +176,7 @@ pub fn update(
             .headings
             .iter_mut()
             .find(|x| x.id == id)
-            .ok_or_else(|| anyhow!("issue {id} not found"))?;
+            .ok_or_else(|| Error::IssueNotFound { id: id.to_string() })?;
 
         let mut changed = Vec::new();
 
@@ -308,9 +309,14 @@ fn settle_claim(h: &mut IssueHeading, from: &str, to: &str, identity: &str) -> V
 /// A claim held by another identity is refused unless `force`, which records
 /// the takeover in the logbook rather than losing it.
 pub fn claim(layout: &Layout, id: &str, force: bool) -> Result<String> {
-    let (_h0, path, project) =
-        find_by_id(layout, id)?.ok_or_else(|| anyhow!("issue {id} not found"))?;
     let identity = crate::config::identity(layout);
+    claim_as(layout, id, force, &identity)
+}
+
+/// [`claim`] with an explicit identity instead of [`crate::config::identity`].
+pub fn claim_as(layout: &Layout, id: &str, force: bool, identity: &str) -> Result<String> {
+    let (_h0, path, project) =
+        find_by_id(layout, id)?.ok_or_else(|| Error::IssueNotFound { id: id.to_string() })?;
 
     let report = with_issues_lock(&path, || {
         let mut doc = IssueDoc::parse_file(&project, &path)?;
@@ -318,22 +324,27 @@ pub fn claim(layout: &Layout, id: &str, force: bool) -> Result<String> {
             .headings
             .iter_mut()
             .find(|x| x.id == id)
-            .ok_or_else(|| anyhow!("issue {id} not found"))?;
+            .ok_or_else(|| Error::IssueNotFound { id: id.to_string() })?;
 
         if h.state == "DONE" || h.state == "CANCELLED" {
-            bail!("{id} is already {}; cannot claim", h.state);
+            return Err(Error::InvalidState {
+                id: id.to_string(),
+                state: h.state.clone(),
+            }
+            .into());
         }
         if let Some(holder) = h.claimed_by() {
             if holder != identity && !force {
-                bail!(
-                    "{id} is claimed by {holder} since {}; pass --force to take it over",
-                    h.claimed_at().unwrap_or("an unknown time")
-                );
+                return Err(Error::ClaimConflict {
+                    id: id.to_string(),
+                    holder: holder.to_string(),
+                }
+                .into());
             }
             if holder != identity {
                 let previous = holder.to_string();
                 h.release_claim();
-                h.set_claim(&identity);
+                h.set_claim(identity);
                 h.record_state_change("STARTED");
                 doc.write()?;
                 return Ok(format!("claimed {id} (taken over from {previous})\n"));
@@ -343,7 +354,7 @@ pub fn claim(layout: &Layout, id: &str, force: bool) -> Result<String> {
         let was = h.state.clone();
         h.record_state_change("STARTED");
         if h.claimed_by().is_none() {
-            h.set_claim(&identity);
+            h.set_claim(identity);
         }
         doc.write()?;
         if was == "STARTED" {

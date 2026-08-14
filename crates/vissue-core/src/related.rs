@@ -5,8 +5,10 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Write as _;
 
 use crate::config::Layout;
+use crate::error::Error;
 use crate::model::IssueHeading;
 use crate::store::load_all;
+use crate::views::{IssueRec, RelatedHit};
 
 const STOP_WORDS: &[&str] = &[
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "is", "it", "of", "on",
@@ -123,11 +125,56 @@ pub fn related(
     if !matches!(format, "text" | "org") {
         bail!("related format must be text or org, got {format:?}");
     }
-    let all = load_all(layout)?;
+    let loaded = load_all(layout)?;
+    let recs: Vec<IssueRec> = loaded
+        .into_iter()
+        .map(|(project, heading)| IssueRec {
+            project,
+            heading,
+            path: std::path::PathBuf::new(),
+        })
+        .collect();
+    let hits = related_hits_from(&recs, id, depth, limit)?;
+    let mut out = String::new();
+    for hit in hits {
+        if format == "org" {
+            writeln!(
+                out,
+                "- [[{}][{}]] :: {:.3} {}",
+                org_link(&hit.id),
+                hit.id,
+                hit.score,
+                hit.evidence.join(", ")
+            )?;
+        } else {
+            writeln!(
+                out,
+                "{:.3} {} ({}) [{}]",
+                hit.score,
+                hit.id,
+                hit.title,
+                hit.evidence.join(", ")
+            )?;
+        }
+    }
+    Ok(out)
+}
+
+/// Structured related hits, without going through the text formatter.
+pub fn related_hits_from(
+    recs: &[IssueRec],
+    id: &str,
+    depth: usize,
+    limit: usize,
+) -> std::result::Result<Vec<RelatedHit>, Error> {
+    let all: Vec<(&str, &IssueHeading)> = recs
+        .iter()
+        .map(|r| (r.project.as_str(), &r.heading))
+        .collect();
     let target_idx = all
         .iter()
         .position(|(_, issue)| issue.id == id)
-        .ok_or_else(|| anyhow::anyhow!("issue {id} not found"))?;
+        .ok_or_else(|| Error::IssueNotFound { id: id.to_string() })?;
     let terms: Vec<IssueTerms> = all
         .iter()
         .map(|(project, issue)| issue_terms(project, issue))
@@ -312,28 +359,17 @@ pub fn related(
     });
     ranked.truncate(limit);
 
-    let mut out = String::new();
+    let mut hits = Vec::with_capacity(ranked.len());
     for (index, candidate) in ranked {
-        let (_, issue) = &all[index];
-        if format == "org" {
-            writeln!(
-                out,
-                "- [[{}][{}]] :: {:.3} {}",
-                org_link(&issue.id),
-                issue.id,
-                candidate.score,
-                candidate.evidence.join(", ")
-            )?;
-        } else {
-            writeln!(
-                out,
-                "{:.3} {} ({}) [{}]",
-                candidate.score,
-                issue.id,
-                issue.title,
-                candidate.evidence.join(", ")
-            )?;
-        }
+        let (project, issue) = all[index];
+        hits.push(RelatedHit {
+            id: issue.id.clone(),
+            project: project.to_string(),
+            state: issue.state.clone(),
+            title: issue.title.clone(),
+            score: candidate.score,
+            evidence: candidate.evidence,
+        });
     }
-    Ok(out)
+    Ok(hits)
 }

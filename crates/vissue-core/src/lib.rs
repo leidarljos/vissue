@@ -7,8 +7,10 @@
 //! one code path.
 
 pub mod agent;
+pub mod catalog;
 pub mod config;
 pub mod digest;
+pub mod error;
 pub mod events;
 pub mod graph;
 pub mod mirror;
@@ -17,6 +19,7 @@ pub mod ops;
 pub mod related;
 pub mod report;
 pub mod store;
+pub mod views;
 
 pub use config::{Layout, VissueConfig, DEFAULT_PREFIX};
 pub use model::{IssueHeading, LogEntry, READY_STATES, TODO_HEADER, TODO_KEYWORDS};

@@ -6,13 +6,13 @@ use chrono::{Local, NaiveDate};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
 
+use crate::catalog::{load_recs, CatalogService};
 use crate::config::Layout;
 use crate::graph::DependencyGraph;
 use crate::model::{IssueHeading, READY_STATES};
 pub use crate::related::related;
-use crate::store::{
-    collect_org_ids, find_by_id, list_projects, load_all, project_selected, IssueDoc,
-};
+use crate::store::{collect_org_ids, find_by_id, list_projects, load_all, project_selected};
+use crate::views::{IssueRec, IssueRow, ListQuery};
 
 struct GraphIndex<'a> {
     by_id: HashMap<&'a str, &'a IssueHeading>,
@@ -66,62 +66,31 @@ pub fn list(
     state_filter: Option<&str>,
     ready_only: bool,
 ) -> Result<String> {
-    let projects: Vec<String> = list_projects(layout)?
-        .into_iter()
-        .filter(|project| project_selected(project, project_filter))
-        .collect();
+    let recs = load_recs(layout)?;
+    let rows = CatalogService::from_recs(&recs).issues_rows(ListQuery {
+        project: project_filter.map(str::to_string),
+        state: state_filter.map(str::to_string),
+        ready: ready_only,
+        ..ListQuery::default()
+    })?;
+    Ok(format_issue_rows(&recs, &rows))
+}
 
-    let mut rows: Vec<(String, String, String, char, String)> = Vec::new();
-
-    let active_blockers: HashSet<String> = if ready_only {
-        load_all(layout)?
-            .into_iter()
-            .filter(|(_, h)| h.state != "DONE" && h.state != "CANCELLED")
-            .map(|(_, h)| h.id)
-            .collect()
-    } else {
-        HashSet::new()
-    };
-
-    for project in projects {
-        let path = layout.project_issues_path(&project);
-        let doc = IssueDoc::parse_file(&project, &path)?;
-
-        for h in &doc.headings {
-            if let Some(s) = state_filter {
-                if h.state != s {
-                    continue;
-                }
-            }
-            if ready_only {
-                if !READY_STATES.contains(&h.state.as_str()) {
-                    continue;
-                }
-                if blocker_ids(h).any(|b| active_blockers.contains(b)) {
-                    continue;
-                }
-            }
-            rows.push((
-                project.clone(),
-                h.id.clone(),
-                h.state.clone(),
-                h.priority,
-                format!("{}{}", h.title, claim_suffix(h)),
-            ));
-        }
-    }
-
-    rows.sort_by(|a, b| {
-        a.3.cmp(&b.3)
-            .then_with(|| a.2.cmp(&b.2))
-            .then_with(|| a.1.cmp(&b.1))
-    });
-
+fn format_issue_rows(recs: &[IssueRec], rows: &[IssueRow]) -> String {
     let mut out = String::new();
-    for (_project, id, state, prio, title) in rows {
-        let _ = writeln!(out, "{id:<22} {state:<9} [#{prio}]  {title}");
+    for row in rows {
+        let suffix = recs
+            .iter()
+            .find(|r| r.heading.id == row.id)
+            .map(|r| claim_suffix(&r.heading))
+            .unwrap_or_default();
+        let _ = writeln!(
+            out,
+            "{:<22} {:<9} [#{}]  {}{}",
+            row.id, row.state, row.priority, row.title, suffix
+        );
     }
-    Ok(out)
+    out
 }
 
 /// ` (claimed 3d by <identity>)`, or nothing when no one holds the issue.
@@ -139,7 +108,9 @@ pub(crate) fn claim_suffix(h: &IssueHeading) -> String {
 
 /// Actionable issues: TODO or STARTED with no open blocker.
 pub fn ready(layout: &Layout, project_filter: Option<&str>) -> Result<String> {
-    list(layout, project_filter, None, true)
+    let recs = load_recs(layout)?;
+    let rows = CatalogService::from_recs(&recs).ready(project_filter)?;
+    Ok(format_issue_rows(&recs, &rows))
 }
 
 /// One issue's metadata and file range. The body stays in the file: an editor
@@ -194,46 +165,14 @@ pub fn show(layout: &Layout, id: &str) -> Result<String> {
 /// Case-insensitive substring scan over id, title, properties, and body. Linear
 /// in the corpus, which is the right cost until the issue count climbs.
 pub fn search(layout: &Layout, query: &str, limit: usize) -> Result<String> {
-    let needle = query.to_lowercase();
-    let mut hits: Vec<(String, IssueHeading)> = Vec::new();
-
-    for (project, h) in load_all(layout)? {
-        let mut hay = String::new();
-        hay.push_str(&h.id);
-        hay.push(' ');
-        hay.push_str(&h.title);
-        hay.push(' ');
-        for (k, v) in &h.properties {
-            hay.push_str(k);
-            hay.push(':');
-            hay.push_str(v);
-            hay.push(' ');
-        }
-        // Tags on the heading are as searchable as tags in the drawer.
-        for tag in h.tags() {
-            hay.push_str(&tag);
-            hay.push(' ');
-        }
-        hay.push_str(&h.body);
-        if hay.to_lowercase().contains(&needle) {
-            hits.push((project, h));
-        }
-    }
-
-    hits.sort_by(|a, b| {
-        a.1.priority
-            .cmp(&b.1.priority)
-            .then_with(|| a.1.state.cmp(&b.1.state))
-            .then_with(|| a.1.id.cmp(&b.1.id))
-    });
-    hits.truncate(limit);
-
+    let recs = load_recs(layout)?;
+    let hits = CatalogService::from_recs(&recs).search(query, limit)?;
     let mut out = String::new();
-    for (project, h) in hits {
+    for h in hits {
         let _ = writeln!(
             out,
             "{:<22} {:<9} [#{}]  {}  ({})",
-            h.id, h.state, h.priority, h.title, project
+            h.id, h.state, h.priority, h.title, h.project
         );
     }
     Ok(out)
@@ -307,70 +246,30 @@ pub fn claims(
     project_filter: Option<&str>,
     json: bool,
 ) -> Result<String> {
-    let today = Local::now().date_naive();
-    let mut rows: Vec<(String, IssueHeading, i64)> = Vec::new();
-    for (project, h) in load_all(layout)? {
-        if !project_selected(&project, project_filter) {
-            continue;
-        }
-        let Some(holder) = h.claimed_by() else {
-            continue;
-        };
-        if let Some(f) = holder_filter {
-            if holder != f {
-                continue;
-            }
-        }
-        let age = h
-            .claimed_at()
-            .and_then(parse_org_date)
-            .map(|d| (today - d).num_days())
-            .unwrap_or(-1);
-        rows.push((project, h, age));
-    }
-    // Oldest claim first, so staleness sits at the top of the screen.
-    rows.sort_by(|a, b| {
-        a.1.claimed_at()
-            .unwrap_or("")
-            .cmp(b.1.claimed_at().unwrap_or(""))
-    });
+    let recs = load_recs(layout)?;
+    let rows = CatalogService::from_recs(&recs).claims(holder_filter, project_filter)?;
 
     if json {
-        let arr: Vec<serde_json::Value> = rows
-            .iter()
-            .map(|(project, h, age)| {
-                serde_json::json!({
-                    "id": h.id,
-                    "project": project,
-                    "state": h.state,
-                    "priority": h.priority.to_string(),
-                    "holder": h.claimed_by(),
-                    "claimed_at": h.claimed_at(),
-                    "age_days": age,
-                    "title": h.title,
-                })
-            })
-            .collect();
-        return Ok(format!("{}\n", serde_json::Value::Array(arr)));
+        return Ok(format!("{}\n", serde_json::to_value(&rows)?));
     }
 
     let mut out = String::new();
-    for (project, h, age) in &rows {
-        let age_txt = if *age < 0 {
+    for row in &rows {
+        let age_txt = if row.age_days < 0 {
             "?d".to_string()
         } else {
-            format!("{age}d")
+            format!("{}d", row.age_days)
         };
         let _ = writeln!(
             out,
             "{:<22} {:<9} [#{}]  {:>4}  {}  {} ({})",
-            h.id,
-            h.state,
-            h.priority,
+            row.id,
+            row.state,
+            row.priority,
             age_txt,
-            h.claimed_by().unwrap_or("?"),
-            h.title,
-            project
+            row.holder.as_deref().unwrap_or("?"),
+            row.title,
+            row.project
         );
     }
     if rows.is_empty() {

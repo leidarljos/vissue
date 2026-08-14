@@ -1,19 +1,17 @@
 //! Verbs shaped for a program rather than a person: structured rows, claiming,
 //! a body excerpt, and a hygiene checklist.
 
-use anyhow::{anyhow, Result};
-use serde_json::{json, Value};
+use anyhow::Result;
+use serde_json::Value;
 use std::fmt::Write as _;
-use std::fs;
 
+use crate::catalog::{excerpt_from, format_body_excerpt, load_recs, CatalogService};
 use crate::config::Layout;
-use crate::model::READY_STATES;
+use crate::error::Error;
 use crate::ops;
 use crate::report;
-use crate::store::{find_by_id, list_projects, load_all, project_selected};
-
-const BODY_EXCERPT_MAX_LINES: usize = 40;
-const BODY_EXCERPT_MAX_CHARS: usize = 4000;
+use crate::store::{list_projects, load_all};
+use crate::views::ListQuery;
 
 /// Issue rows as JSON, filtered the same way [`report::list`] filters them.
 pub fn issues_json(
@@ -22,76 +20,21 @@ pub fn issues_json(
     state_filter: Option<&str>,
     ready_only: bool,
 ) -> Result<Value> {
-    let all = load_all(layout)?;
-    let active_blockers: std::collections::HashSet<String> = all
-        .iter()
-        .filter(|(_, h)| h.state != "DONE" && h.state != "CANCELLED")
-        .map(|(_, h)| h.id.clone())
-        .collect();
-
-    let mut rows: Vec<(char, String, String, Value)> = Vec::new();
-    for (project, h) in &all {
-        if !project_selected(project, project_filter) {
-            continue;
-        }
-        if let Some(s) = state_filter {
-            if h.state != s {
-                continue;
-            }
-        }
-        if ready_only {
-            if !READY_STATES.contains(&h.state.as_str()) {
-                continue;
-            }
-            if h.blocked_by().iter().any(|b| active_blockers.contains(b)) {
-                continue;
-            }
-        }
-        rows.push((
-            h.priority,
-            h.state.clone(),
-            h.id.clone(),
-            json!({
-                "id": h.id,
-                "state": h.state,
-                "priority": h.priority.to_string(),
-                "title": h.title,
-                "project": project,
-                "blocked_by": h.blocked_by(),
-                "claimed_by": h.claimed_by(),
-                "claimed_at": h.claimed_at(),
-            }),
-        ));
-    }
-    rows.sort_by(|a, b| {
-        a.0.cmp(&b.0)
-            .then_with(|| a.1.cmp(&b.1))
-            .then_with(|| a.2.cmp(&b.2))
-    });
-    Ok(Value::Array(rows.into_iter().map(|r| r.3).collect()))
+    let recs = load_recs(layout)?;
+    let rows = CatalogService::from_recs(&recs).issues_rows(ListQuery {
+        project: project_filter.map(str::to_string),
+        state: state_filter.map(str::to_string),
+        ready: ready_only,
+        ..ListQuery::default()
+    })?;
+    Ok(serde_json::to_value(rows)?)
 }
 
 /// One issue as JSON, including its file and line range.
 pub fn show_json(layout: &Layout, id: &str) -> Result<Value> {
-    let (h, path, project) =
-        find_by_id(layout, id)?.ok_or_else(|| anyhow!("issue {id} not found"))?;
-    Ok(json!({
-        "id": h.id,
-        "project": project,
-        "title": h.title,
-        "state": h.state,
-        "priority": h.priority.to_string(),
-        "properties": h.properties,
-        "org_tags": h.org_tags,
-        "tags": h.tags(),
-        "blocked_by": h.blocked_by(),
-        "parent": h.parent(),
-        "claimed_by": h.claimed_by(),
-        "claimed_at": h.claimed_at(),
-        "file": format!("{}:{}-{}", path.display(), h.line_start, h.line_end),
-        "line_start": h.line_start,
-        "line_end": h.line_end,
-    }))
+    let recs = load_recs(layout)?;
+    let detail = CatalogService::from_recs(&recs).detail(id)?;
+    Ok(serde_json::to_value(detail)?)
 }
 
 /// Take an issue: move it to STARTED and stamp the claim.
@@ -103,116 +46,12 @@ pub fn claim(layout: &Layout, id: &str, force: bool) -> Result<String> {
 
 /// The first lines of an issue's file range, capped and screened for secrets.
 pub fn body_excerpt(layout: &Layout, id: &str) -> Result<String> {
-    let (h, path, _project) =
-        find_by_id(layout, id)?.ok_or_else(|| anyhow!("issue {id} not found"))?;
-    let content = fs::read_to_string(&path)?;
-    let lines: Vec<&str> = content.lines().collect();
-    let from = h.line_start.saturating_sub(1).min(lines.len());
-    let to = h
-        .line_end
-        .min(lines.len())
-        .min(from + BODY_EXCERPT_MAX_LINES);
-    let mut excerpt = lines[from..to].join("\n");
-    if excerpt.len() > BODY_EXCERPT_MAX_CHARS {
-        excerpt.truncate(BODY_EXCERPT_MAX_CHARS);
-        excerpt.push_str("\n...");
-    }
-    if let Some(marker) = secret_marker(&excerpt) {
-        return Ok(format!(
-            "(excerpt suppressed: {marker} looks like secret material; open {} directly)\n",
-            path.display()
-        ));
-    }
-    Ok(format!(
-        "id: {id}\nfile: {}:{}-{}\n--- excerpt (lines {}-{}) ---\n{excerpt}\n",
-        path.display(),
-        h.line_start,
-        h.line_end,
-        from + 1,
-        to
-    ))
-}
-
-/// The marker that makes an excerpt look like it carries a credential.
-///
-/// A guard against handing an agent a secret by accident, not a redaction
-/// guarantee: it screens the shapes credentials are usually written in, and
-/// SECURITY.md says plainly that the answer is to keep them out of issue
-/// bodies. Widening it is cheap; relying on it is not.
-fn secret_marker(excerpt: &str) -> Option<&'static str> {
-    let lower = excerpt.to_lowercase();
-    // PEM and OpenSSH private key blocks, whatever the algorithm.
-    if lower.contains("-----begin") && lower.contains("private key") {
-        return Some("a private key block");
-    }
-    for token in [
-        "private_key",
-        "secret_key",
-        "client_secret",
-        "access_token",
-        "refresh_token",
-        "bearer ",
-        "authorization:",
-        "aws_secret_access_key",
-        "begin rsa",
-        "begin openssh",
-        "begin pgp private",
-    ] {
-        if lower.contains(token) {
-            return Some("a credential keyword");
-        }
-    }
-    // `key = value` shapes: an assignment whose name reads like a credential
-    // and whose value holds no space, which prose after a colon usually does.
-    // Judged on the name, not on how random the value looks: a guard should
-    // suppress a placeholder in an `api_key =` line rather than reason about
-    // whether this particular one is live.
-    for line in lower.lines() {
-        let Some((name, value)) = line.split_once(['=', ':']) else {
-            continue;
-        };
-        let name = name
-            .trim()
-            .trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
-        let value = value.trim().trim_matches(['"', '\'']);
-        if value.len() < 12 || value.contains(char::is_whitespace) {
-            continue;
-        }
-        if ["password", "passwd", "api_key", "apikey", "token", "secret"]
-            .iter()
-            .any(|needle| name.ends_with(needle))
-        {
-            return Some("an assignment to a credential name");
-        }
-    }
-    // Token prefixes, matched on a whole word and in the case they are
-    // issued in. A substring test here is what turns "making" into a cloud
-    // key and "task-force" into an API one.
-    for word in excerpt.split(|c: char| c.is_whitespace() || c == '"' || c == '\'') {
-        let word = word.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-');
-        if word.len() < 12 {
-            continue;
-        }
-        for prefix in [
-            "ghp_",
-            "gho_",
-            "ghs_",
-            "github_pat_",
-            "xoxb-",
-            "xoxp-",
-            "xoxa-",
-            "xoxs-",
-            "sk-",
-            "AKIA",
-            "ASIA",
-            "glpat-",
-        ] {
-            if word.starts_with(prefix) {
-                return Some("a vendor token prefix");
-            }
-        }
-    }
-    None
+    let recs = load_recs(layout)?;
+    let rec = recs
+        .iter()
+        .find(|r| r.heading.id == id)
+        .ok_or_else(|| Error::IssueNotFound { id: id.to_string() })?;
+    Ok(format_body_excerpt(&excerpt_from(rec)?))
 }
 
 /// Issues waiting on this one.
@@ -308,9 +147,11 @@ pub fn hygiene(layout: &Layout, stale_days: Option<i64>) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalog::secret_marker;
     use crate::config::DEFAULT_PREFIX;
     use crate::ops::{create, update, CreateOpts};
     use crate::store::IssueDoc;
+    use std::fs;
 
     fn layout_with_two_issues() -> (tempfile::TempDir, Layout, String, String) {
         let dir = tempfile::tempdir().unwrap();

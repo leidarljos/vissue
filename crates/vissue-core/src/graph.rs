@@ -6,6 +6,7 @@ use petgraph::algo::{has_path_connecting, toposort};
 use petgraph::Direction;
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use crate::error::Error;
 use crate::model::IssueHeading;
 
 /// A blocker edge points from the prerequisite to the issue waiting on it.
@@ -51,18 +52,18 @@ impl DependencyGraph {
     }
 
     /// Validate a prospective blocker insertion without mutating the graph.
-    pub fn accepts_edge(&self, blocker: &str, issue: &str) -> Result<()> {
+    pub fn accepts_edge(&self, blocker: &str, issue: &str) -> std::result::Result<(), Error> {
         let Some(&from) = self.ids.get(blocker) else {
             return Ok(());
         };
         let Some(&to) = self.ids.get(issue) else {
             return Ok(());
         };
-        if from == to {
-            bail!("issue {issue} cannot block itself");
-        }
-        if has_path_connecting(self.dag.graph(), to, from, None) {
-            bail!("adding {blocker} -> {issue} would create a blocker cycle");
+        if from == to || has_path_connecting(self.dag.graph(), to, from, None) {
+            return Err(Error::BlockerCycle {
+                blocker: blocker.to_string(),
+                issue: issue.to_string(),
+            });
         }
         Ok(())
     }
@@ -78,12 +79,20 @@ impl DependencyGraph {
     }
 
     /// Return nodes that transitively block issue, bounded by hop depth.
-    pub fn ancestors(&self, issue: &str, depth: usize) -> Result<Vec<(usize, String)>> {
+    pub fn ancestors(
+        &self,
+        issue: &str,
+        depth: usize,
+    ) -> std::result::Result<Vec<(usize, String)>, Error> {
         self.walk(issue, depth, Direction::Incoming)
     }
 
     /// Return nodes transitively waiting on issue, bounded by hop depth.
-    pub fn descendants(&self, issue: &str, depth: usize) -> Result<Vec<(usize, String)>> {
+    pub fn descendants(
+        &self,
+        issue: &str,
+        depth: usize,
+    ) -> std::result::Result<Vec<(usize, String)>, Error> {
         self.walk(issue, depth, Direction::Outgoing)
     }
 
@@ -92,9 +101,11 @@ impl DependencyGraph {
         issue: &str,
         depth: usize,
         direction: Direction,
-    ) -> Result<Vec<(usize, String)>> {
+    ) -> std::result::Result<Vec<(usize, String)>, Error> {
         let Some(&root) = self.ids.get(issue) else {
-            bail!("issue {issue} not found");
+            return Err(Error::IssueNotFound {
+                id: issue.to_string(),
+            });
         };
         let mut seen = HashSet::from([root]);
         let mut queue = VecDeque::from([(root, 0usize)]);
