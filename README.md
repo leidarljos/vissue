@@ -17,14 +17,16 @@ rewrites one file under a lock, so the tracker diffs, merges, and greps like the
 rest of the repository it lives in. A CLI and a Model Context Protocol server
 share the same library.
 
-The store is the Org document model of Schulte, Davison, Dye, and Dominik
-[1]. The dependency edges are a least-commitment partial order [2]: an
-agent decomposes a plan into actions and tags them [3]; the tracker
-enforces that the resulting graph stays acyclic [4], [5]. `ready` is the
-set of sources in what remains, the same shape as a work-stealing ready
-deque [6]. `related` is a named local neighborhood over those edges plus
-rare terms [8], [9], [10], [11], not a second extracted knowledge graph
-[7], [12], [13], [14], [15], [16], [17].
+The store is an Org file [1]. The graph is the same discipline as the
+citation graph researched and run in OokCite: edges are declared, not
+inferred; a neighborhood query walks those edges first; text is a
+secondary signal; nothing derived is written back into the source.
+That work sits on citation indexing [2], directed citation influence
+[3], hyperlink prestige [4], [5], topic-sensitive and extra-web
+PageRank [6], [7], and citation-informed document neighborhoods
+[8], [9], [10], [11]. vissue is that design on issue headings.
+`related` ranks the local neighborhood and names its evidence. It
+does not run PageRank over the backlog.
 
 ```
 <root>/Software/<project>/issues.org
@@ -71,10 +73,10 @@ flowchart LR
 ```
 
 Solid parent edges are containment. The `blocks` edges are `:BLOCKED_BY:`
-and are what `ready` reads. Kahn's topological sort [4] is the order the
-graph would fire in if every node ran; `ready` is the cheaper question
-of which sources are still open. Adding a blocker that would close a
-cycle is rejected [5].
+and are what `ready` reads. A topological sort is the order the graph
+would fire in if every node ran; `ready` is the cheaper question of
+which sources are still open. Adding a blocker that would close a
+cycle is rejected.
 
 Build that board from an empty directory:
 
@@ -124,28 +126,20 @@ $ vissue claims --project keys
 keys-cata              STARTED   [#C]    0d  impl  Catalog of bindable actions (keys)
 ```
 
-The tracker does not invent the children. Hierarchical task-network
-planning [3] and partial-order planning [2] are the agent's job. vissue
-stores the resulting directed graph, names the ready set, and refuses a cyclic
-edit.
+The tracker does not invent the children. An agent splits the plan;
+vissue stores the resulting directed graph, names the ready set, and
+refuses a cyclic edit.
 
-`related` answers a different question: given one issue, what else in
-the corpus is a neighbor, and why? Explicit `:PARENT:`, `:BLOCKED_BY:`,
+`related` is the issue-scale form of OokCite's graph-distance
+neighborhood [6], [8], [9]. Given one issue, it asks what else in the
+corpus is a neighbor, and why. Explicit `:PARENT:`, `:BLOCKED_BY:`,
 `:DISCOVERED_FROM:`, and Org body links outrank shared tags and rare
-terms. Term weights follow Sparck-Jones inverse document frequency [8]
-and the Salton-Buckley family of tf-idf schemes [9], [10], [11]. The
-command prints the evidence (`blocked_by`, `org_link`, `term:keymap`)
-and writes nothing back. That is the opposite of Graph RAG, HippoRAG,
-LightRAG, Zep, Mem0, and A-MEM [12], [13], [14], [15], [16], [17],
-which extract or infer a knowledge graph and then retrieve over it.
-vissue keeps Hogan's graph of entities [7] down to the headings a human
-already wrote.
-
-Citation-graph ranking [18], [19] is the same discipline at web scale:
-follow explicit edges first, treat degree and text as secondary
-signals, and do not promote a derived neighbor into the source graph.
-`related` is that idea on a few hundred issues, not PageRank over a
-citation corpus.
+terms. The command prints the evidence (`blocked_by`, `org_link`,
+`term:keymap`) and writes nothing back. Citation-informed encoders
+[8], [9], [10], [11] treat a cite edge as the positive pair; vissue
+treats a blocker or parent the same way. The PageRank prior OokCite
+measured on the citation graph [4], [7] stays there. It is not a
+score on issue headings.
 
 ## Install
 
@@ -551,29 +545,27 @@ speaks orgmode is a client [1]. Each command pays a linear scan of the
 files it needs, which stays cheap until the issue count grows large enough
 to notice.
 
-### Why the graph is acyclic
+### Why the graph is a citation graph on issues
 
 A markdown task list is a total order dressed as a document. A backlog is a
-partial order: the terminal UI cannot start before the overlay exists, but
-the catalog and an unrelated docs pass can run together [2], [3]. Kahn's
-algorithm [4] gives a deterministic prerequisite-first sequence. Tarjan's
-coloured depth-first search [5] is how `cycles` reports a true loop and
-ignores a diamond. `ready` is not that total order. It is the set of open
-sources, which is what several agents need to steal work without a
-coordinator [6].
+directed graph of declared influence, the same object Garfield built for
+papers [2] and Pinski and Narin scored as citation influence [3]. The
+terminal UI cannot start before the overlay exists; the catalog and an
+unrelated docs pass can run together. `ready` is the set of open sources.
+`cycles` reports a true loop and ignores a diamond. The library rejects
+an edit that would close a cycle, because a cyclic blocker graph has no
+frontier.
 
 ### Why `related` does not write edges
 
-Hogan et al. define a knowledge graph as a graph of real-world entities with
-a schema a consumer can query [7]. Issue headings already are such entities.
-Extracting a second graph from their prose, the move in Graph RAG, HippoRAG,
-LightRAG, Zep, Mem0, and A-MEM [12], [13], [14], [15], [16], [17], would
-create a store that drifts from the file. `related` therefore ranks a
-bounded neighborhood and names its evidence. Term overlap uses Sparck-Jones
-idf [8] and Salton-style weights [9], [10], [11]. Explicit Org relations
-outrank those terms. Nothing inferred is written back. That is the same
-refusal Brin, Page, and Kleinberg make when they separate the hyperlink
-graph from the query [18], [19]: follow declared edges, do not mint them.
+OokCite's resolver treats identity and declared cite edges as truth, and
+PageRank, degree, and text as ranking features [4], [6], [7]. SPECTER and
+SciNCL learn neighborhoods from those cite edges [8], [9], [10], not by
+minting new ones. `related` is that split on issue headings: walk
+`:PARENT:`, `:BLOCKED_BY:`, `:DISCOVERED_FROM:`, and Org links first;
+score leftover term overlap second; print the evidence; write nothing
+back. Promoting a derived neighbor into `:BLOCKED_BY:` would be the
+same mistake as treating a PageRank score as a new citation.
 
 ### Why `show` does not print the body
 
@@ -590,25 +582,21 @@ headings nor collide on the temporary file.
 
 ## References
 
+These are the papers the OokCite citation-graph and neighborhood
+research actually used. vissue applies that graph discipline to issue
+headings.
+
 1. E. Schulte, D. Davison, T. Dye, and C. Dominik, "A Multi-Language Computing Environment for Literate Programming and Reproducible Research," *Journal of Statistical Software*, 2012, doi: [10.18637/jss.v046.i03](https://doi.org/10.18637/jss.v046.i03).
-2. D. S. Weld, "An Introduction to Least Commitment Planning," *AI Magazine*, 1994, doi: [10.1609/aimag.v15i4.1109](https://doi.org/10.1609/aimag.v15i4.1109).
-3. K. Erol, J. Hendler, and D. S. Nau, "Complexity results for HTN planning," *Annals of Mathematics and Artificial Intelligence*, 1996, doi: [10.1007/bf02136175](https://doi.org/10.1007/bf02136175).
-4. A. B. Kahn, "Topological sorting of large networks," *Communications of the ACM*, 1962, doi: [10.1145/368996.369025](https://doi.org/10.1145/368996.369025).
-5. R. Tarjan, "Depth-First Search and Linear Graph Algorithms," *SIAM Journal on Computing*, 1972, doi: [10.1137/0201010](https://doi.org/10.1137/0201010).
-6. R. D. Blumofe and C. E. Leiserson, "Scheduling multithreaded computations by work stealing," *Journal of the ACM*, 1999, doi: [10.1145/324133.324234](https://doi.org/10.1145/324133.324234).
-7. A. Hogan et al., "Knowledge Graphs," *ACM Computing Surveys*, 2022, doi: [10.1145/3447772](https://doi.org/10.1145/3447772).
-8. K. S. Jones, "A statistical interpretation of term specificity and its application in retrieval," *Journal of Documentation*, 1972, doi: [10.1108/eb026526](https://doi.org/10.1108/eb026526).
-9. G. Salton and C. Buckley, "Term-weighting approaches in automatic text retrieval," *Information Processing & Management*, 1988, doi: [10.1016/0306-4573(88)90021-0](https://doi.org/10.1016/0306-4573(88)90021-0).
-10. G. Salton, A. Wong, and C. S. Yang, "A vector space model for automatic indexing," *Communications of the ACM*, 1975, doi: [10.1145/361219.361220](https://doi.org/10.1145/361219.361220).
-11. S. E. Robertson and K. S. Jones, "Relevance weighting of search terms," *Journal of the American Society for Information Science*, 1976, doi: [10.1002/asi.4630270302](https://doi.org/10.1002/asi.4630270302).
-12. D. Edge et al., "From Local to Global: A Graph RAG Approach to Query-Focused Summarization," 2024, doi: [10.48550/arXiv.2404.16130](https://doi.org/10.48550/arXiv.2404.16130).
-13. B. J. Gutierrez, Y. Shu, Y. Gu, M. Yasunaga, and Y. Su, "HippoRAG: Neurobiologically Inspired Long-Term Memory for Large Language Models," 2024, doi: [10.48550/arXiv.2405.14831](https://doi.org/10.48550/arXiv.2405.14831).
-14. Z. Guo, L. Xia, Y. Yu, T. Ao, and C. Huang, "LightRAG: Simple and Fast Retrieval-Augmented Generation," 2024, doi: [10.48550/arXiv.2410.05779](https://doi.org/10.48550/arXiv.2410.05779).
-15. P. Rasmussen, P. Paliychuk, T. Beauvais, J. Ryan, and D. Chalef, "Zep: A Temporal Knowledge Graph Architecture for Agent Memory," 2025, doi: [10.48550/arXiv.2501.13956](https://doi.org/10.48550/arXiv.2501.13956).
-16. P. Chhikara, D. Khant, S. Aryan, T. Singh, and D. Jain, "Mem0: Building Production-Ready AI Agents with Scalable Long-Term Memory," 2025, doi: [10.48550/arXiv.2504.19413](https://doi.org/10.48550/arXiv.2504.19413).
-17. W. Xu, Z. Liang, K. Mei, H. Gao, J. Tan, and Y. Zhang, "A-MEM: Agentic Memory," 2025, doi: [10.48550/arXiv.2502.12110](https://doi.org/10.48550/arXiv.2502.12110).
-18. S. Brin and L. Page, "The anatomy of a large-scale hypertextual Web search engine," *Computer Networks and ISDN Systems*, 1998, doi: [10.1016/s0169-7552(98)00110-x](https://doi.org/10.1016/s0169-7552(98)00110-x).
-19. J. M. Kleinberg, "Authoritative sources in a hyperlinked environment," *Journal of the ACM*, 1999, doi: [10.1145/324133.324140](https://doi.org/10.1145/324133.324140).
+2. E. Garfield, "Citation Indexes for Science," *Science*, 1955, doi: [10.1126/science.122.3159.108](https://doi.org/10.1126/science.122.3159.108).
+3. G. Pinski and F. Narin, "Citation influence for journal aggregates of scientific publications: Theory, with application to the literature of physics," *Information Processing & Management*, 1976, doi: [10.1016/0306-4573(76)90048-0](https://doi.org/10.1016/0306-4573(76)90048-0).
+4. S. Brin and L. Page, "The anatomy of a large-scale hypertextual Web search engine," *Computer Networks and ISDN Systems*, 1998, doi: [10.1016/s0169-7552(98)00110-x](https://doi.org/10.1016/s0169-7552(98)00110-x).
+5. J. M. Kleinberg, "Authoritative sources in a hyperlinked environment," *Journal of the ACM*, 1999, doi: [10.1145/324133.324140](https://doi.org/10.1145/324133.324140).
+6. T. H. Haveliwala, "Topic-sensitive PageRank," 2002, doi: [10.1145/511446.511513](https://doi.org/10.1145/511446.511513).
+7. D. F. Gleich, "PageRank Beyond the Web," *SIAM Review*, 2015, doi: [10.1137/140976649](https://doi.org/10.1137/140976649).
+8. A. Cohan, S. Feldman, I. Beltagy, D. Downey, and D. Weld, "SPECTER: Document-level Representation Learning using Citation-informed Transformers," 2020, doi: [10.18653/v1/2020.acl-main.207](https://doi.org/10.18653/v1/2020.acl-main.207).
+9. M. Ostendorff, N. Rethmeier, I. Augenstein, B. Gipp, and G. Rehm, "Neighborhood Contrastive Learning for Scientific Document Representations with Citation Embeddings," 2022, doi: [10.48550/arXiv.2202.06671](https://doi.org/10.48550/arXiv.2202.06671).
+10. A. Singh, M. D'Arcy, A. Cohan, D. Downey, and S. Feldman, "SciRepEval: A Multi-Format Benchmark for Scientific Document Representations," 2023, doi: [10.18653/v1/2023.emnlp-main.338](https://doi.org/10.18653/v1/2023.emnlp-main.338).
+11. N. Reimers and I. Gurevych, "Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks," 2019, doi: [10.48550/arXiv.1908.10084](https://doi.org/10.48550/arXiv.1908.10084).
 
 See also the [Org mode manual](https://orgmode.org/manual/), the
 [Model Context Protocol](https://modelcontextprotocol.io/),
