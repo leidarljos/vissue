@@ -589,6 +589,8 @@ fn run() -> Result<()> {
             println!("binary: {exe}");
             println!("root:   {}", layout.root().display());
             println!("prefix: {}", layout.prefix());
+            println!("root={}", layout.root().display());
+            println!("prefix={}", layout.prefix());
         }
     }
     Ok(())

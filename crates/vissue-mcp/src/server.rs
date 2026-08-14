@@ -388,10 +388,77 @@ impl VissueServer {
     #[tool(description = "Report the server version and the resolved root and prefix.")]
     async fn vissue_identity(&self) -> Result<CallToolResult, McpError> {
         text(Ok(format!(
-            "vissue-mcp {}\nroot:   {}\nprefix: {}\n",
+            "vissue-mcp {}\nroot:   {}\nprefix: {}\nroot={}\nprefix={}\n",
             env!("CARGO_PKG_VERSION"),
             self.layout.root().display(),
+            self.layout.prefix(),
+            self.layout.root().display(),
             self.layout.prefix()
+        )))
+    }
+
+    #[tool(description = "Transitive blocker ancestors, bounded by hop depth.")]
+    async fn vissue_ancestors(
+        &self,
+        Parameters(args): Parameters<DepthArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        text(report::ancestors(
+            &self.layout,
+            &args.issue_id,
+            args.depth.unwrap_or(3),
+        ))
+    }
+
+    #[tool(description = "Issues transitively waiting on this id, bounded by hop depth.")]
+    async fn vissue_impact(
+        &self,
+        Parameters(args): Parameters<DepthArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        text(report::impact(
+            &self.layout,
+            &args.issue_id,
+            args.depth.unwrap_or(3),
+        ))
+    }
+
+    #[tool(description = "Cycles in the blocker graph, or a line saying there are none.")]
+    async fn vissue_cycles(&self) -> Result<CallToolResult, McpError> {
+        text(report::cycles(&self.layout))
+    }
+
+    #[tool(description = "Move an issue heading to another project file.")]
+    async fn vissue_refile(
+        &self,
+        Parameters(args): Parameters<RefileArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        text(ops::refile(&self.layout, &args.issue_id, &args.to))
+    }
+
+    #[tool(description = "Block until the generation counter passes last. Returns the generation.")]
+    async fn vissue_wait(
+        &self,
+        Parameters(args): Parameters<WaitArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let last = args.last.unwrap_or(0);
+        text(
+            events::wait_generation(
+                &self.layout,
+                last,
+                args.poll_ms.unwrap_or(200),
+                args.timeout_ms.unwrap_or(10_000),
+            )
+            .map(|generation| {
+                let timed_out = if generation <= last { " timeout" } else { "" };
+                format!("{generation}{timed_out}\n")
+            }),
+        )
+    }
+
+    #[tool(description = "The identity a claim would record.")]
+    async fn vissue_whoami(&self) -> Result<CallToolResult, McpError> {
+        text(Ok(format!(
+            "{}\n",
+            vissue_core::config::identity(&self.layout)
         )))
     }
 }
@@ -638,6 +705,46 @@ mod tests {
         assert!(!server.vissue_gen().await.unwrap().is_error.unwrap_or(false));
         assert!(!server
             .vissue_identity()
+            .await
+            .unwrap()
+            .is_error
+            .unwrap_or(false));
+        assert!(!server
+            .vissue_ancestors(Parameters(DepthArgs {
+                issue_id: "atlas-3e4f".into(),
+                depth: Some(2),
+            }))
+            .await
+            .unwrap()
+            .is_error
+            .unwrap_or(false));
+        assert!(!server
+            .vissue_impact(Parameters(DepthArgs {
+                issue_id: "atlas-1a2b".into(),
+                depth: Some(2),
+            }))
+            .await
+            .unwrap()
+            .is_error
+            .unwrap_or(false));
+        assert!(!server
+            .vissue_cycles()
+            .await
+            .unwrap()
+            .is_error
+            .unwrap_or(false));
+        assert!(!server
+            .vissue_whoami()
+            .await
+            .unwrap()
+            .is_error
+            .unwrap_or(false));
+        assert!(!server
+            .vissue_wait(Parameters(WaitArgs {
+                last: Some(0),
+                poll_ms: Some(10),
+                timeout_ms: Some(30),
+            }))
             .await
             .unwrap()
             .is_error

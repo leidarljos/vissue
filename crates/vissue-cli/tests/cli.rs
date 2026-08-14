@@ -124,6 +124,7 @@ fn identity_reports_the_resolved_binary_root_and_prefix() {
     // tracker", and is distinct from `whoami`, which names the claimant.
     let text = stdout(&vissue(&["identity"]));
     assert!(text.contains("prefix: Software"), "{text}");
+    assert!(text.contains("prefix=Software"), "{text}");
     assert!(text.contains("fixture_vault"), "{text}");
     assert!(text.contains("binary:"), "{text}");
 }

@@ -179,6 +179,32 @@ pub struct PingArgs {
     pub detail: Option<String>,
 }
 
+#[derive(Deserialize, JsonSchema)]
+pub struct DepthArgs {
+    /// Issue id.
+    pub issue_id: String,
+    /// Maximum hops (default 3).
+    pub depth: Option<usize>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+pub struct RefileArgs {
+    /// Issue id to move.
+    pub issue_id: String,
+    /// Destination project.
+    pub to: String,
+}
+
+#[derive(Deserialize, JsonSchema)]
+pub struct WaitArgs {
+    /// Wait until generation is greater than this value.
+    pub last: Option<u64>,
+    /// Poll interval in milliseconds.
+    pub poll_ms: Option<u64>,
+    /// Give up after this many milliseconds.
+    pub timeout_ms: Option<u64>,
+}
+
 /// Parse a single-character priority cookie from the wire representation.
 pub fn priority_char(raw: Option<&String>) -> Option<char> {
     raw.and_then(|s| s.trim().chars().next())
