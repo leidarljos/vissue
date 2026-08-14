@@ -38,6 +38,10 @@ All notable changes to vissue are recorded here. The format follows
 - An `issues.org` is flushed to the device before the rename publishes it.
 - A reader that closes the pipe, as `vissue export | head` does, exits 0
   instead of panicking with status 101.
+- The acyclicity check for `--block` reads the corpus inside the lock, so a
+  peer write that landed first is part of the answer.
+- A `fold` that fails partway stamps the issues it did create, so rerunning
+  does not create them twice.
 
 ### Changed
 

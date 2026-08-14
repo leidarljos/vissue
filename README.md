@@ -632,9 +632,16 @@ output is what stops a status check from turning into a wall of text.
 ### Concurrency
 
 Every read-modify-write cycle takes a process-local mutex and an advisory lock
-on `issues.org.lock`, then writes through a uniquely named temporary and
-renames. Concurrent creates from several processes therefore neither lose
-headings nor collide on the temporary file.
+on `issues.org.lock`, then writes through a temporary that is flushed to the
+device, uniquely named, and renamed into place. Concurrent creates from several
+processes therefore neither lose headings nor collide on the temporary file,
+and a crash mid-write leaves the previous file rather than a truncated one.
+
+The lock covers one project file. Adding a blocker reads the whole corpus for
+the acyclicity check inside that lock, so it sees every write that has landed;
+two blockers added at the same moment in *different* project files can still
+close a cycle between them. `check` and `cycles` report one if it happens, and
+neither is expensive to run from CI.
 
 ## References
 

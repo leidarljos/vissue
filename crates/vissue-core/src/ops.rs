@@ -148,13 +148,15 @@ pub fn update(
     let (_h0, path, project) =
         find_by_id(layout, id)?.ok_or_else(|| anyhow!("issue {id} not found"))?;
     let identity = crate::config::identity(layout);
-    let graph = if block_add.is_some() {
-        Some(DependencyGraph::from_issues(&load_all(layout)?)?)
-    } else {
-        None
-    };
 
     let (final_state, changed) = with_issues_lock(&path, || {
+        // Read the graph inside the lock. Built before it, the check answers
+        // for a corpus a peer may already have moved on from.
+        let graph = if block_add.is_some() {
+            Some(DependencyGraph::from_issues(&load_all(layout)?)?)
+        } else {
+            None
+        };
         let mut doc = IssueDoc::parse_file(&project, &path)?;
         let h = doc
             .headings
@@ -436,6 +438,7 @@ pub fn fold(layout: &Layout, inbox: &std::path::Path, project: &str) -> Result<S
     // recorded line numbers valid.
     let mut out = lines.clone();
     let mut created: Vec<String> = Vec::new();
+    let mut failure = None;
     for e in entries.iter().rev() {
         if e.stamped {
             continue;
@@ -453,22 +456,41 @@ pub fn fold(layout: &Layout, inbox: &std::path::Path, project: &str) -> Result<S
                 },
                 ..CreateOpts::default()
             },
-        )?;
-        let id = printed.trim().to_string();
+        );
+        let id = match printed {
+            Ok(printed) => printed.trim().to_string(),
+            Err(e) => {
+                // Stop, but stamp what already exists below. Returning here
+                // with the inbox untouched would leave every issue created so
+                // far unstamped, and the next run would create them again.
+                failure = Some(e);
+                break;
+            }
+        };
         out[e.line] = format!("* DONE {}", e.title);
         out.insert(e.line + 1, format!(":VISSUE_ID: {id}"));
         created.push(id);
     }
     created.reverse();
 
+    if !created.is_empty() {
+        let mut rendered = out.join("\n");
+        if text.ends_with('\n') {
+            rendered.push('\n');
+        }
+        std::fs::write(inbox, rendered)
+            .with_context(|| format!("write inbox {}", inbox.display()))?;
+    }
+    if let Some(error) = failure {
+        return Err(error.context(format!(
+            "folded {} before failing: {}",
+            created.len(),
+            created.join(" ")
+        )));
+    }
     if created.is_empty() {
         return Ok("folded 0 (nothing unstamped)\n".into());
     }
-    let mut rendered = out.join("\n");
-    if text.ends_with('\n') {
-        rendered.push('\n');
-    }
-    std::fs::write(inbox, rendered).with_context(|| format!("write inbox {}", inbox.display()))?;
     Ok(format!("folded {}: {}\n", created.len(), created.join(" ")))
 }
 
