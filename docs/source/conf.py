@@ -14,6 +14,7 @@ release = "0.1.0"
 version = "0.1"
 
 extensions = [
+    "sphinx.ext.mathjax",
     "sphinx_copybutton",
     "sphinx_design",
 ]

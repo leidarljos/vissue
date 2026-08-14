@@ -52,7 +52,109 @@ is that split on issue headings. Extracted memory graphs [24], [25], [26] are
 the refusal: they build a second store from prose. Hogan's knowledge
 graph [23] is the headings a human already wrote.
 
+* What =ready= is, exactly
+
+Let $I$ be the issues in the corpus and $B(i) \subseteq I$ the ids listed in
+issue $i$'s =:BLOCKED_BY:=. Write $\mathrm{open}(i)$ for the states an issue
+can still be worked from or waited on, that is anything but =DONE= and
+=CANCELLED=. Then
+
+$$
+\mathrm{ready} = \{\, i \in I : \mathrm{state}(i) \in \{\texttt{TODO},
+\texttt{STARTED}\} \;\wedge\; \forall\, b \in B(i) \cap I,\ \neg\,\mathrm{open}(b) \,\}.
+$$
+
+Three consequences are worth stating because they are choices, not accidents.
+
+The intersection with $I$ is deliberate: a blocker id that names nothing in
+the corpus does *not* hold an issue back. A typo would otherwise park work
+forever with no way to see why, so the dangling edge is reported by =check=
+and ignored by =ready=.
+
+=STARTED= is in the set. An issue someone is already on stays ready, because
+the question =ready= answers is "may this be worked", not "is this untouched".
+=claims= is what separates the two.
+
+The set is computed over the whole corpus, not per project. A blocker in
+another project blocks, so =ready --project p= can be smaller than the ready
+set of $p$ read alone.
+
+* Why the order is a partial order
+
+$B$ induces a relation on $I$: $b \prec i$ when $b \in B(i)$. vissue keeps its
+transitive closure irreflexive, which is to say the graph stays acyclic, and
+refuses an edge that would close a cycle.
+
+The alternative is a total order, which is what a numbered list or a sprint
+backlog is. A total order over-specifies: it asserts that the terminal UI
+comes after the schema *and* that the docs pass comes after the catalog, when
+only the first is true. The partial order says exactly what is known, and
+=ready= is the antichain of currently-minimal open elements, which is the set
+that can proceed in parallel.
+
+Acyclicity is checked at two moments and they are not the same check.
+=update --block= tests the prospective edge against the corpus read inside the
+lock, so a cycle is refused before it is written. =check= and =cycles= test
+the corpus as it stands, which is what catches an edge added by hand in an
+editor, or two edges added at the same instant in different project files.
+
+* How =related= ranks
+
+The score is a sum of independently earned terms, and every term that fired is
+printed as evidence. For a candidate $j$ against target $i$:
+
+$$
+S(i,j) \;=\; 1000\,e(i,j) \;+\; \frac{100}{d(i,j)} \;+\; 25\,\lvert T_i \cap T_j
+\rvert \;+\; 2\,[\,p_i = p_j\,] \;+\!\!\sum_{w \in W_i \cap W_j}\!\! \mathrm{idf}(w)^2
+$$
+
+where $e$ counts the explicit relations that hold between the two
+(=blocked_by=, =blocks=, =parent=, =child=, =discovered_from=, =source_of=,
+=org_link=), $d$ is the hop distance in the undirected graph of those same
+declared edges, $T$ is the tag set, $p$ the project, $W$ the term set of the
+title, body, type and tags, and
+
+$$
+\mathrm{idf}(w) \;=\; \ln\!\frac{\lvert I \rvert + 1}{\mathrm{df}(w) + 1} \;+\; 1 .
+$$
+
+The constants are a lexicographic ordering wearing the clothes of a sum. A
+single declared relation is worth 1000; a rare term is worth at most about
+$(\ln \lvert I \rvert)^2$, which for a corpus of ten thousand issues is under
+100. So no amount of shared vocabulary promotes a candidate above something
+you actually wrote down, which is the property that matters: the ranking may
+reorder guesses among themselves, but it may not outvote a fact.
+
+Squaring the idf rather than summing it is the same reason. It widens the gap
+between a term that appears twice and one that appears everywhere, so
+=keymap= carries the match and =the= carries nothing. Stop words are dropped
+outright, and tokens shorter than three characters with them.
+
+* What each verb costs
+
+There is no index. The file is the store, so a query is a parse, and the
+honest table is:
+
+| Verb                                    | Cost                                                |
+|-----------------------------------------+-----------------------------------------------------|
+| =create=, =update=, =claim=, =note=     | Parse and rewrite one project file, under its lock  |
+| =list=, =count=, =export= (one project) | Parse that project                                  |
+| =ready=, =check=, =search=, =claims=    | Parse every project: $O(\lvert I \rvert)$           |
+| =tree=, =graph=, =cycles=, =backlinks=  | Parse every project, then $O(\lvert I \rvert + \lvert E \rvert)$ |
+| =related=                               | The above, plus a term index over the corpus        |
+| =gen=                                   | Read one integer                                    |
+
+That last row is why the change stream exists. A poller that wants to know
+whether anything moved should not pay for a corpus parse to find out nothing
+did, so =gen= reads a counter and =events= reads only the tail of a log.
+
+The costs are linear and the constant is a file read, which stays comfortable
+into the thousands of issues and would not stay comfortable into the millions.
+That is the trade the format buys: no daemon, no schema migration, and a
+backlog that diffs.
+
 * Why =related= does not write edges
+
 Walk =:PARENT:=, =:BLOCKED_BY:=, =:DISCOVERED_FROM:=, and Org links
 first. Score leftover term overlap second [22]. Print the evidence.
 Write nothing back. Promoting a derived neighbor into =:BLOCKED_BY:=
@@ -197,7 +299,8 @@ a relation in the audit table above.
     Query-Focused Summarization," 2024, doi:
     [[https://doi.org/10.48550/arXiv.2404.16130][10.48550/arXiv.2404.16130]].
 26. B. J. Gutierrez, Y. Shu, Y. Gu, M. Yasunaga, and Y. Su, "HippoRAG:
-    Neurobiologically Inspired Long-Term Memory," 2024, doi:
+    Neurobiologically Inspired Long-Term Memory for Large Language Models,"
+    2024, doi:
     [[https://doi.org/10.48550/arXiv.2405.14831][10.48550/arXiv.2405.14831]].
 
 See also the [[https://orgmode.org/manual/][Org mode manual]], the
