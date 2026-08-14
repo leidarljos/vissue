@@ -6,6 +6,11 @@ All notable changes to vissue are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- README leads with the multi-agent plan graph, a worked board example,
+  and the literature behind the graph and related-neighborhood design.
+
 ## [0.1.0] - 2026-08-12
 
 ### Added

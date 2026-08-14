@@ -2,17 +2,29 @@
 
 [![CI](https://github.com/HaoZeke/vissue/actions/workflows/ci_test.yml/badge.svg)](https://github.com/HaoZeke/vissue/actions/workflows/ci_test.yml)
 [![crates.io](https://img.shields.io/crates/v/vissue-cli.svg)](https://crates.io/crates/vissue-cli)
-[![docs.rs](https://docs.rs/vissue-core/badge.svg)](https://docs.rs/vissue-core)
+[![docs.rs](https://img.shields.io/docs.rs/vissue-core/badge.svg)](https://docs.rs/vissue-core)
 [![MSRV](https://img.shields.io/badge/MSRV-1.88-blue.svg)](https://www.rust-lang.org/)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Issue tracking in plain orgmode files, one file per project, with a CLI and an
-MCP server over the same library.
+A plan is a directed acyclic graph of org headings. One file per project
+stores the nodes. `:PARENT:` groups work under a plan. `:BLOCKED_BY:` is
+the partial order. `ready` is the frontier any agent can pick up. `claim`
+is the lock so two agents do not take the same node.
 
 An issue is a top-level org heading. The file is the database: no daemon, no
 SQLite, no server. Every command parses the files it needs and every mutation
 rewrites one file under a lock, so the tracker diffs, merges, and greps like the
-rest of the repository it lives in.
+rest of the repository it lives in. A CLI and a Model Context Protocol server
+share the same library.
+
+The store is the Org document model of Schulte, Davison, Dye, and Dominik
+[1]. The dependency edges are a least-commitment partial order [2]: an
+agent decomposes a plan into actions and tags them [3]; the tracker
+enforces that the resulting graph stays acyclic [4], [5]. `ready` is the
+set of sources in what remains, the same shape as a work-stealing ready
+deque [6]. `related` is a named local neighborhood over those edges plus
+rare terms [8], [9], [10], [11], not a second extracted knowledge graph
+[7], [12], [13], [14], [15], [16], [17].
 
 ```
 <root>/Software/<project>/issues.org
@@ -21,35 +33,119 @@ rest of the repository it lives in.
 `Software` is the default prefix and is configurable. `<root>` comes from
 `--root`, the `VISSUE_ROOT` environment variable, or the current directory.
 
-## Ecosystem
+## A plan on the board
 
-`vissue` manages intentional work items; [orgaw](https://github.com/HaoZeke/orgaw)
-records intentional time and evidence against them. The projects remain
-independently installable and communicate through the `vissue` command-line
-protocol, with Org issue headings and their CLOCK entries as the shared data.
+A feature becomes one parent issue and five tagged children. This is the
+board an orchestrator shows after that split. Only the catalog is
+workable. Everything else waits on an explicit blocker, so two agents
+cannot start the terminal UI and the example file at the same time.
+
+| Id | State | What |
+|---|---|---|
+| `keys-e0pl` | TODO | Epic: Colemak leader sequence |
+| `keys-cata` | TODO, ready | Catalog of bindable actions |
+| `keys-toml` | BLOCKED on catalog | `keys.toml` schema and key names |
+| `keys-tuih` | BLOCKED on overlay | Terminal UI `set_keymap` and overlay `on_key` |
+| `keys-lead` | BLOCKED on wire | Leader plus `examples/keys/colemak.toml` |
 
 ```mermaid
 flowchart LR
-    corpus["Org issues and CLOCK entries"]
-    vissue["vissue: work items"]
-    protocol["CLI provider protocol"]
-    orgaw["orgaw: time and evidence"]
-    corpus <--> vissue
-    vissue --> protocol --> orgaw
-    orgaw --> corpus
+    epic["keys-e0pl epic"]
+    catalog["keys-cata catalog"]
+    schema["keys-toml keys.toml"]
+    overlay["keys-ovly overlay"]
+    wire["keys-wire wire"]
+    tui["keys-tuih terminal UI"]
+    example["keys-lead colemak example"]
+    epic --> catalog
+    epic --> schema
+    epic --> overlay
+    epic --> wire
+    epic --> tui
+    epic --> example
+    catalog -->|"blocks"| schema
+    schema -->|"blocks"| overlay
+    overlay -->|"blocks"| tui
+    overlay -->|"blocks"| wire
+    wire -->|"blocks"| example
 ```
 
-Install both tools for the integrated path:
+Solid parent edges are containment. The `blocks` edges are `:BLOCKED_BY:`
+and are what `ready` reads. Kahn's topological sort [4] is the order the
+graph would fire in if every node ran; `ready` is the cheaper question
+of which sources are still open. Adding a blocker that would close a
+cycle is rejected [5].
+
+Build that board from an empty directory:
 
 ```console
-$ cargo install vissue-cli
-$ cargo install orgaw
-$ export ISSUE_ROOT=/path/to/notes
-$ vissue ready
-$ orgaw issues
-$ orgaw in project-id
-$ orgaw out
+$ mkdir -p /tmp/keys && cd /tmp/keys
+$ vissue create --project keys --type plan "Epic: Colemak leader sequence"
+keys-e0pl  TODO  [#C]  Epic: Colemak leader sequence
+$ vissue create --project keys --type task --parent keys-e0pl --tags catalog \
+    "Catalog of bindable actions"
+keys-cata  TODO  [#C]  Catalog of bindable actions
+$ vissue create --project keys --type task --parent keys-e0pl --tags config \
+    "keys.toml schema and key names"
+keys-toml  TODO  [#C]  keys.toml schema and key names
+$ vissue update keys-toml --block keys-cata
+keys-toml: state TODO -> BLOCKED (auto on block), blocked_by += keys-cata
 ```
+
+Repeat for the overlay, the terminal UI, the wire, and the example file, each
+`--parent keys-e0pl` and each `--block` on the node it cannot start
+without. Then:
+
+```console
+$ vissue ready --project keys
+keys-cata              TODO      [#C]  Catalog of bindable actions
+$ vissue tree keys-e0pl
+keys-e0pl TODO      [#C]  Epic: Colemak leader sequence
+  keys-cata TODO      [#C]  Catalog of bindable actions
+  keys-toml BLOCKED   [#C]  keys.toml schema and key names
+    * blocked-by keys-cata
+```
+
+Two agents share that frontier by claiming, not by editing a checklist.
+A common pairing is one implementer and one reviewer per node: the
+reviewer is a child issue blocked on the implementation issue, so it
+becomes ready only when the implementer closes. Identities are opaque
+strings; set `VISSUE_AGENT` to something stable.
+
+```console
+$ VISSUE_AGENT=impl vissue claim keys-cata
+claimed keys-cata by impl (TODO -> STARTED)
+$ vissue create --project keys --type task --parent keys-cata --tags review \
+    "Review the bindable-action catalog"
+$ vissue update keys-revw --block keys-cata
+$ VISSUE_AGENT=review  vissue ready --project keys
+# empty: the only open work is claimed or blocked
+$ vissue claims --project keys
+keys-cata              STARTED   [#C]    0d  impl  Catalog of bindable actions (keys)
+```
+
+The tracker does not invent the children. Hierarchical task-network
+planning [3] and partial-order planning [2] are the agent's job. vissue
+stores the resulting directed graph, names the ready set, and refuses a cyclic
+edit.
+
+`related` answers a different question: given one issue, what else in
+the corpus is a neighbor, and why? Explicit `:PARENT:`, `:BLOCKED_BY:`,
+`:DISCOVERED_FROM:`, and Org body links outrank shared tags and rare
+terms. Term weights follow Sparck-Jones inverse document frequency [8]
+and the Salton-Buckley family of tf-idf schemes [9], [10], [11]. The
+command prints the evidence (`blocked_by`, `org_link`, `term:keymap`)
+and writes nothing back. That is the opposite of Graph RAG, HippoRAG,
+LightRAG, Zep, Mem0, and A-MEM [12], [13], [14], [15], [16], [17],
+which extract or infer a knowledge graph and then retrieve over it.
+vissue keeps Hogan's graph of entities [7] down to the headings a human
+already wrote.
+
+Citation-graph ranking [18], [19] is the same discipline at web scale:
+follow explicit edges first, treat degree and text as secondary
+signals, and do not promote a derived neighbor into the source graph.
+`related` is that idea on a few hundred issues, not PageRank over a
+citation corpus.
 
 ## Install
 
@@ -172,11 +268,14 @@ $ vissue export --project parser | jq -r '.id + " " + .state'
 
 **Follow the graph.** `tree` walks children and blockers below an id; `graph`
 emits the whole thing as Graphviz DOT; `backlinks` finds everything pointing at
-an id; `cycles` reports a blocker loop.
+an id; `cycles` reports a blocker loop; `ancestors` and `impact` bound the walk
+by hop depth.
 
 ```console
 $ vissue tree parser-3xq7
 $ vissue graph --project parser | dot -Tsvg > backlog.svg
+$ vissue ancestors parser-3xq7 --depth 3
+$ vissue impact parser-k29f --depth 3
 ```
 
 `related` provides a bounded, derived neighborhood for an issue. Explicit
@@ -251,7 +350,7 @@ rgoswami@workstation
 $ VISSUE_AGENT=grind-worker-3 vissue claim parser-k29f
 claimed parser-k29f by grind-worker-3 (TODO -> STARTED)
 $ vissue list --state STARTED
-parser-k29f            STARTED   [#C]  Reject a manifest…  (claimed 0d by grind-worker-3)
+parser-k29f            STARTED   [#C]  Reject a manifest...  (claimed 0d by grind-worker-3)
 ```
 
 The identity comes from `VISSUE_AGENT`, then `agent` in `vissue.toml`, then
@@ -274,7 +373,7 @@ state:
 
 ```console
 $ vissue claims
-parser-k29f            STARTED   [#C]    0d  grind-worker-3  Reject a manifest… (parser)
+parser-k29f            STARTED   [#C]    0d  grind-worker-3  Reject a manifest... (parser)
 $ vissue claims --by grind-worker-3 --json | jq -r '.[0].claimed_at'
 [2026-08-03 Mon 12:52]
 ```
@@ -314,7 +413,7 @@ stop mattering while it waits:
 
 ```console
 $ vissue agenda -d 30
-2026-07-23  deadline  12d overdue parser-k29f  STARTED  [#A]  Reject a manifest… (parser)
+2026-07-23  deadline  12d overdue parser-k29f  STARTED  [#A]  Reject a manifest... (parser)
 ```
 
 **Watch for changes without re-reading everything.** A write advances a
@@ -411,6 +510,36 @@ its root from `VISSUE_ROOT` and `VISSUE_PREFIX`. Tools mirror the CLI verbs:
 `vissue_graph`, `vissue_roadmap`, `vissue_export`, `vissue_check`,
 `vissue_hygiene`, `vissue_mirror`, `vissue_projects`, and `vissue_identity`.
 
+## Ecosystem
+
+`vissue` manages intentional work items; [orgaw](https://github.com/HaoZeke/orgaw)
+records intentional time and evidence against them. The projects remain
+independently installable and communicate through the `vissue` command-line
+protocol, with Org issue headings and their CLOCK entries as the shared data.
+
+```mermaid
+flowchart LR
+    corpus["Org issues and CLOCK entries"]
+    vissue["vissue: work items"]
+    protocol["CLI provider protocol"]
+    orgaw["orgaw: time and evidence"]
+    corpus <--> vissue
+    vissue --> protocol --> orgaw
+    orgaw --> corpus
+```
+
+Install both tools for the integrated path:
+
+```console
+$ cargo install vissue-cli
+$ cargo install orgaw
+$ export ISSUE_ROOT=/path/to/notes
+$ vissue ready
+$ orgaw issues
+$ orgaw in project-id
+$ orgaw out
+```
+
 ## Explanation
 
 ### Why the file is the database
@@ -418,8 +547,33 @@ its root from `VISSUE_ROOT` and `VISSUE_PREFIX`. Tools mirror the CLI verbs:
 A tracker that owns its own store forces a sync problem on everyone who also
 wants the data in git. Keeping the org file authoritative removes that problem:
 review happens in the diff, history comes from the log, and any editor that
-speaks orgmode is a client. The cost is a linear scan per command, which is the
-right trade until an issue count gets large enough to notice.
+speaks orgmode is a client [1]. Each command pays a linear scan of the
+files it needs, which stays cheap until the issue count grows large enough
+to notice.
+
+### Why the graph is acyclic
+
+A markdown task list is a total order dressed as a document. A backlog is a
+partial order: the terminal UI cannot start before the overlay exists, but
+the catalog and an unrelated docs pass can run together [2], [3]. Kahn's
+algorithm [4] gives a deterministic prerequisite-first sequence. Tarjan's
+coloured depth-first search [5] is how `cycles` reports a true loop and
+ignores a diamond. `ready` is not that total order. It is the set of open
+sources, which is what several agents need to steal work without a
+coordinator [6].
+
+### Why `related` does not write edges
+
+Hogan et al. define a knowledge graph as a graph of real-world entities with
+a schema a consumer can query [7]. Issue headings already are such entities.
+Extracting a second graph from their prose, the move in Graph RAG, HippoRAG,
+LightRAG, Zep, Mem0, and A-MEM [12], [13], [14], [15], [16], [17], would
+create a store that drifts from the file. `related` therefore ranks a
+bounded neighborhood and names its evidence. Term overlap uses Sparck-Jones
+idf [8] and Salton-style weights [9], [10], [11]. Explicit Org relations
+outrank those terms. Nothing inferred is written back. That is the same
+refusal Brin, Page, and Kleinberg make when they separate the hyperlink
+graph from the query [18], [19]: follow declared edges, do not mint them.
 
 ### Why `show` does not print the body
 
@@ -433,6 +587,33 @@ Every read-modify-write cycle takes a process-local mutex and an advisory lock
 on `issues.org.lock`, then writes through a uniquely named temporary and
 renames. Concurrent creates from several processes therefore neither lose
 headings nor collide on the temporary file.
+
+## References
+
+1. E. Schulte, D. Davison, T. Dye, and C. Dominik, "A Multi-Language Computing Environment for Literate Programming and Reproducible Research," *Journal of Statistical Software*, 2012, doi: [10.18637/jss.v046.i03](https://doi.org/10.18637/jss.v046.i03).
+2. D. S. Weld, "An Introduction to Least Commitment Planning," *AI Magazine*, 1994, doi: [10.1609/aimag.v15i4.1109](https://doi.org/10.1609/aimag.v15i4.1109).
+3. K. Erol, J. Hendler, and D. S. Nau, "Complexity results for HTN planning," *Annals of Mathematics and Artificial Intelligence*, 1996, doi: [10.1007/bf02136175](https://doi.org/10.1007/bf02136175).
+4. A. B. Kahn, "Topological sorting of large networks," *Communications of the ACM*, 1962, doi: [10.1145/368996.369025](https://doi.org/10.1145/368996.369025).
+5. R. Tarjan, "Depth-First Search and Linear Graph Algorithms," *SIAM Journal on Computing*, 1972, doi: [10.1137/0201010](https://doi.org/10.1137/0201010).
+6. R. D. Blumofe and C. E. Leiserson, "Scheduling multithreaded computations by work stealing," *Journal of the ACM*, 1999, doi: [10.1145/324133.324234](https://doi.org/10.1145/324133.324234).
+7. A. Hogan et al., "Knowledge Graphs," *ACM Computing Surveys*, 2022, doi: [10.1145/3447772](https://doi.org/10.1145/3447772).
+8. K. S. Jones, "A statistical interpretation of term specificity and its application in retrieval," *Journal of Documentation*, 1972, doi: [10.1108/eb026526](https://doi.org/10.1108/eb026526).
+9. G. Salton and C. Buckley, "Term-weighting approaches in automatic text retrieval," *Information Processing & Management*, 1988, doi: [10.1016/0306-4573(88)90021-0](https://doi.org/10.1016/0306-4573(88)90021-0).
+10. G. Salton, A. Wong, and C. S. Yang, "A vector space model for automatic indexing," *Communications of the ACM*, 1975, doi: [10.1145/361219.361220](https://doi.org/10.1145/361219.361220).
+11. S. E. Robertson and K. S. Jones, "Relevance weighting of search terms," *Journal of the American Society for Information Science*, 1976, doi: [10.1002/asi.4630270302](https://doi.org/10.1002/asi.4630270302).
+12. D. Edge et al., "From Local to Global: A Graph RAG Approach to Query-Focused Summarization," 2024, doi: [10.48550/arXiv.2404.16130](https://doi.org/10.48550/arXiv.2404.16130).
+13. B. J. Gutierrez, Y. Shu, Y. Gu, M. Yasunaga, and Y. Su, "HippoRAG: Neurobiologically Inspired Long-Term Memory for Large Language Models," 2024, doi: [10.48550/arXiv.2405.14831](https://doi.org/10.48550/arXiv.2405.14831).
+14. Z. Guo, L. Xia, Y. Yu, T. Ao, and C. Huang, "LightRAG: Simple and Fast Retrieval-Augmented Generation," 2024, doi: [10.48550/arXiv.2410.05779](https://doi.org/10.48550/arXiv.2410.05779).
+15. P. Rasmussen, P. Paliychuk, T. Beauvais, J. Ryan, and D. Chalef, "Zep: A Temporal Knowledge Graph Architecture for Agent Memory," 2025, doi: [10.48550/arXiv.2501.13956](https://doi.org/10.48550/arXiv.2501.13956).
+16. P. Chhikara, D. Khant, S. Aryan, T. Singh, and D. Jain, "Mem0: Building Production-Ready AI Agents with Scalable Long-Term Memory," 2025, doi: [10.48550/arXiv.2504.19413](https://doi.org/10.48550/arXiv.2504.19413).
+17. W. Xu, Z. Liang, K. Mei, H. Gao, J. Tan, and Y. Zhang, "A-MEM: Agentic Memory," 2025, doi: [10.48550/arXiv.2502.12110](https://doi.org/10.48550/arXiv.2502.12110).
+18. S. Brin and L. Page, "The anatomy of a large-scale hypertextual Web search engine," *Computer Networks and ISDN Systems*, 1998, doi: [10.1016/s0169-7552(98)00110-x](https://doi.org/10.1016/s0169-7552(98)00110-x).
+19. J. M. Kleinberg, "Authoritative sources in a hyperlinked environment," *Journal of the ACM*, 1999, doi: [10.1145/324133.324140](https://doi.org/10.1145/324133.324140).
+
+See also the [Org mode manual](https://orgmode.org/manual/), the
+[Model Context Protocol](https://modelcontextprotocol.io/),
+[petgraph](https://github.com/petgraph/petgraph), and
+[daggy](https://github.com/mitchmindtree/daggy).
 
 ## Contributing
 

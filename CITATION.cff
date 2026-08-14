@@ -13,16 +13,20 @@ version: 0.1.0
 keywords:
   - issue tracking
   - orgmode
+  - directed acyclic graph
+  - multi-agent
   - plain text
   - command line
   - model context protocol
 abstract: >-
   vissue tracks issues as top-level orgmode headings in one file per project.
-  The file is the store, so the backlog diffs, merges, and greps alongside the
-  code it describes. A CLI and a Model Context Protocol server share one
-  library, providing queries over state, priority, parent and blocker edges,
-  a JSONL export, and a read-only projection for sharing a backlog with
-  collaborators who cannot read the tracker directly.
+  Parent and blocker edges form an explicit DAG: ready is the open frontier,
+  claim is the multi-agent lock, and related ranks a named local neighborhood
+  without writing inferred links. The file is the store, so the backlog diffs,
+  merges, and greps alongside the code it describes. A CLI and a Model Context
+  Protocol server share one library, providing queries over state, priority,
+  the graph, a JSONL export, and a read-only projection for sharing a backlog
+  with collaborators who cannot read the tracker directly.
 references:
   - type: software
     title: "orgaw: intentional time and evidence over Org issue headings"
