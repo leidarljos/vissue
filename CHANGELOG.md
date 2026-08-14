@@ -9,7 +9,7 @@ All notable changes to vissue are recorded here. The format follows
 ### Changed
 
 - README leads with the multi-agent plan graph, a worked board example,
-  and the OokCite citation-graph literature that backs the DAG.
+  an audit table for citations, and the OokCite `vissue-dag` collection.
 
 ## [0.1.0] - 2026-08-12
 
