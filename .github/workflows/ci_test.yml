@@ -65,8 +65,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
       - uses: taiki-e/install-action@60c08ce81d769135aafd96f96efc85993d9cb8e4
+      # Collect once, then report twice: the summary always prints, so a
+      # gate failure says which files moved and by how much instead of
+      # exiting 1 with nothing to read.
+      - name: Collect coverage
+        run: cargo llvm-cov --locked --workspace --all-targets --no-report
+      - name: Coverage summary
+        run: cargo llvm-cov report --summary-only
       - name: Generate LCOV report
-        run: cargo llvm-cov --locked --workspace --all-targets --fail-under-lines 89 --lcov --output-path lcov.info
+        run: cargo llvm-cov report --lcov --output-path lcov.info --fail-under-lines 89
       - name: Upload LCOV artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
