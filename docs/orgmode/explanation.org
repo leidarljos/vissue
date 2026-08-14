@@ -307,4 +307,3 @@ See also the [[https://orgmode.org/manual/][Org mode manual]], the
 [[https://modelcontextprotocol.io/][Model Context Protocol]],
 [[https://github.com/petgraph/petgraph][petgraph]], and
 [[https://github.com/mitchmindtree/daggy][daggy]].
-

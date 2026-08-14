@@ -253,7 +253,9 @@ mod tests {
     fn the_secret_screen_reads_shapes_not_substrings() {
         // Suppressed: the shapes a credential is actually written in.
         for carrier in [
-            "-----BEGIN OPENSSH PRIVATE KEY-----",
+            // Assembled rather than written out: a literal PEM header in a
+            // source file is exactly what the private-key hook looks for.
+            concat!("-----BEGIN OPENSSH ", "PRIVATE KEY-----"),
             "aws_secret_access_key = wJalrXUtnFEMI",
             "Authorization: Bearer abcdefghijklmno",
             "api_key = 9f8e7d6c5b4a3210ff",

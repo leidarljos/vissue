@@ -211,4 +211,3 @@ $ vissue completions zsh  > ~/.zfunc/_vissue
 $ vissue completions fish > ~/.config/fish/completions/vissue.fish
 $ vissue man > ~/.local/share/man/man1/vissue.1
 #+end_src
-

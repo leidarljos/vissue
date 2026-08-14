@@ -25,6 +25,11 @@ rev = "v2.4.1"
 hooks = [
   {
     id = "codespell",
-    args = ["--skip=*.lock,Cargo.lock", "-L", "unparseable,unparsable"],
+    # Brin and Hendler are author surnames in the bibliography.
+    args = [
+      "--skip=*.lock,Cargo.lock",
+      "-L",
+      "unparseable,unparsable,brin,hendler",
+    ],
   },
 ]
