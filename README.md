@@ -1,5 +1,9 @@
 # vissue
 
+<p align="center">
+  <img src="assets/logo.svg" width="176" alt="vissue mark: a ready teal node with coral edges to two waiting issues">
+</p>
+
 [![CI](https://github.com/HaoZeke/vissue/actions/workflows/ci_test.yml/badge.svg)](https://github.com/HaoZeke/vissue/actions/workflows/ci_test.yml)
 [![crates.io](https://img.shields.io/crates/v/vissue-cli.svg)](https://crates.io/crates/vissue-cli)
 [![docs.rs](https://img.shields.io/docs.rs/vissue-core/badge.svg)](https://docs.rs/vissue-core)

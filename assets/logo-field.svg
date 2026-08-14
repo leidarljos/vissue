@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="vissue on field">
+  <title>vissue on field</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="4.2" markerHeight="4.2" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#e87a55"/>
+    </marker>
+  </defs>
+  <rect width="256" height="256" fill="#1a4568"/>
+  <g fill="#ede6d6" stroke="#111111" stroke-width="7" stroke-linejoin="round">
+    <rect x="46" y="44" width="52" height="52" rx="11"/>
+    <rect x="158" y="44" width="52" height="52" rx="11"/>
+  </g>
+  <rect x="102" y="148" width="52" height="52" rx="11" fill="#12918a"/>
+  <path d="M118 148 L80 102" stroke="#e87a55" stroke-width="8" stroke-linecap="butt" marker-end="url(#arrow)"/>
+  <path d="M138 148 L176 102" stroke="#e87a55" stroke-width="8" stroke-linecap="butt" marker-end="url(#arrow)"/>
+</svg>

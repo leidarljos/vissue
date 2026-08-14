@@ -6,6 +6,11 @@ All notable changes to vissue are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Logo mark: a ready node feeding two waiting issues, in paper and field
+  grounds, plus a wordmark lockup under `assets/`.
+
 ### Changed
 
 - README leads with the multi-agent plan graph, a worked board example,
