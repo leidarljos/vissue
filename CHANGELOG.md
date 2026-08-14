@@ -36,6 +36,8 @@ All notable changes to vissue are recorded here. The format follows
 - `check` counts a duplicate id as an error.
 - `hygiene` matches issues by id rather than by row prefix.
 - An `issues.org` is flushed to the device before the rename publishes it.
+- A reader that closes the pipe, as `vissue export | head` does, exits 0
+  instead of panicking with status 101.
 
 ### Changed
 

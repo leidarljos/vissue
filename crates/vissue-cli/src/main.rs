@@ -11,6 +11,38 @@ use vissue_core::ops::{self, CreateOpts};
 use vissue_core::store;
 use vissue_core::{agent, events, report};
 
+/// Write to stdout, surfacing a closed pipe as an error the caller handles.
+///
+/// The `print!` family unwraps the write and aborts the process instead, so
+/// `vissue export | head` ends in a panic and a 101 exit status rather than
+/// the answer the reader asked for.
+macro_rules! emit {
+    ($($arg:tt)*) => {
+        write_stdout(format_args!($($arg)*))?
+    };
+}
+
+/// [`emit!`] with a trailing newline.
+macro_rules! emitln {
+    ($($arg:tt)*) => {
+        write_stdout(format_args!("{}\n", format_args!($($arg)*)))?
+    };
+}
+
+fn write_stdout(args: std::fmt::Arguments<'_>) -> Result<()> {
+    std::io::stdout().lock().write_fmt(args)?;
+    Ok(())
+}
+
+/// Whether a failure is a reader that closed the pipe, which is how `head`
+/// and `less` say they have seen enough.
+fn is_broken_pipe(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .filter_map(|cause| cause.downcast_ref::<std::io::Error>())
+        .any(|io| io.kind() == std::io::ErrorKind::BrokenPipe)
+}
+
 #[derive(Parser)]
 #[command(
     name = "vissue",
@@ -326,6 +358,9 @@ enum Command {
 
 fn main() {
     if let Err(e) = run() {
+        if is_broken_pipe(&e) {
+            return;
+        }
         eprintln!("vissue: {e:#}");
         std::process::exit(1);
     }
@@ -370,7 +405,7 @@ fn run() -> Result<()> {
                     body: body_text.as_deref(),
                 },
             )?;
-            print!("{out}");
+            emit!("{out}");
         }
         Command::Q {
             title,
@@ -390,7 +425,7 @@ fn run() -> Result<()> {
                     ..Default::default()
                 },
             )?;
-            print!("{out}");
+            emit!("{out}");
         }
         Command::List {
             project,
@@ -400,9 +435,9 @@ fn run() -> Result<()> {
             if json {
                 let rows =
                     agent::issues_json(&layout, project.as_deref(), state.as_deref(), false)?;
-                println!("{}", serde_json::to_string_pretty(&rows)?);
+                emitln!("{}", serde_json::to_string_pretty(&rows)?);
             } else {
-                print!(
+                emit!(
                     "{}",
                     report::list(&layout, project.as_deref(), state.as_deref(), false)?
                 );
@@ -410,12 +445,12 @@ fn run() -> Result<()> {
         }
         Command::Show { id, json } => {
             if json {
-                println!(
+                emitln!(
                     "{}",
                     serde_json::to_string_pretty(&agent::show_json(&layout, &id)?)?
                 );
             } else {
-                print!("{}", report::show(&layout, &id)?);
+                emit!("{}", report::show(&layout, &id)?);
             }
         }
         Command::Update {
@@ -433,7 +468,7 @@ fn run() -> Result<()> {
                 block.as_deref(),
                 unblock.as_deref(),
             )?;
-            print!("{}", outcome.report);
+            emit!("{}", outcome.report);
             for hint in outcome.hints {
                 eprintln!("[hint] {hint}");
             }
@@ -441,63 +476,63 @@ fn run() -> Result<()> {
         Command::Ready { project, json } => {
             if json {
                 let rows = agent::issues_json(&layout, project.as_deref(), None, true)?;
-                println!("{}", serde_json::to_string_pretty(&rows)?);
+                emitln!("{}", serde_json::to_string_pretty(&rows)?);
             } else {
-                print!("{}", report::ready(&layout, project.as_deref())?);
+                emit!("{}", report::ready(&layout, project.as_deref())?);
             }
         }
-        Command::Claim { id, force } => print!("{}", agent::claim(&layout, &id, force)?),
+        Command::Claim { id, force } => emit!("{}", agent::claim(&layout, &id, force)?),
         Command::Note { id, text } => {
-            print!("{}", ops::note(&layout, &id, &text.join(" "))?)
+            emit!("{}", ops::note(&layout, &id, &text.join(" "))?)
         }
-        Command::Claims { by, project, json } => print!(
+        Command::Claims { by, project, json } => emit!(
             "{}",
             report::claims(&layout, by.as_deref(), project.as_deref(), json)?
         ),
         Command::Fold { file, project } => {
             let project = ops::resolve_project(&layout, project.as_deref())?;
-            print!("{}", ops::fold(&layout, &file, &project)?)
+            emit!("{}", ops::fold(&layout, &file, &project)?)
         }
         Command::Agenda { days, project } => {
-            print!("{}", report::agenda(&layout, days, project.as_deref())?)
+            emit!("{}", report::agenda(&layout, days, project.as_deref())?)
         }
-        Command::Hygiene { stale_days } => print!("{}", agent::hygiene(&layout, stale_days)?),
-        Command::Whoami => println!("{}", vissue_core::config::identity(&layout)),
-        Command::WaitingOn { id } => print!("{}", agent::waiting_on(&layout, &id)?),
-        Command::BodyExcerpt { id } => print!("{}", agent::body_excerpt(&layout, &id)?),
+        Command::Hygiene { stale_days } => emit!("{}", agent::hygiene(&layout, stale_days)?),
+        Command::Whoami => emitln!("{}", vissue_core::config::identity(&layout)),
+        Command::WaitingOn { id } => emit!("{}", agent::waiting_on(&layout, &id)?),
+        Command::BodyExcerpt { id } => emit!("{}", agent::body_excerpt(&layout, &id)?),
         Command::Search { query, limit } => {
-            print!("{}", report::search(&layout, &query, limit)?)
+            emit!("{}", report::search(&layout, &query, limit)?)
         }
-        Command::Children { id } => print!("{}", report::children(&layout, &id)?),
-        Command::Ancestors { id, depth } => print!("{}", report::ancestors(&layout, &id, depth)?),
-        Command::Impact { id, depth } => print!("{}", report::impact(&layout, &id, depth)?),
+        Command::Children { id } => emit!("{}", report::children(&layout, &id)?),
+        Command::Ancestors { id, depth } => emit!("{}", report::ancestors(&layout, &id, depth)?),
+        Command::Impact { id, depth } => emit!("{}", report::impact(&layout, &id, depth)?),
         Command::Related {
             id,
             depth,
             limit,
             format,
-        } => print!("{}", report::related(&layout, &id, depth, limit, &format)?),
+        } => emit!("{}", report::related(&layout, &id, depth, limit, &format)?),
         Command::Stale { days, project } => {
-            print!("{}", report::stale(&layout, days, project.as_deref())?)
+            emit!("{}", report::stale(&layout, days, project.as_deref())?)
         }
         Command::Count {
             project,
             state,
             ready,
-        } => print!(
+        } => emit!(
             "{}",
             report::count(&layout, project.as_deref(), state.as_deref(), ready)?
         ),
-        Command::Export { project } => print!("{}", report::export(&layout, project.as_deref())?),
-        Command::Tree { id, format } => print!("{}", report::tree(&layout, &id, &format)?),
-        Command::Cycles => print!("{}", report::cycles(&layout)?),
-        Command::Graph { project } => print!("{}", report::graph(&layout, project.as_deref())?),
-        Command::Refile { id, to } => print!("{}", ops::refile(&layout, &id, &to)?),
-        Command::Backlinks { id } => print!("{}", report::backlinks(&layout, &id)?),
-        Command::Roadmap { project } => print!("{}", report::roadmap(&layout, project.as_deref())?),
+        Command::Export { project } => emit!("{}", report::export(&layout, project.as_deref())?),
+        Command::Tree { id, format } => emit!("{}", report::tree(&layout, &id, &format)?),
+        Command::Cycles => emit!("{}", report::cycles(&layout)?),
+        Command::Graph { project } => emit!("{}", report::graph(&layout, project.as_deref())?),
+        Command::Refile { id, to } => emit!("{}", ops::refile(&layout, &id, &to)?),
+        Command::Backlinks { id } => emit!("{}", report::backlinks(&layout, &id)?),
+        Command::Roadmap { project } => emit!("{}", report::roadmap(&layout, project.as_deref())?),
         Command::Check => {
             let out = report::check(&layout)?;
-            print!("{}", out.text);
+            emit!("{}", out.text);
             if out.errors > 0 {
                 bail!("{} validation error(s)", out.errors);
             }
@@ -509,11 +544,11 @@ fn run() -> Result<()> {
         } => {
             let digest = vissue_core::digest::corpus_digest(&layout, &projects)?;
             if json {
-                println!("{}", serde_json::to_string_pretty(&digest.to_json())?);
+                emitln!("{}", serde_json::to_string_pretty(&digest.to_json())?);
             } else if quiet {
-                println!("{}", digest.combined);
+                emitln!("{}", digest.combined);
             } else {
-                print!("{}", digest.render());
+                emit!("{}", digest.render());
             }
         }
         Command::Mirror {
@@ -525,7 +560,7 @@ fn run() -> Result<()> {
         } => {
             if let Some(path) = check {
                 let verdict = mirror::check(&layout, &path, &projects)?;
-                print!("{}", verdict.report);
+                emit!("{}", verdict.report);
                 if !verdict.fresh {
                     // A stale mirror is a normal answer, not a failure to run,
                     // so it reports on stdout and signals through the status.
@@ -541,7 +576,7 @@ fn run() -> Result<()> {
                 state.as_deref(),
             )?;
             if out == "-" {
-                print!("{text}");
+                emit!("{text}");
             } else {
                 let path = PathBuf::from(&out);
                 if let Some(parent) = path.parent() {
@@ -552,15 +587,14 @@ fn run() -> Result<()> {
                 }
                 std::fs::write(&path, text.as_bytes())
                     .with_context(|| format!("write {}", path.display()))?;
-                let mut stdout = std::io::stdout();
-                writeln!(stdout, "wrote {}", path.display())?;
+                emitln!("wrote {}", path.display());
             }
         }
         Command::Events { since, limit } => {
-            print!("{}", events::since_report(&layout, since, limit)?)
+            emit!("{}", events::since_report(&layout, since, limit)?)
         }
         Command::Ping { detail } => {
-            print!("{}", events::ping_report(&layout, detail.as_deref())?)
+            emit!("{}", events::ping_report(&layout, detail.as_deref())?)
         }
         Command::Wait {
             last,
@@ -568,31 +602,34 @@ fn run() -> Result<()> {
             timeout_ms,
         } => {
             let generation = events::wait_generation(&layout, last, poll_ms, timeout_ms)?;
-            println!("{generation}");
+            emitln!("{generation}");
             if generation <= last {
                 // Unchanged: a polling script tells timeout from progress by
                 // the exit status rather than by parsing the number.
                 std::process::exit(2);
             }
         }
-        Command::Gen => println!("{}", events::generation(&layout)),
+        Command::Gen => emitln!("{}", events::generation(&layout)),
         Command::Projects => {
             for project in store::list_projects(&layout)? {
-                println!("{project}");
+                emitln!("{project}");
             }
         }
         Command::Identity => {
             let exe = std::env::current_exe()
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|_| "vissue".into());
-            println!("vissue {}", env!("CARGO_PKG_VERSION"));
-            println!("binary: {exe}");
-            println!("root:   {}", layout.root().display());
-            println!("prefix: {}", layout.prefix());
-            println!("root={}", layout.root().display());
-            println!("prefix={}", layout.prefix());
+            emitln!("vissue {}", env!("CARGO_PKG_VERSION"));
+            emitln!("binary: {exe}");
+            emitln!("root:   {}", layout.root().display());
+            emitln!("prefix: {}", layout.prefix());
+            emitln!("root={}", layout.root().display());
+            emitln!("prefix={}", layout.prefix());
         }
     }
+    // Flush here rather than at exit, so a full disk or a closed pipe reaches
+    // the caller as a status instead of being dropped on the way out.
+    std::io::stdout().flush()?;
     Ok(())
 }
 

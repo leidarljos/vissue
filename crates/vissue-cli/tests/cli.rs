@@ -254,3 +254,43 @@ fn the_read_only_command_surface_dispatches_against_the_fixture() {
         );
     }
 }
+
+/// `vissue export | head` closes the pipe once it has enough. The output has
+/// to be larger than a pipe buffer for the writer to still be writing when
+/// that happens, so this builds a corpus rather than using the fixture.
+#[test]
+fn a_reader_that_closes_the_pipe_is_not_a_failure() {
+    use std::io::Read as _;
+    use std::process::Stdio;
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_str().unwrap().to_string();
+    for i in 0..400 {
+        let out = Command::new(env!("CARGO_BIN_EXE_vissue"))
+            .args(["--root", &root, "q", "-p", "demo"])
+            .arg(format!(
+                "issue {i} with a title long enough that four hundred of them exceed a pipe buffer"
+            ))
+            .output()
+            .expect("run vissue");
+        assert!(out.status.success());
+    }
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_vissue"))
+        .args(["--root", &root, "export"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("run vissue");
+
+    // Read one line, then drop the pipe while the writer is mid-corpus.
+    let mut stdout = child.stdout.take().unwrap();
+    let mut first = [0u8; 64];
+    stdout.read_exact(&mut first).unwrap();
+    drop(stdout);
+
+    let out = child.wait_with_output().expect("wait for vissue");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "exited {:?}: {stderr}", out.status);
+    assert!(stderr.is_empty(), "{stderr}");
+}
