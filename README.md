@@ -172,11 +172,11 @@ Full documentation is at **[vissue.rgoswami.me](https://vissue.rgoswami.me)**.
 
 | Page | What it answers |
 |---|---|
-| [Getting started](https://vissue.rgoswami.me/getting-started.html) | An empty directory to a backlog two agents work at once |
-| [How-to](https://vissue.rgoswami.me/howto.html) | One task at a time: filter, share, watch, fold, validate |
-| [Reference](https://vissue.rgoswami.me/reference.html) | Commands, properties, config, export schema, exit statuses |
-| [Explanation](https://vissue.rgoswami.me/explanation.html) | Why the file is the database, and what the citations justify |
-| [Emacs](https://vissue.rgoswami.me/emacs.html) | The agenda, tag search, and `id:` links, with nothing installed |
+| [Getting started](https://vissue.rgoswami.me/getting-started) | An empty directory to a backlog two workers share |
+| [How-to](https://vissue.rgoswami.me/howto) | One task at a time: filter, share, watch, fold, validate |
+| [Reference](https://vissue.rgoswami.me/reference) | Commands, properties, config, export schema, exit statuses |
+| [Explanation](https://vissue.rgoswami.me/explanation) | Why the file is the database, and what the citations justify |
+| [Emacs](https://vissue.rgoswami.me/emacs) | The agenda, tag search, and `id:` links, with nothing installed |
 
 The sources are Org under `docs/orgmode/`; `bash docs/build.sh` renders the
 site.
@@ -220,7 +220,7 @@ flowchart LR
 The traffic goes both ways: `C-c C-d`, `C-c C-s`, `C-c C-q`, and marking an
 issue DONE under `org-log-done` all work on an issue heading, and vissue reads
 back what they write. `tests/org_interop.sh` drives a real Emacs in CI to keep
-that true. See [Emacs](https://vissue.rgoswami.me/emacs.html) for the details,
+that true. See [Emacs](https://vissue.rgoswami.me/emacs) for the details,
 including what any other tool writing the same file has to respect.
 
 ## Contributing
