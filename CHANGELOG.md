@@ -8,8 +8,8 @@ All notable changes to vissue are recorded here. The format follows
 
 ### Added
 
-- Logo mark: a ready node feeding two waiting issues, in paper and field
-  grounds, plus a wordmark lockup under `assets/`.
+- Logo mark: a tessellated V of issue nodes with one ready cell, plus a
+  circular crest and wordmark lockup under `assets/`.
 
 ### Changed
 

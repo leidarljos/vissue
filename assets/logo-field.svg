@@ -1,16 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="vissue on field">
   <title>vissue on field</title>
-  <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="4.2" markerHeight="4.2" orient="auto">
-      <path d="M0 0 L10 5 L0 10 z" fill="#e87a55"/>
-    </marker>
-  </defs>
-  <rect width="256" height="256" fill="#1a4568"/>
-  <g fill="#ede6d6" stroke="#111111" stroke-width="7" stroke-linejoin="round">
-    <rect x="46" y="44" width="52" height="52" rx="11"/>
-    <rect x="158" y="44" width="52" height="52" rx="11"/>
+  <rect width="256" height="256" fill="#1d3d58"/>
+  <g stroke="#141414" stroke-width="6" stroke-linejoin="miter">
+    <polygon points="64,68 96,100 64,132 32,100" fill="#f4f1ea"/>
+    <polygon points="128,68 160,100 128,132 96,100" fill="#f4f1ea"/>
+    <polygon points="192,68 224,100 192,132 160,100" fill="#f4f1ea"/>
+    <polygon points="96,100 128,132 96,164 64,132" fill="#f4f1ea"/>
+    <polygon points="160,100 192,132 160,164 128,132" fill="#f4f1ea"/>
+    <polygon points="128,132 160,164 128,196 96,164" fill="#0e7a76"/>
   </g>
-  <rect x="102" y="148" width="52" height="52" rx="11" fill="#12918a"/>
-  <path d="M118 148 L80 102" stroke="#e87a55" stroke-width="8" stroke-linecap="butt" marker-end="url(#arrow)"/>
-  <path d="M138 148 L176 102" stroke="#e87a55" stroke-width="8" stroke-linecap="butt" marker-end="url(#arrow)"/>
 </svg>
