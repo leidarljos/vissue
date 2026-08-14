@@ -56,6 +56,20 @@ test "$tag_create_line" -lt "$publish_line"
 test "$publish_line" -lt "$tag_line"
 test "$tag_line" -lt "$arm_line"
 
+# The documentation site ships as Org sources plus a reproducible build, and
+# the generated CLI assets have to exist for a packager to install them.
+for path in docs/build.sh docs/orgmode/index.org docs/orgmode/getting-started.org \
+    docs/orgmode/howto.org docs/orgmode/reference.org docs/orgmode/explanation.org \
+    docs/orgmode/ecosystem.org docs/source/conf.py man/vissue.1 \
+    completions/vissue.bash completions/_vissue completions/vissue.fish; do
+  test -s "$path" || {
+    echo "missing documentation asset: $path" >&2
+    exit 1
+  }
+done
+grep -q 'vissue.rgoswami.me' README.md
+grep -q 'vissue.rgoswami.me' docs/source/CNAME
+
 for manifest in crates/vissue-core/Cargo.toml crates/vissue-cli/Cargo.toml crates/vissue-mcp/Cargo.toml; do
   grep -q '^description = ' "$manifest"
   grep -q '^readme.workspace = true$' "$manifest"

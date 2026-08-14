@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="vissue mark">
+  <title>vissue mark</title>
+  <g stroke="#141414" stroke-width="6" stroke-linejoin="miter">
+    <polygon points="64,68 96,100 64,132 32,100" fill="#f4f1ea"/>
+    <polygon points="128,68 160,100 128,132 96,100" fill="#f4f1ea"/>
+    <polygon points="192,68 224,100 192,132 160,100" fill="#f4f1ea"/>
+    <polygon points="96,100 128,132 96,164 64,132" fill="#f4f1ea"/>
+    <polygon points="160,100 192,132 160,164 128,132" fill="#f4f1ea"/>
+    <polygon points="128,132 160,164 128,196 96,164" fill="#0e7a76"/>
+  </g>
+</svg>

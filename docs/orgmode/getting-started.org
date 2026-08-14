@@ -1,0 +1,135 @@
+#+title: Getting started
+#+options: toc:nil num:nil
+
+Everything below runs in a scratch directory and touches nothing else. By the
+end you will have a tracker two agents can work at once without colliding.
+
+* 1. Make a tracker
+
+Creating the first issue creates the file.
+
+#+begin_src console
+$ mkdir -p /tmp/demo && cd /tmp/demo
+$ vissue create --project parser "Reject a manifest with no header"
+parser-k29f  TODO  [#C]  Reject a manifest with no header
+file: /tmp/demo/Software/parser/issues.org
+#+end_src
+
+That file is ordinary Org:
+
+#+begin_src org
+#+TITLE: parser issues
+#+CATEGORY: parser
+#+FILETAGS: :issues:parser:
+#+DATE: [2026-08-03 Mon]
+#+DESCRIPTION: Issue tracking file for parser specs, plans, and implementation tasks.
+#+STATUS: Active
+#+TODO: TODO STARTED BLOCKED | DONE CANCELLED
+
+* TODO [#C] Reject a manifest with no header
+:PROPERTIES:
+:ID:         parser-k29f
+:CREATED:    [2026-08-03 Mon]
+:END:
+#+end_src
+
+Nothing about it is private to this tool. Open it in Emacs and the agenda,
+tag search, and =id:= links all work.
+
+* 2. Add work that waits on other work
+
+#+begin_src console
+$ vissue create --project parser --priority A \
+    --body "Scope: the error message quoted in the release notes." \
+    "Publish the release notes"
+parser-3xq7  TODO  [#A]  Publish the release notes
+
+$ vissue update parser-3xq7 --block parser-k29f
+parser-3xq7: state TODO -> BLOCKED (auto on block), blocked_by += parser-k29f
+#+end_src
+
+Adding a blocker moved the issue to BLOCKED on its own, and the transition is
+in the logbook. An edge that would close a cycle is refused.
+
+* 3. Ask what is actually workable
+
+#+begin_src console
+$ vissue ready
+parser-k29f            TODO      [#C]  Reject a manifest with no header
+#+end_src
+
+The blocked issue is gone from the list, which is the whole point of =ready=.
+It is the open frontier, not a schedule.
+
+* 4. Work an issue and close it
+
+#+begin_src console
+$ vissue claim parser-k29f
+claimed parser-k29f by you@yourhost (TODO -> STARTED)
+
+$ vissue update parser-k29f --state DONE
+parser-k29f: state STARTED -> DONE, claim released (you@yourhost)
+[hint] parser-3xq7 (in parser) lists this as a blocker; clear with `vissue update parser-3xq7 --unblock parser-k29f`
+#+end_src
+
+Closing a blocker gives up the claim and names every issue still waiting on
+it. The hint goes to standard error, so a pipeline reading standard output is
+unaffected.
+
+* 5. Watch the backlog open up
+
+#+begin_src console
+$ vissue update parser-3xq7 --unblock parser-k29f
+parser-3xq7: state BLOCKED -> TODO (auto on unblock), blocked_by -= parser-k29f
+$ vissue ready
+parser-3xq7            TODO      [#A]  Publish the release notes
+#+end_src
+
+* 6. Put two agents on it
+
+This is what the graph is for. Identities are opaque strings; set
+=VISSUE_AGENT= to something stable enough to recognise across sessions.
+
+#+begin_src console
+$ VISSUE_AGENT=impl-1 vissue claim parser-3xq7
+claimed parser-3xq7 by impl-1 (TODO -> STARTED)
+
+$ VISSUE_AGENT=impl-2 vissue ready
+# empty: the only open work is claimed
+#+end_src
+
+A second agent sees nothing to take rather than duplicating the first one's
+work. =claims= is the standing answer to who holds what:
+
+#+begin_src console
+$ vissue claims
+parser-3xq7            STARTED   [#A]    0d  impl-1  Publish the release notes (parser)
+#+end_src
+
+A claim held by another identity is refused unless you pass =--force=, which
+records the takeover in the logbook rather than losing it.
+
+* 7. Share it with someone who cannot reach the tracker
+
+#+begin_src console
+$ vissue mirror --project parser --out /tmp/demo/backlog-mirror.org
+wrote /tmp/demo/backlog-mirror.org
+#+end_src
+
+That file is a read-only projection with a banner saying so, and a stamp that
+makes staleness one command:
+
+#+begin_src console
+$ vissue mirror --check /tmp/demo/backlog-mirror.org
+fresh: digest=d2ee07c7f585330b issues=2 generation=7 (stamped 2026-08-03T09:53)
+#+end_src
+
+It exits 0 when current and 1 when not, so a script can gate on it.
+
+* Where next
+
+- [[file:howto.org][How-to]] for the rest of the verbs, one task at a time.
+- [[file:ecosystem.org][Ecosystem]] to put this tracker in the Emacs agenda, or to clock
+  time against it with =orgaw=.
+- [[file:explanation.org][Explanation]] for why the order is a partial order and why
+  nothing infers an edge you did not write.

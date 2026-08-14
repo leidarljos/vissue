@@ -1,0 +1,139 @@
+#+title: Reference
+#+options: toc:nil num:nil
+
+* Commands
+
+| Command                                                                   | Purpose                                                                  |
+|---------------------------------------------------------------------------+--------------------------------------------------------------------------|
+| =create=, =q=                                                             | Add an issue; =q= prints only the new id                                 |
+| =list=, =show=                                                            | Rows of issues; one issue's metadata and file range                      |
+| =update=, =claim=, =refile=                                               | Change state, priority, or blockers; take an issue; move it              |
+| =note=                                                                    | Add a dated logbook entry; state and claim untouched                     |
+| =claims=                                                                  | Every live claim, oldest first: who holds what, for how long             |
+| =fold=                                                                    | Turn an inbox file's unstamped =* TODO= headings into issues             |
+| =whoami=                                                                  | The identity a claim would record                                        |
+| =ready=, =count=, =search=, =children=, =ancestors=, =impact=, =related=, =stale= | Query the corpus; bounded dependency and related traversal        |
+| =agenda=                                                                  | Deadlines and scheduled starts inside a horizon, overdue first           |
+| =export=                                                                  | JSONL, one object per issue                                              |
+| =tree=, =graph=, =cycles=, =backlinks=                                    | Relationships                                                            |
+| =roadmap=, =mirror=                                                       | Markdown roadmap; read-only Org or markdown projection                   |
+| =digest=, =mirror --check=                                                | Corpus digest; whether a mirror is still current                         |
+| =check=, =hygiene=                                                        | Validation                                                               |
+| =gen=, =events=, =wait=, =ping=                                           | Change stream for pollers                                                |
+| =projects=, =identity=                                                    | Layout introspection                                                     |
+| =completions=, =man=                                                      | Shell completion scripts and the manual page                             |
+
+* States and priorities
+
+States are =TODO=, =STARTED=, =BLOCKED=, =DONE=, and =CANCELLED=. An issue is
+/ready/ when it is =TODO= or =STARTED= and no id in its =:BLOCKED_BY:= is
+still open. Priorities are the Org cookies =[#A]=, =[#B]=, and =[#C]=,
+defaulting to =C=.
+
+* Properties
+
+=:ID:= is required and generated. =:CREATED:= is set on create. =:PARENT:=,
+=:BLOCKED_BY:=, =:VISSUE_TAGS:=, =:TYPE:=, =:CLAIMED_BY:=, =:CLAIMED_AT:=,
+and =:DISCOVERED_FROM:= are read by the query verbs. Any other property is
+preserved untouched, in the order it appears on disk.
+
+=:BLOCKED_BY:= accepts commas, whitespace, or both. =:PARENT:= may name
+another issue or any Org heading with an =:ID:= under the tracker prefix, so a
+design document can head a work hierarchy. Parent chains must terminate;
+=check= reports a loop.
+
+* What Org owns
+
+Three fields live where Org keeps them rather than in the drawer, because Org
+reads them from there and nowhere else.
+
+| Field                       | Written as                                                          | What it buys                              |
+|-----------------------------+---------------------------------------------------------------------+-------------------------------------------|
+| Deadline, scheduled, closed | The planning line under the heading                                 | =org-agenda= shows the issue              |
+| Tags Org can hold           | The heading's own =:tag:tag:= run                                   | Org tag search and =C-c \= match          |
+| Identity                    | =:ID:=                                                              | =id:= links resolve through =org-id=      |
+| Project                     | =#+CATEGORY:= in the preamble                                       | The agenda labels rows by project         |
+
+A tag Org will not accept in a heading, =needs-review= say, stays in
+=:VISSUE_TAGS:= and still answers =search= and =related=. =create --tags=
+splits a list between the two on Org's own tag character class.
+
+Both shapes are read, so a tracker written before this and one edited in Emacs
+parse the same; the next rewrite settles on the Org shape. =:TAGS:=,
+=:DEADLINE:=, and =:SCHEDULED:= in a drawer are names Org reserves, which
+=org-lint= reports, so they are migrated rather than kept.
+
+* JSONL export schema
+
+Each line is an object with =id=, =project=, =title=, =state=, =priority=,
+=properties=, =org_tags=, =tags=, =logbook=, =body=, =line_start=, and
+=line_end=.
+
+=org_tags= is the heading's Org tag run; =tags= is the union with
+=:VISSUE_TAGS:=, and is the field to filter on. Logbook entries carry
+=timestamp=, =from=, =to=, and =note=. CLOCK and other opaque drawer lines
+also carry =raw=, the verbatim Org line, so time recorded by another tool
+survives a rewrite.
+
+* Configuration
+
+=<root>/vissue.toml=, then =<root>/<prefix>/issues.config.toml=, each
+overriding the compiled defaults key by key.
+
+| Key                          | Default    | Meaning                                     |
+|------------------------------+------------+---------------------------------------------|
+| =prefix=                     | =Software= | Directory under the root holding projects   |
+| =agent=                      | unset      | Identity a claim records                    |
+| =issues.default_priority=    | =C=        | Cookie applied when =create= gets none      |
+| =issues.id_length=           | =4=        | Base36 characters in a generated id suffix  |
+| =issues.stale_claim_days=    | =7=        | When =hygiene= calls a claim stale          |
+
+A short =id_length= is a small space: 2 characters is 1296 ids, and =create=
+reports an exhausted space rather than failing obscurely.
+
+* Environment
+
+| Variable         | Meaning                                                     |
+|------------------+-------------------------------------------------------------|
+| =VISSUE_ROOT=    | Tracker root; =ISSUE_ROOT= is read first for the ecosystem  |
+| =VISSUE_PREFIX=  | Directory under the root holding one directory per project  |
+| =VISSUE_AGENT=   | Identity a claim records, ahead of the config file          |
+| =VISSUE_EVENTS=  | =0= suppresses the change stream entirely                   |
+
+* Exit statuses
+
+| Status | Meaning                                                        |
+|--------+----------------------------------------------------------------|
+|      0 | Success, including a reader that closed the pipe               |
+|      1 | Failure, or a stale =mirror --check=, or a failing =check=     |
+|      2 | =wait= timed out without the generation advancing              |
+
+* MCP server
+
+=vissue-mcp= speaks the Model Context Protocol over stdio and calls the
+library in process. It resolves its root from =VISSUE_ROOT= and
+=VISSUE_PREFIX=. Tools mirror the CLI verbs: =vissue_list=, =vissue_ready=,
+=vissue_show=, =vissue_create=, =vissue_update=, =vissue_claim=,
+=vissue_count=, =vissue_search=, =vissue_children=, =vissue_backlinks=,
+=vissue_related=, =vissue_waiting_on=, =vissue_body_excerpt=, =vissue_tree=,
+=vissue_graph=, =vissue_ancestors=, =vissue_impact=, =vissue_cycles=,
+=vissue_refile=, =vissue_wait=, =vissue_whoami=, =vissue_roadmap=,
+=vissue_export=, =vissue_check=, =vissue_hygiene=, =vissue_mirror=,
+=vissue_projects=, and =vissue_identity=.
+
+The server grants write access to every project under its root. Point it at a
+tracker root you are willing to let an agent edit, not at a home directory.
+
+* Concurrency
+
+Every read-modify-write cycle takes a process-local mutex and an advisory lock
+on =issues.org.lock=, then writes through a temporary that is flushed to the
+device, uniquely named, and renamed into place. Concurrent creates from
+several processes therefore neither lose headings nor collide on the
+temporary, and a crash mid-write leaves the previous file rather than a
+truncated one. =orgaw= takes the same lock.
+
+The lock covers one project file. Adding a blocker reads the whole corpus for
+the acyclicity check inside that lock, so it sees every write that has landed;
+two blockers added at the same moment in different project files can still
+close a cycle between them. =check= and =cycles= report one if it happens.

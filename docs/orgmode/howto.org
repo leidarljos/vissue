@@ -1,0 +1,213 @@
+#+title: How-to
+#+options: toc:nil num:nil
+
+One task per section. For the guided path through the basics, read
+[[file:getting-started.org][Getting started]] first.
+
+* Filter and count
+
+=--project= (also =-p= or =-P=) and =--state= apply to =list=, =count=,
+=ready=, =graph=, =roadmap=, and =export=. A project name matches the
+directory on disk without regard to case.
+
+#+begin_src console
+$ vissue list --project parser --state TODO
+$ vissue count --ready
+#+end_src
+
+* Feed another tool
+
+=export= writes one JSON object per line, carrying every property, the
+logbook, the body, and the file line range.
+
+#+begin_src console
+$ vissue export --project parser | jq -r '.id + " " + .state'
+#+end_src
+
+The schema is in the [[file:reference.org][Reference]]. It is the seam other tools consume,
+so fields are added rather than repurposed.
+
+* Follow the graph
+
+=tree= walks children and blockers below an id; =graph= emits the whole thing
+as Graphviz DOT; =backlinks= finds everything pointing at an id; =cycles=
+reports a blocker loop; =ancestors= and =impact= bound the walk by hop depth.
+
+#+begin_src console
+$ vissue tree parser-3xq7
+$ vissue graph --project parser | dot -Tsvg > backlog.svg
+$ vissue ancestors parser-3xq7 --depth 3
+$ vissue impact parser-k29f --depth 3
+#+end_src
+
+* Ask what else is related, and why
+
+=related= gives a bounded, derived neighbourhood. Explicit =:PARENT:=,
+=:BLOCKED_BY:=, =:DISCOVERED_FROM:=, and Org body links rank above shared tags
+and rare terms. The result names its evidence and writes nothing back.
+
+#+begin_src console
+$ vissue related parser-k29f --depth 2 --limit 20 --format org
+#+end_src
+
+=--format org= gives pasteable =id:= links back to the headings.
+
+* Keep the corpus honest
+
+=check= validates every parent and blocker edge, that parent chains terminate,
+that dates parse, and that ids are unique. It exits non-zero on an error, so
+CI can gate on it. =hygiene= adds the claims that are not actually workable.
+
+#+begin_src console
+$ vissue check
+$ vissue hygiene --stale-days 3
+#+end_src
+
+* Tell whether a copy of the backlog is current
+
+=digest= hashes the corpus, combined and per project, so a consumer can
+compare two points in time without reading every issue.
+
+#+begin_src console
+$ vissue digest -P atlas -P beacon
+combined=7f91ad67512010d0 issues=109 generation=3167 projects=2
+6cdab6af46e1c979      12  atlas
+671d99c6181c1494      97  beacon
+#+end_src
+
+The per-project lines are the point: a changed combined digest says something
+moved, and the sub-digests say which project. The hash is xxh3 over the JSONL
+export, so it tracks content and ignores formatting that changes nothing.
+
+Every mirror carries that digest in its header, which makes freshness one
+command that exits 0 when current and 1 when not:
+
+#+begin_src console
+$ vissue mirror --check Software/atlas/issues-mirror.org
+stale: Software/atlas/issues-mirror.org
+  stamped digest=0000000000000000 at=2026-08-03T09:53 issues=12
+  current digest=d2ee07c7f585330b issues=12 generation=3167
+  moved: atlas 1111111111111111 -> 6cdab6af46e1c979
+#+end_src
+
+The check reads the projects from the stamp, so a caller need not repeat them.
+
+* See who is holding what
+
+Claiming stamps an identity and a timestamp onto the issue.
+
+#+begin_src console
+$ vissue whoami
+rgoswami@workstation
+$ vissue claims --by grind-worker-3 --json | jq -r '.[0].claimed_at'
+#+end_src
+
+The identity comes from =VISSUE_AGENT=, then =agent= in =vissue.toml=, then
+=user@host=.
+
+Moving to STARTED by any route takes the claim if no one holds it. BLOCKED
+keeps it, because the holder is still on the issue. Returning to TODO, or
+closing, gives it up and writes a logbook note naming who held it and since
+when, so the history outlives the properties.
+
+=hygiene= reports claims held longer than =stale_claim_days= (default 7) and
+STARTED issues nobody has claimed.
+
+* Report progress on an issue someone else holds
+
+=note= adds a dated entry to the top of an issue's logbook and touches
+nothing else.
+
+#+begin_src console
+$ vissue note parser-k29f "grammar table regenerated; fuzz corpus next"
+parser-k29f: noted
+#+end_src
+
+* Fold in work discovered outside the tracker
+
+An agent without write access appends plain =* TODO <title>= headings to an
+inbox Org file on whatever shared surface it can reach. =fold= turns each
+unstamped heading into a tracked issue, then flips the heading to DONE and
+stamps it with the assigned id in place, so the inbox doubles as its own
+receipt and folding twice creates nothing.
+
+#+begin_src console
+$ vissue fold inbox.org --project parser
+folded 2: parser-x1a2 parser-y3b4
+#+end_src
+
+A =fold= that fails partway still stamps the issues it created, so a rerun
+does not create them twice.
+
+* See what is due
+
+=agenda= lists open and blocked issues whose deadline or scheduled date falls
+inside a horizon, overdue first. A blocked issue still appears, because its
+date does not stop mattering while it waits.
+
+#+begin_src console
+$ vissue agenda -d 30
+2026-07-23  deadline  12d overdue parser-k29f  STARTED  [#A]  Reject a manifest... (parser)
+#+end_src
+
+Emacs shows the same dates in its own agenda without this command; see
+[[file:ecosystem.org][Ecosystem]].
+
+* Watch for changes without re-reading everything
+
+A write advances a generation counter and appends to a log, both beside the
+project directories. A poller compares the counter, then reads only what is
+new.
+
+#+begin_src console
+$ vissue gen
+3167
+$ vissue events --since 3155 -n 5
+$ vissue wait --last 3167 --timeout-ms 30000   # exits 2 on timeout
+$ vissue ping --detail "external change"       # wake pollers by hand
+#+end_src
+
+Set =VISSUE_EVENTS=0= to suppress emission when the tracker must stay
+untouched.
+
+* Point at a different layout
+
+Use =--prefix=, =VISSUE_PREFIX=, or a =vissue.toml= at the root:
+
+#+begin_src toml
+prefix = "projects"
+
+[issues]
+default_priority = "B"
+id_length = 5
+stale_claim_days = 3
+#+end_src
+
+Each layer overrides key by key, so a file that tunes one knob leaves the rest
+alone.
+
+* Detect the project from the working directory
+
+With a =.project-ctx.toml= carrying =[project] name = "..."= in or above the
+current directory, =--project= may be omitted.
+
+* Know which tracker you are writing to
+
+=create=, =update=, =claim=, and =refile= all write, and claiming counts as a
+write because it stamps the holder onto the issue. When a wrapper or the
+environment sets =VISSUE_ROOT=, a bare =vissue= writes to that tracker from
+any directory. Pass =--root= explicitly for a scratch tracker, and =vissue
+identity= reports which binary and which root are in play before you commit
+to a mutation.
+
+* Install shell completions
+
+Generated from the binary's own argument definitions, so they cannot drift.
+
+#+begin_src console
+$ vissue completions bash > /usr/share/bash-completion/completions/vissue
+$ vissue completions zsh  > ~/.zfunc/_vissue
+$ vissue completions fish > ~/.config/fish/completions/vissue.fish
+$ vissue man > ~/.local/share/man/man1/vissue.1
+#+end_src
+

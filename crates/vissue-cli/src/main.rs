@@ -1,7 +1,7 @@
 //! `vissue`: plain-text issue tracking over per-project orgmode files.
 
 use anyhow::{bail, Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
@@ -354,6 +354,27 @@ enum Command {
     Projects,
     /// Print the resolved binary, root, and prefix.
     Identity,
+    /// Write a shell completion script to stdout.
+    ///
+    /// Generated from this binary's own argument definitions, so it cannot
+    /// drift from the commands it completes.
+    Completions {
+        /// Shell to generate for
+        #[arg(value_enum)]
+        shell: CompletionShell,
+    },
+    /// Write the roff manual page to stdout.
+    Man,
+}
+
+/// Shells `completions` can emit for.
+#[derive(Copy, Clone, PartialEq, Eq, ValueEnum)]
+enum CompletionShell {
+    Bash,
+    Elvish,
+    Fish,
+    Powershell,
+    Zsh,
 }
 
 fn main() {
@@ -607,6 +628,42 @@ fn run() -> Result<()> {
             for project in store::list_projects(&layout)? {
                 emitln!("{project}");
             }
+        }
+        Command::Completions { shell } => {
+            let mut cmd = Cli::command();
+            let name = cmd.get_name().to_string();
+            let mut buffer: Vec<u8> = Vec::new();
+            match shell {
+                CompletionShell::Bash => {
+                    clap_complete::generate(clap_complete::Shell::Bash, &mut cmd, name, &mut buffer)
+                }
+                CompletionShell::Elvish => clap_complete::generate(
+                    clap_complete::Shell::Elvish,
+                    &mut cmd,
+                    name,
+                    &mut buffer,
+                ),
+                CompletionShell::Fish => {
+                    clap_complete::generate(clap_complete::Shell::Fish, &mut cmd, name, &mut buffer)
+                }
+                CompletionShell::Powershell => clap_complete::generate(
+                    clap_complete::Shell::PowerShell,
+                    &mut cmd,
+                    name,
+                    &mut buffer,
+                ),
+                CompletionShell::Zsh => {
+                    clap_complete::generate(clap_complete::Shell::Zsh, &mut cmd, name, &mut buffer)
+                }
+            }
+            emit!("{}", String::from_utf8_lossy(&buffer));
+        }
+        Command::Man => {
+            let mut buffer: Vec<u8> = Vec::new();
+            clap_mangen::Man::new(Cli::command())
+                .render(&mut buffer)
+                .context("render the manual page")?;
+            emit!("{}", String::from_utf8_lossy(&buffer));
         }
         Command::Identity => {
             let exe = std::env::current_exe()

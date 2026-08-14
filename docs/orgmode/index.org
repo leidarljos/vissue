@@ -1,0 +1,79 @@
+#+title: vissue
+#+options: toc:nil num:nil
+
+#+begin_export rst
+.. raw:: html
+
+   <div class="vi-hero">
+     <div class="vi-hero-brand">
+       <img class="vi-hero-mark" src="_static/mark.svg" width="56" height="56" alt="" />
+       <div>
+         <p class="vi-hero-name">vissue</p>
+       </div>
+     </div>
+     <p class="vi-hero-tagline">A plan is a directed acyclic graph of Org headings. One file per project holds the nodes. No daemon, no database, no server.</p>
+     <div class="vi-hero-pills">
+       <span>Org mode</span>
+       <span>Plain text</span>
+       <span>Multi-agent</span>
+       <span>CLI + MCP</span>
+     </div>
+   </div>
+#+end_export
+
+* What it is
+
+An issue is a top-level Org heading. The file is the database: every command
+parses the files it needs, every mutation rewrites one file under a lock. The
+tracker diffs, merges, and greps like the repository it lives in, and a
+command-line tool, a Model Context Protocol server, and Emacs all read the
+same bytes.
+
+#+begin_src
+<root>/Software/<project>/issues.org
+#+end_src
+
+Four properties carry the plan. =:PARENT:= groups work under it. =:BLOCKED_BY:=
+is the partial order. =ready= is the frontier anything can pick up. =claim= is
+the lock that stops two agents taking the same node.
+
+* Where to go
+
+- [[file:getting-started.org][Getting started]] takes an empty directory to a tracked
+  backlog worked by two agents. Start here.
+- [[file:howto.org][How-to]] answers a task at a time: filter, share a backlog, watch
+  for changes, fold in work found elsewhere.
+- [[file:reference.org][Reference]] is the command surface, the properties, the
+  configuration, and the export schema.
+- [[file:explanation.org][Explanation]] is why the file is the database, why the order
+  is a partial order, and what the citations do and do not justify.
+- [[file:ecosystem.org][Ecosystem]] covers Emacs and =orgaw=, the other two readers of
+  the same file.
+
+* Install
+
+#+begin_src console
+$ cargo install vissue-cli
+$ cargo install vissue-mcp   # the MCP server, same version
+#+end_src
+
+Tagged releases carry prebuilt archives and a shell installer. Shell
+completions and a manual page come out of the binary itself:
+
+#+begin_src console
+$ vissue completions zsh > ~/.zfunc/_vissue
+$ vissue man > ~/.local/share/man/man1/vissue.1
+#+end_src
+
+#+begin_export rst
+.. toctree::
+   :maxdepth: 1
+   :caption: Guides
+   :hidden:
+
+   getting-started
+   howto
+   reference
+   explanation
+   ecosystem
+#+end_export

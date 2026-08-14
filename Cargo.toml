@@ -25,6 +25,8 @@ vissue-core = { version = "0.1.0", path = "crates/vissue-core" }
 anyhow = "1"
 chrono = "0.4"
 clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
+clap_mangen = "0.2"
 daggy = "0.9"
 fs2 = "0.4"
 petgraph = "0.8"

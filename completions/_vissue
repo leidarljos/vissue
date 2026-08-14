@@ -1,0 +1,1156 @@
+#compdef vissue
+
+autoload -U is-at-least
+
+_vissue() {
+    typeset -A opt_args
+    typeset -a _arguments_options
+    local ret=1
+
+    if is-at-least 5.2; then
+        _arguments_options=(-s -S -C)
+    else
+        _arguments_options=(-s -C)
+    fi
+
+    local context curcontext="$curcontext" state line
+    _arguments "${_arguments_options[@]}" : \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+'-V[Print version]' \
+'--version[Print version]' \
+":: :_vissue_commands" \
+"*::: :->vissue" \
+&& ret=0
+    case $state in
+    (vissue)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vissue-command-$line[1]:"
+        case $line[1] in
+            (create)
+_arguments "${_arguments_options[@]}" : \
+'-p+[Project name. Auto-detected from .project-ctx.toml when omitted]:PROJECT:_default' \
+'--project=[Project name. Auto-detected from .project-ctx.toml when omitted]:PROJECT:_default' \
+'--priority=[Priority cookie\: A high, B mid, C low]:PRIORITY:_default' \
+'-t+[Type tag such as feature, bug, or task]:ISSUE_TYPE:_default' \
+'--type=[Type tag such as feature, bug, or task]:ISSUE_TYPE:_default' \
+'--deadline=[Org deadline like \`<2026-05-15 Fri>\` or \`\[2026-05-15\]\`]:DEADLINE:_default' \
+'--scheduled=[Org scheduled date like \`<2026-05-01 Mon>\`]:SCHEDULED:_default' \
+'--tags=[Comma- or colon-separated tags]:TAGS:_default' \
+'--parent=[Parent id, which must already exist]:PARENT:_default' \
+'(--body-file)--body=[Body text written under the heading]:BODY:_default' \
+'--body-file=[Read the body from a file; \`-\` reads stdin]:BODY_FILE:_default' \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-q[Print only the new id]' \
+'--quiet[Print only the new id]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':title -- One-line title:_default' \
+&& ret=0
+;;
+(q)
+_arguments "${_arguments_options[@]}" : \
+'-p+[]:PROJECT:_default' \
+'--project=[]:PROJECT:_default' \
+'-t+[]:ISSUE_TYPE:_default' \
+'--type=[]:ISSUE_TYPE:_default' \
+'--parent=[]:PARENT:_default' \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+':title -- One-line title:_default' \
+&& ret=0
+;;
+(list)
+_arguments "${_arguments_options[@]}" : \
+'-p+[]:PROJECT:_default' \
+'--project=[]:PROJECT:_default' \
+'-s+[Filter by state\: TODO, STARTED, BLOCKED, DONE, or CANCELLED]:STATE:_default' \
+'--state=[Filter by state\: TODO, STARTED, BLOCKED, DONE, or CANCELLED]:STATE:_default' \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'--json[Emit JSON rows instead of text]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(show)
+_arguments "${_arguments_options[@]}" : \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'--json[Emit a JSON object instead of text]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(update)
+_arguments "${_arguments_options[@]}" : \
+'-s+[]:STATE:_default' \
+'--state=[]:STATE:_default' \
+'--priority=[]:PRIORITY:_default' \
+'--block=[Add a blocker edge]:BLOCK:_default' \
+'--unblock=[Remove a blocker edge]:UNBLOCK:_default' \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(ready)
+_arguments "${_arguments_options[@]}" : \
+'-p+[]:PROJECT:_default' \
+'--project=[]:PROJECT:_default' \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'--json[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(claim)
+_arguments "${_arguments_options[@]}" : \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'--force[Take over a claim held by another identity]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(note)
+_arguments "${_arguments_options[@]}" : \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+'*::text -- The note. Multiple words are joined with spaces:_default' \
+&& ret=0
+;;
+(claims)
+_arguments "${_arguments_options[@]}" : \
+'--by=[Only claims held by this identity]:BY:_default' \
+'-p+[Only claims in this project]:PROJECT:_default' \
+'--project=[Only claims in this project]:PROJECT:_default' \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'--json[Machine-readable output]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(fold)
+_arguments "${_arguments_options[@]}" : \
+'-p+[Project the folded issues are created in. Auto-detected from .project-ctx.toml when omitted]:PROJECT:_default' \
+'--project=[Project the folded issues are created in. Auto-detected from .project-ctx.toml when omitted]:PROJECT:_default' \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+':file -- The inbox file to fold:_files' \
+&& ret=0
+;;
+(agenda)
+_arguments "${_arguments_options[@]}" : \
+'-d+[Days ahead to include]:DAYS:_default' \
+'--days=[Days ahead to include]:DAYS:_default' \
+'-p+[]:PROJECT:_default' \
+'--project=[]:PROJECT:_default' \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(hygiene)
+_arguments "${_arguments_options[@]}" : \
+'--stale-days=[Days a claim may be held before it counts as stale]:STALE_DAYS:_default' \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(whoami)
+_arguments "${_arguments_options[@]}" : \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(waiting-on)
+_arguments "${_arguments_options[@]}" : \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(body-excerpt)
+_arguments "${_arguments_options[@]}" : \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(search)
+_arguments "${_arguments_options[@]}" : \
+'-n+[]:LIMIT:_default' \
+'--limit=[]:LIMIT:_default' \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+':query:_default' \
+&& ret=0
+;;
+(children)
+_arguments "${_arguments_options[@]}" : \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(ancestors)
+_arguments "${_arguments_options[@]}" : \
+'-d+[]:DEPTH:_default' \
+'--depth=[]:DEPTH:_default' \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(impact)
+_arguments "${_arguments_options[@]}" : \
+'-d+[]:DEPTH:_default' \
+'--depth=[]:DEPTH:_default' \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(related)
+_arguments "${_arguments_options[@]}" : \
+'-d+[]:DEPTH:_default' \
+'--depth=[]:DEPTH:_default' \
+'-n+[]:LIMIT:_default' \
+'--limit=[]:LIMIT:_default' \
+'--format=[text or org; org emits links to the source headings]:FORMAT:_default' \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(stale)
+_arguments "${_arguments_options[@]}" : \
+'-d+[]:DAYS:_default' \
+'--days=[]:DAYS:_default' \
+'-p+[]:PROJECT:_default' \
+'--project=[]:PROJECT:_default' \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(count)
+_arguments "${_arguments_options[@]}" : \
+'-p+[]:PROJECT:_default' \
+'--project=[]:PROJECT:_default' \
+'-s+[]:STATE:_default' \
+'--state=[]:STATE:_default' \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-r[Count only actionable issues]' \
+'--ready[Count only actionable issues]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(export)
+_arguments "${_arguments_options[@]}" : \
+'-p+[]:PROJECT:_default' \
+'--project=[]:PROJECT:_default' \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(tree)
+_arguments "${_arguments_options[@]}" : \
+'-f+[ascii or dot]:FORMAT:_default' \
+'--format=[ascii or dot]:FORMAT:_default' \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(cycles)
+_arguments "${_arguments_options[@]}" : \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(graph)
+_arguments "${_arguments_options[@]}" : \
+'-p+[]:PROJECT:_default' \
+'--project=[]:PROJECT:_default' \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(refile)
+_arguments "${_arguments_options[@]}" : \
+'--to=[Target project]:TO:_default' \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(backlinks)
+_arguments "${_arguments_options[@]}" : \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(roadmap)
+_arguments "${_arguments_options[@]}" : \
+'-p+[]:PROJECT:_default' \
+'--project=[]:PROJECT:_default' \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(check)
+_arguments "${_arguments_options[@]}" : \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(digest)
+_arguments "${_arguments_options[@]}" : \
+'*-p+[Project to include; repeat for several. Omit for every project]:PROJECTS:_default' \
+'*--project=[Project to include; repeat for several. Omit for every project]:PROJECTS:_default' \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'--json[Emit a JSON object instead of text]' \
+'-q[Print only the combined digest]' \
+'--quiet[Print only the combined digest]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(mirror)
+_arguments "${_arguments_options[@]}" : \
+'*-p+[Project to include; repeat for several. Omit for every project]:PROJECTS:_default' \
+'*--project=[Project to include; repeat for several. Omit for every project]:PROJECTS:_default' \
+'-o+[Destination file; \`-\` writes to standard output]:OUT:_default' \
+'--out=[Destination file; \`-\` writes to standard output]:OUT:_default' \
+'(-o --out)--check=[Compare an existing mirror'\''s stamp against the tracker instead of writing. Exits 0 when fresh, 1 when stale]:CHECK:_files' \
+'-f+[org or markdown]:FORMAT:_default' \
+'--format=[org or markdown]:FORMAT:_default' \
+'-s+[Include only this state]:STATE:_default' \
+'--state=[Include only this state]:STATE:_default' \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(events)
+_arguments "${_arguments_options[@]}" : \
+'--since=[Only events newer than this sequence]:SINCE:_default' \
+'-n+[Maximum events returned]:LIMIT:_default' \
+'--limit=[Maximum events returned]:LIMIT:_default' \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(ping)
+_arguments "${_arguments_options[@]}" : \
+'--detail=[]:DETAIL:_default' \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(wait)
+_arguments "${_arguments_options[@]}" : \
+'--last=[]:LAST:_default' \
+'--poll-ms=[]:POLL_MS:_default' \
+'--timeout-ms=[]:TIMEOUT_MS:_default' \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(gen)
+_arguments "${_arguments_options[@]}" : \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(projects)
+_arguments "${_arguments_options[@]}" : \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(identity)
+_arguments "${_arguments_options[@]}" : \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(completions)
+_arguments "${_arguments_options[@]}" : \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+':shell -- Shell to generate for:(bash elvish fish powershell zsh)' \
+&& ret=0
+;;
+(man)
+_arguments "${_arguments_options[@]}" : \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+":: :_vissue__subcmd__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:vissue-help-command-$line[1]:"
+        case $line[1] in
+            (create)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(q)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(list)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(show)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(update)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(ready)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(claim)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(note)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(claims)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(fold)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(agenda)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(hygiene)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(whoami)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(waiting-on)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(body-excerpt)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(search)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(children)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(ancestors)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(impact)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(related)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(stale)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(count)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(export)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(tree)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(cycles)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(graph)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(refile)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(backlinks)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(roadmap)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(check)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(digest)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(mirror)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(events)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(ping)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(wait)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(gen)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(projects)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(identity)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(completions)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(man)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+}
+
+(( $+functions[_vissue_commands] )) ||
+_vissue_commands() {
+    local commands; commands=(
+'create:Create an issue. Pass the body with --body or --body-file (\`-\` reads stdin); omit both to leave the body empty for a later edit' \
+'q:Quick capture\: create and print only the id' \
+'list:List issues, sorted by priority then state then id' \
+'show:Show one issue'\''s metadata and file range' \
+'update:Update state, priority, or blocker edges' \
+'ready:Actionable issues\: TODO or STARTED with no open blocker' \
+'claim:Take an issue\: move it to STARTED and stamp the claim' \
+'note:Add a dated note to the top of an issue'\''s logbook; state and claim untouched' \
+'claims:Every live claim, oldest first\: who holds what, and for how long' \
+'fold:Fold an inbox org file\: each unstamped \`* TODO <title>\` heading becomes an issue, then the heading is stamped with the id and flipped to DONE in place. Already-stamped headings are skipped' \
+'agenda:Dated open work\: deadlines and scheduled starts inside a horizon, overdue first' \
+'hygiene:Checklist for agents and CI\: stalled claims plus corpus validation' \
+'whoami:Print the identity this tracker would record on a claim' \
+'waiting-on:Issues waiting on this one' \
+'body-excerpt:The first lines of an issue'\''s file range' \
+'search:Substring search over ids, titles, properties, and bodies' \
+'children:Issues whose \`\:PARENT\:\` matches this id' \
+'ancestors:Blockers transitively required by this issue' \
+'impact:Issues transitively waiting on this issue' \
+'related:Explain bounded Org and lexical connections around an issue' \
+'stale:Open issues whose \`\:CREATED\:\` is older than N days' \
+'count:Print only the matching issue count' \
+'export:One JSON object per issue per line' \
+'tree:Children and blockers below an id' \
+'cycles:Cycles in the blocker graph' \
+'graph:The blocker and parent graph as Graphviz DOT' \
+'refile:Move an issue to another project'\''s file' \
+'backlinks:Issues referring to this id' \
+'roadmap:A markdown roadmap of active and closed work' \
+'check:Validate the corpus. Exits non-zero on any error' \
+'digest:A content digest of the corpus, for telling whether a copy is current' \
+'mirror:Write a read-only projection of one or more projects to a file' \
+'events:Change events with a sequence above --since' \
+'ping:Append a manual event, waking pollers without editing an issue' \
+'wait:Block until the generation passes --last. Exits 2 on timeout' \
+'gen:Print the current generation counter' \
+'projects:List the projects found under the layout prefix' \
+'identity:Print the resolved binary, root, and prefix' \
+'completions:Write a shell completion script to stdout' \
+'man:Write the roff manual page to stdout' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'vissue commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__agenda_commands] )) ||
+_vissue__subcmd__agenda_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue agenda commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__ancestors_commands] )) ||
+_vissue__subcmd__ancestors_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue ancestors commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__backlinks_commands] )) ||
+_vissue__subcmd__backlinks_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue backlinks commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__body-excerpt_commands] )) ||
+_vissue__subcmd__body-excerpt_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue body-excerpt commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__check_commands] )) ||
+_vissue__subcmd__check_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue check commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__children_commands] )) ||
+_vissue__subcmd__children_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue children commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__claim_commands] )) ||
+_vissue__subcmd__claim_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue claim commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__claims_commands] )) ||
+_vissue__subcmd__claims_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue claims commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__completions_commands] )) ||
+_vissue__subcmd__completions_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue completions commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__count_commands] )) ||
+_vissue__subcmd__count_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue count commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__create_commands] )) ||
+_vissue__subcmd__create_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue create commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__cycles_commands] )) ||
+_vissue__subcmd__cycles_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue cycles commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__digest_commands] )) ||
+_vissue__subcmd__digest_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue digest commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__events_commands] )) ||
+_vissue__subcmd__events_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue events commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__export_commands] )) ||
+_vissue__subcmd__export_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue export commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__fold_commands] )) ||
+_vissue__subcmd__fold_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue fold commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__gen_commands] )) ||
+_vissue__subcmd__gen_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue gen commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__graph_commands] )) ||
+_vissue__subcmd__graph_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue graph commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help_commands] )) ||
+_vissue__subcmd__help_commands() {
+    local commands; commands=(
+'create:Create an issue. Pass the body with --body or --body-file (\`-\` reads stdin); omit both to leave the body empty for a later edit' \
+'q:Quick capture\: create and print only the id' \
+'list:List issues, sorted by priority then state then id' \
+'show:Show one issue'\''s metadata and file range' \
+'update:Update state, priority, or blocker edges' \
+'ready:Actionable issues\: TODO or STARTED with no open blocker' \
+'claim:Take an issue\: move it to STARTED and stamp the claim' \
+'note:Add a dated note to the top of an issue'\''s logbook; state and claim untouched' \
+'claims:Every live claim, oldest first\: who holds what, and for how long' \
+'fold:Fold an inbox org file\: each unstamped \`* TODO <title>\` heading becomes an issue, then the heading is stamped with the id and flipped to DONE in place. Already-stamped headings are skipped' \
+'agenda:Dated open work\: deadlines and scheduled starts inside a horizon, overdue first' \
+'hygiene:Checklist for agents and CI\: stalled claims plus corpus validation' \
+'whoami:Print the identity this tracker would record on a claim' \
+'waiting-on:Issues waiting on this one' \
+'body-excerpt:The first lines of an issue'\''s file range' \
+'search:Substring search over ids, titles, properties, and bodies' \
+'children:Issues whose \`\:PARENT\:\` matches this id' \
+'ancestors:Blockers transitively required by this issue' \
+'impact:Issues transitively waiting on this issue' \
+'related:Explain bounded Org and lexical connections around an issue' \
+'stale:Open issues whose \`\:CREATED\:\` is older than N days' \
+'count:Print only the matching issue count' \
+'export:One JSON object per issue per line' \
+'tree:Children and blockers below an id' \
+'cycles:Cycles in the blocker graph' \
+'graph:The blocker and parent graph as Graphviz DOT' \
+'refile:Move an issue to another project'\''s file' \
+'backlinks:Issues referring to this id' \
+'roadmap:A markdown roadmap of active and closed work' \
+'check:Validate the corpus. Exits non-zero on any error' \
+'digest:A content digest of the corpus, for telling whether a copy is current' \
+'mirror:Write a read-only projection of one or more projects to a file' \
+'events:Change events with a sequence above --since' \
+'ping:Append a manual event, waking pollers without editing an issue' \
+'wait:Block until the generation passes --last. Exits 2 on timeout' \
+'gen:Print the current generation counter' \
+'projects:List the projects found under the layout prefix' \
+'identity:Print the resolved binary, root, and prefix' \
+'completions:Write a shell completion script to stdout' \
+'man:Write the roff manual page to stdout' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'vissue help commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__agenda_commands] )) ||
+_vissue__subcmd__help__subcmd__agenda_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help agenda commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__ancestors_commands] )) ||
+_vissue__subcmd__help__subcmd__ancestors_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help ancestors commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__backlinks_commands] )) ||
+_vissue__subcmd__help__subcmd__backlinks_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help backlinks commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__body-excerpt_commands] )) ||
+_vissue__subcmd__help__subcmd__body-excerpt_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help body-excerpt commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__check_commands] )) ||
+_vissue__subcmd__help__subcmd__check_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help check commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__children_commands] )) ||
+_vissue__subcmd__help__subcmd__children_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help children commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__claim_commands] )) ||
+_vissue__subcmd__help__subcmd__claim_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help claim commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__claims_commands] )) ||
+_vissue__subcmd__help__subcmd__claims_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help claims commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__completions_commands] )) ||
+_vissue__subcmd__help__subcmd__completions_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help completions commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__count_commands] )) ||
+_vissue__subcmd__help__subcmd__count_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help count commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__create_commands] )) ||
+_vissue__subcmd__help__subcmd__create_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help create commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__cycles_commands] )) ||
+_vissue__subcmd__help__subcmd__cycles_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help cycles commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__digest_commands] )) ||
+_vissue__subcmd__help__subcmd__digest_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help digest commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__events_commands] )) ||
+_vissue__subcmd__help__subcmd__events_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help events commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__export_commands] )) ||
+_vissue__subcmd__help__subcmd__export_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help export commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__fold_commands] )) ||
+_vissue__subcmd__help__subcmd__fold_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help fold commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__gen_commands] )) ||
+_vissue__subcmd__help__subcmd__gen_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help gen commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__graph_commands] )) ||
+_vissue__subcmd__help__subcmd__graph_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help graph commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__help_commands] )) ||
+_vissue__subcmd__help__subcmd__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help help commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__hygiene_commands] )) ||
+_vissue__subcmd__help__subcmd__hygiene_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help hygiene commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__identity_commands] )) ||
+_vissue__subcmd__help__subcmd__identity_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help identity commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__impact_commands] )) ||
+_vissue__subcmd__help__subcmd__impact_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help impact commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__list_commands] )) ||
+_vissue__subcmd__help__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help list commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__man_commands] )) ||
+_vissue__subcmd__help__subcmd__man_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help man commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__mirror_commands] )) ||
+_vissue__subcmd__help__subcmd__mirror_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help mirror commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__note_commands] )) ||
+_vissue__subcmd__help__subcmd__note_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help note commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__ping_commands] )) ||
+_vissue__subcmd__help__subcmd__ping_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help ping commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__projects_commands] )) ||
+_vissue__subcmd__help__subcmd__projects_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help projects commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__q_commands] )) ||
+_vissue__subcmd__help__subcmd__q_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help q commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__ready_commands] )) ||
+_vissue__subcmd__help__subcmd__ready_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help ready commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__refile_commands] )) ||
+_vissue__subcmd__help__subcmd__refile_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help refile commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__related_commands] )) ||
+_vissue__subcmd__help__subcmd__related_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help related commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__roadmap_commands] )) ||
+_vissue__subcmd__help__subcmd__roadmap_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help roadmap commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__search_commands] )) ||
+_vissue__subcmd__help__subcmd__search_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help search commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__show_commands] )) ||
+_vissue__subcmd__help__subcmd__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help show commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__stale_commands] )) ||
+_vissue__subcmd__help__subcmd__stale_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help stale commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__tree_commands] )) ||
+_vissue__subcmd__help__subcmd__tree_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help tree commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__update_commands] )) ||
+_vissue__subcmd__help__subcmd__update_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help update commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__wait_commands] )) ||
+_vissue__subcmd__help__subcmd__wait_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help wait commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__waiting-on_commands] )) ||
+_vissue__subcmd__help__subcmd__waiting-on_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help waiting-on commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__whoami_commands] )) ||
+_vissue__subcmd__help__subcmd__whoami_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help whoami commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__hygiene_commands] )) ||
+_vissue__subcmd__hygiene_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue hygiene commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__identity_commands] )) ||
+_vissue__subcmd__identity_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue identity commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__impact_commands] )) ||
+_vissue__subcmd__impact_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue impact commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__list_commands] )) ||
+_vissue__subcmd__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue list commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__man_commands] )) ||
+_vissue__subcmd__man_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue man commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__mirror_commands] )) ||
+_vissue__subcmd__mirror_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue mirror commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__note_commands] )) ||
+_vissue__subcmd__note_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue note commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__ping_commands] )) ||
+_vissue__subcmd__ping_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue ping commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__projects_commands] )) ||
+_vissue__subcmd__projects_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue projects commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__q_commands] )) ||
+_vissue__subcmd__q_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue q commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__ready_commands] )) ||
+_vissue__subcmd__ready_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue ready commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__refile_commands] )) ||
+_vissue__subcmd__refile_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue refile commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__related_commands] )) ||
+_vissue__subcmd__related_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue related commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__roadmap_commands] )) ||
+_vissue__subcmd__roadmap_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue roadmap commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__search_commands] )) ||
+_vissue__subcmd__search_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue search commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__show_commands] )) ||
+_vissue__subcmd__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue show commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__stale_commands] )) ||
+_vissue__subcmd__stale_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue stale commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__tree_commands] )) ||
+_vissue__subcmd__tree_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue tree commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__update_commands] )) ||
+_vissue__subcmd__update_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue update commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__wait_commands] )) ||
+_vissue__subcmd__wait_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue wait commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__waiting-on_commands] )) ||
+_vissue__subcmd__waiting-on_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue waiting-on commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__whoami_commands] )) ||
+_vissue__subcmd__whoami_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue whoami commands' commands "$@"
+}
+
+if [ "$funcstack[1]" = "_vissue" ]; then
+    _vissue "$@"
+else
+    compdef _vissue vissue
+fi

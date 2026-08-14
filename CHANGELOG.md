@@ -8,6 +8,14 @@ All notable changes to vissue are recorded here. The format follows
 
 ### Added
 
+- A documentation site at [vissue.rgoswami.me](https://vissue.rgoswami.me),
+  written as Org under `docs/orgmode/` and rendered with Sphinx. The pages
+  keep to one Diataxis quadrant each, and the README is a front door rather
+  than the whole manual.
+- `vissue completions <shell>` and `vissue man`, generated from the CLI
+  definition so they cannot drift, with copies committed under `completions/`
+  and `man/`.
+
 - Logo mark: a tessellated V of issue nodes with one ready cell, plus a
   circular crest and wordmark lockup under `assets/`.
 - MCP tools for `ancestors`, `impact`, `cycles`, `refile`, `wait`, and

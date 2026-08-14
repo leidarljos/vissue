@@ -34,3 +34,9 @@ rustc-ice-*.txt
 .vault-events.jsonl
 .vault-events.gen
 .vault-events.lock
+
+# Generated documentation site: the Org under docs/orgmode/ is the source
+docs/build/
+.venv-docs/
+docs/source/*.rst
+!docs/source/conf.py

@@ -19,6 +19,23 @@ Before changing file rewrites, add a fixture that includes properties, body
 text, LOGBOOK entries, and CLOCK entries. Tests must prove that data outside the
 operation's ownership remains unchanged.
 
+## Documentation
+
+The site sources are Org under `docs/orgmode/`, exported to RST and rendered
+with Sphinx. Edit the Org, never `docs/source/*.rst`, which is generated.
+
+```console
+bash docs/build.sh          # export, install deps into .venv-docs, render
+```
+
+It has to finish with no Sphinx warnings. Keep each page in its own Diataxis
+quadrant: `getting-started` teaches one path, `howto` answers one task per
+section, `reference` describes, `explanation` argues.
+
+Shell completions and the manual page are generated from the CLI definition
+(`vissue completions`, `vissue man`); regenerate the committed copies under
+`completions/` and `man/` when an argument changes.
+
 ## Changes
 
 Keep commits focused and use a Conventional Commit subject. Add user-visible

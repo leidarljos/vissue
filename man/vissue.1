@@ -1,0 +1,148 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH vissue 1  "vissue 0.1.0" 
+.SH NAME
+vissue \- Plain\-text issue tracking over per\-project orgmode files
+.SH SYNOPSIS
+\fBvissue\fR [\fB\-\-root\fR] [\fB\-\-prefix\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] <\fIsubcommands\fR>
+.SH DESCRIPTION
+Plain\-text issue tracking over per\-project orgmode files
+.SH OPTIONS
+.TP
+\fB\-\-root\fR \fI<ROOT>\fR
+Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory
+.TP
+\fB\-\-prefix\fR \fI<PREFIX>\fR
+Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then `prefix` in vissue.toml, then `Software`
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version
+.SH SUBCOMMANDS
+.TP
+vissue\-create(1)
+Create an issue. Pass the body with \-\-body or \-\-body\-file (`\-` reads stdin); omit both to leave the body empty for a later edit
+.TP
+vissue\-q(1)
+Quick capture: create and print only the id
+.TP
+vissue\-list(1)
+List issues, sorted by priority then state then id
+.TP
+vissue\-show(1)
+Show one issue\*(Aqs metadata and file range
+.TP
+vissue\-update(1)
+Update state, priority, or blocker edges
+.TP
+vissue\-ready(1)
+Actionable issues: TODO or STARTED with no open blocker
+.TP
+vissue\-claim(1)
+Take an issue: move it to STARTED and stamp the claim
+.TP
+vissue\-note(1)
+Add a dated note to the top of an issue\*(Aqs logbook; state and claim untouched
+.TP
+vissue\-claims(1)
+Every live claim, oldest first: who holds what, and for how long
+.TP
+vissue\-fold(1)
+Fold an inbox org file: each unstamped `* TODO <title>` heading becomes an issue, then the heading is stamped with the id and flipped to DONE in place. Already\-stamped headings are skipped
+.TP
+vissue\-agenda(1)
+Dated open work: deadlines and scheduled starts inside a horizon, overdue first
+.TP
+vissue\-hygiene(1)
+Checklist for agents and CI: stalled claims plus corpus validation
+.TP
+vissue\-whoami(1)
+Print the identity this tracker would record on a claim
+.TP
+vissue\-waiting\-on(1)
+Issues waiting on this one
+.TP
+vissue\-body\-excerpt(1)
+The first lines of an issue\*(Aqs file range
+.TP
+vissue\-search(1)
+Substring search over ids, titles, properties, and bodies
+.TP
+vissue\-children(1)
+Issues whose `:PARENT:` matches this id
+.TP
+vissue\-ancestors(1)
+Blockers transitively required by this issue
+.TP
+vissue\-impact(1)
+Issues transitively waiting on this issue
+.TP
+vissue\-related(1)
+Explain bounded Org and lexical connections around an issue
+.TP
+vissue\-stale(1)
+Open issues whose `:CREATED:` is older than N days
+.TP
+vissue\-count(1)
+Print only the matching issue count
+.TP
+vissue\-export(1)
+One JSON object per issue per line
+.TP
+vissue\-tree(1)
+Children and blockers below an id
+.TP
+vissue\-cycles(1)
+Cycles in the blocker graph
+.TP
+vissue\-graph(1)
+The blocker and parent graph as Graphviz DOT
+.TP
+vissue\-refile(1)
+Move an issue to another project\*(Aqs file
+.TP
+vissue\-backlinks(1)
+Issues referring to this id
+.TP
+vissue\-roadmap(1)
+A markdown roadmap of active and closed work
+.TP
+vissue\-check(1)
+Validate the corpus. Exits non\-zero on any error
+.TP
+vissue\-digest(1)
+A content digest of the corpus, for telling whether a copy is current
+.TP
+vissue\-mirror(1)
+Write a read\-only projection of one or more projects to a file
+.TP
+vissue\-events(1)
+Change events with a sequence above \-\-since
+.TP
+vissue\-ping(1)
+Append a manual event, waking pollers without editing an issue
+.TP
+vissue\-wait(1)
+Block until the generation passes \-\-last. Exits 2 on timeout
+.TP
+vissue\-gen(1)
+Print the current generation counter
+.TP
+vissue\-projects(1)
+List the projects found under the layout prefix
+.TP
+vissue\-identity(1)
+Print the resolved binary, root, and prefix
+.TP
+vissue\-completions(1)
+Write a shell completion script to stdout
+.TP
+vissue\-man(1)
+Write the roff manual page to stdout
+.TP
+vissue\-help(1)
+Print this message or the help of the given subcommand(s)
+.SH VERSION
+v0.1.0
