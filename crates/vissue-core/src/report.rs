@@ -10,7 +10,9 @@ use crate::config::Layout;
 use crate::graph::DependencyGraph;
 use crate::model::{IssueHeading, READY_STATES};
 pub use crate::related::related;
-use crate::store::{collect_org_ids, find_by_id, list_projects, load_all, IssueDoc};
+use crate::store::{
+    collect_org_ids, find_by_id, list_projects, load_all, project_selected, IssueDoc,
+};
 
 struct GraphIndex<'a> {
     by_id: HashMap<&'a str, &'a IssueHeading>,
@@ -64,10 +66,10 @@ pub fn list(
     state_filter: Option<&str>,
     ready_only: bool,
 ) -> Result<String> {
-    let projects = match project_filter {
-        Some(p) => vec![p.to_string()],
-        None => list_projects(layout)?,
-    };
+    let projects: Vec<String> = list_projects(layout)?
+        .into_iter()
+        .filter(|project| project_selected(project, project_filter))
+        .collect();
 
     let mut rows: Vec<(String, String, String, char, String)> = Vec::new();
 
@@ -258,10 +260,8 @@ pub fn stale(layout: &Layout, days: i64, project_filter: Option<&str>) -> Result
     let cutoff = today - chrono::Duration::days(days);
     let mut rows: Vec<(String, IssueHeading, NaiveDate)> = Vec::new();
     for (project, h) in load_all(layout)? {
-        if let Some(p) = project_filter {
-            if project != p {
-                continue;
-            }
+        if !project_selected(&project, project_filter) {
+            continue;
         }
         if !READY_STATES.contains(&h.state.as_str()) {
             continue;
@@ -301,10 +301,8 @@ pub fn claims(
     let today = Local::now().date_naive();
     let mut rows: Vec<(String, IssueHeading, i64)> = Vec::new();
     for (project, h) in load_all(layout)? {
-        if let Some(p) = project_filter {
-            if !project.eq_ignore_ascii_case(p) {
-                continue;
-            }
+        if !project_selected(&project, project_filter) {
+            continue;
         }
         let Some(holder) = h.claimed_by() else {
             continue;
@@ -381,10 +379,8 @@ pub fn agenda(layout: &Layout, days: i64, project_filter: Option<&str>) -> Resul
     // kind sorts D before S so a same-day deadline outranks a scheduled start.
     let mut rows: Vec<(NaiveDate, char, String, IssueHeading)> = Vec::new();
     for (project, h) in load_all(layout)? {
-        if let Some(p) = project_filter {
-            if !project.eq_ignore_ascii_case(p) {
-                continue;
-            }
+        if !project_selected(&project, project_filter) {
+            continue;
         }
         if !READY_STATES.contains(&h.state.as_str()) && h.state != "BLOCKED" {
             continue;
@@ -448,10 +444,8 @@ pub fn count(
     let n = all
         .iter()
         .filter(|(project, h)| {
-            if let Some(p) = project_filter {
-                if project != p {
-                    return false;
-                }
+            if !project_selected(project, project_filter) {
+                return false;
             }
             if let Some(s) = state_filter {
                 if h.state != s {
@@ -477,10 +471,8 @@ pub fn count(
 pub fn export(layout: &Layout, project_filter: Option<&str>) -> Result<String> {
     let mut out = String::new();
     for (project, h) in load_all(layout)? {
-        if let Some(p) = project_filter {
-            if project != p {
-                continue;
-            }
+        if !project_selected(&project, project_filter) {
+            continue;
         }
         let logbook: Vec<serde_json::Value> = h
             .logbook
@@ -567,6 +559,17 @@ fn tree_ascii<'a>(
     }
 }
 
+/// Escape text for a Graphviz quoted string. Backslash goes first, or the
+/// escape introduced for a quote is itself re-escaped; a raw newline would end
+/// the statement early. Titles and ids are whatever someone committed to the
+/// tracker, so neither is trusted here.
+pub(crate) fn dot_quoted(text: &str) -> String {
+    text.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "")
+}
+
 fn tree_dot<'a>(graph: &GraphIndex<'a>, root_id: &str, out: &mut String) {
     let _ = writeln!(out, "digraph vissue_tree {{");
     let _ = writeln!(out, "  rankdir=LR;");
@@ -584,14 +587,19 @@ fn tree_dot<'a>(graph: &GraphIndex<'a>, root_id: &str, out: &mut String) {
             let _ = writeln!(
                 out,
                 "  \"{}\" [label=\"{}\\n{} [#{}]\"];",
-                h.id,
-                h.title.replace('"', "\\\""),
-                h.state,
-                h.priority
+                dot_quoted(&h.id),
+                dot_quoted(&h.title),
+                dot_quoted(&h.state),
+                dot_quoted(&h.priority.to_string())
             );
             if let Some(kids) = graph.children.get(id) {
                 for k in kids {
-                    let _ = writeln!(out, "  \"{}\" -> \"{}\" [color=\"#00897B\"];", h.id, k);
+                    let _ = writeln!(
+                        out,
+                        "  \"{}\" -> \"{}\" [color=\"#00897B\"];",
+                        dot_quoted(&h.id),
+                        dot_quoted(k)
+                    );
                     stack.push(k);
                 }
             }
@@ -600,7 +608,8 @@ fn tree_dot<'a>(graph: &GraphIndex<'a>, root_id: &str, out: &mut String) {
                     let _ = writeln!(
                         out,
                         "  \"{}\" -> \"{}\" [style=dashed, color=\"#FF7043\", label=\"blocks\"];",
-                        b, h.id
+                        dot_quoted(b),
+                        dot_quoted(&h.id)
                     );
                     stack.push(b);
                 }
@@ -714,10 +723,8 @@ pub fn graph(layout: &Layout, project_filter: Option<&str>) -> Result<String> {
     writeln!(out, "  node [shape=box, fontname=\"Jost\", style=filled];")?;
     writeln!(out, "  edge [fontname=\"Jost\"];")?;
     for (project, h) in &all {
-        if let Some(p) = project_filter {
-            if project != p {
-                continue;
-            }
+        if !project_selected(project, project_filter) {
+            continue;
         }
         let fill = match h.state.as_str() {
             "DONE" => "#A5D6A7",
@@ -729,29 +736,33 @@ pub fn graph(layout: &Layout, project_filter: Option<&str>) -> Result<String> {
         let _ = writeln!(
             out,
             "  \"{}\" [label=\"{}\\n{} [#{}]\", fillcolor=\"{}\"];",
-            h.id,
-            h.title.replace('"', "\\\""),
-            h.state,
-            h.priority,
+            dot_quoted(&h.id),
+            dot_quoted(&h.title),
+            dot_quoted(&h.state),
+            dot_quoted(&h.priority.to_string()),
             fill
         );
     }
     for (project, h) in &all {
-        if let Some(p) = project_filter {
-            if project != p {
-                continue;
-            }
+        if !project_selected(project, project_filter) {
+            continue;
         }
         if let Some(blockers) = graph.blockers.get(h.id.as_str()) {
             for b in blockers {
-                writeln!(out, "  \"{}\" -> \"{}\" [color=\"#FF7043\"];", b, h.id)?;
+                writeln!(
+                    out,
+                    "  \"{}\" -> \"{}\" [color=\"#FF7043\"];",
+                    dot_quoted(b),
+                    dot_quoted(&h.id)
+                )?;
             }
         }
         if let Some(parent) = h.parent() {
             writeln!(
                 out,
                 "  \"{}\" -> \"{}\" [color=\"#00897B\", style=dashed];",
-                parent, h.id
+                dot_quoted(parent),
+                dot_quoted(&h.id)
             )?;
         }
     }
@@ -765,10 +776,8 @@ pub fn roadmap(layout: &Layout, project_filter: Option<&str>) -> Result<String> 
     let all = load_all(layout)?;
     let mut by_project: BTreeMap<String, Vec<&IssueHeading>> = BTreeMap::new();
     for (project, h) in &all {
-        if let Some(p) = project_filter {
-            if project != p {
-                continue;
-            }
+        if !project_selected(project, project_filter) {
+            continue;
         }
         by_project.entry(project.clone()).or_default().push(h);
     }
@@ -865,19 +874,22 @@ pub fn check(layout: &Layout) -> Result<CheckReport> {
     let org_ids = collect_org_ids(layout)?;
     let mut out = String::new();
 
+    let mut errors = 0usize;
+    let mut warnings = 0usize;
+
     let mut by_id: HashMap<String, (String, &IssueHeading)> = HashMap::new();
     for (project, h) in &all {
         if let Some(prev) = by_id.insert(h.id.clone(), (project.clone(), h)) {
+            // An error, not a note: an id that names two issues makes every
+            // blocker and parent edge pointing at it ambiguous.
             writeln!(
                 out,
-                "[dup]  duplicate id: {} appears in {} and {}",
+                "[err]  duplicate id: {} appears in {} and {}",
                 h.id, prev.0, project
             )?;
+            errors += 1;
         }
     }
-
-    let mut errors = 0usize;
-    let mut warnings = 0usize;
 
     for (project, h) in &all {
         if let Some(parent) = h.parent() {
@@ -980,4 +992,18 @@ pub fn backlinks(layout: &Layout, target_id: &str) -> Result<String> {
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dot_labels_escape_untrusted_issue_text() {
+        assert_eq!(dot_quoted(r#"a "quoted" title"#), r#"a \"quoted\" title"#);
+        // A trailing backslash would otherwise escape the closing quote and
+        // let the rest of the title become DOT syntax.
+        assert_eq!(dot_quoted(r"ends with\"), r"ends with\\");
+        assert_eq!(dot_quoted("two\nlines"), "two\\nlines");
+    }
 }

@@ -10,7 +10,7 @@ use crate::config::Layout;
 use crate::model::READY_STATES;
 use crate::ops;
 use crate::report;
-use crate::store::{find_by_id, list_projects, load_all};
+use crate::store::{find_by_id, list_projects, load_all, project_selected};
 
 const BODY_EXCERPT_MAX_LINES: usize = 40;
 const BODY_EXCERPT_MAX_CHARS: usize = 4000;
@@ -31,10 +31,8 @@ pub fn issues_json(
 
     let mut rows: Vec<(char, String, String, Value)> = Vec::new();
     for (project, h) in &all {
-        if let Some(p) = project_filter {
-            if project != p {
-                continue;
-            }
+        if !project_selected(project, project_filter) {
+            continue;
         }
         if let Some(s) = state_filter {
             if h.state != s {
@@ -147,18 +145,27 @@ pub fn hygiene(layout: &Layout, stale_days: Option<i64>) -> Result<String> {
     let mut out = String::new();
     writeln!(out, "=== vissue hygiene ===")?;
 
-    let ready = report::ready(layout, None)?;
-    let started = report::list(layout, None, Some("STARTED"), false)?;
+    // Compare ids, not rendered rows: `id_length` is configurable, so one id
+    // can be a prefix of another and a row match would pair the wrong issues.
+    let ready_ids: std::collections::HashSet<String> = issues_json(layout, None, None, true)?
+        .as_array()
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|row| row["id"].as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
     let mut started_not_ready = 0usize;
-    for line in started.lines() {
-        let id = line.split_whitespace().next().unwrap_or("");
-        if id.is_empty() {
+    for (project, h) in load_all(layout)? {
+        if h.state != "STARTED" || ready_ids.contains(&h.id) {
             continue;
         }
-        if !ready.lines().any(|r| r.starts_with(id)) {
-            started_not_ready += 1;
-            writeln!(out, "[warn] STARTED but not ready (blockers?): {line}")?;
-        }
+        started_not_ready += 1;
+        writeln!(
+            out,
+            "[warn] STARTED but not ready (blockers?): {} ({project})  {}",
+            h.id, h.title
+        )?;
     }
 
     let threshold = match stale_days {
