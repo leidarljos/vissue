@@ -125,12 +125,16 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Show one issue's metadata and file range.
+    /// Show one issue: metadata, then the body.
     Show {
         id: String,
         /// Emit a JSON object instead of text
         #[arg(long)]
         json: bool,
+        /// Emit the heading's org text in full, nothing else. Use this to
+        /// write the issue out as the specification someone works from.
+        #[arg(long, conflicts_with = "json")]
+        org: bool,
     },
     /// Update state, priority, or blocker edges.
     Update {
@@ -553,12 +557,14 @@ fn run() -> Result<()> {
                 );
             }
         }
-        Command::Show { id, json } => {
+        Command::Show { id, json, org } => {
             if json {
                 emitln!(
                     "{}",
                     serde_json::to_string_pretty(&agent::show_json(&layout, &id)?)?
                 );
+            } else if org {
+                emit!("{}", agent::org_text(&layout, &id)?);
             } else {
                 emit!("{}", report::show(&layout, &id)?);
             }

@@ -277,6 +277,31 @@ pub fn excerpt_from(rec: &IssueRec) -> Result<Excerpt, Error> {
     })
 }
 
+/// The heading's on-disk text in full, screened for secrets.
+///
+/// [`excerpt_from`] caps its output at [`BODY_EXCERPT_MAX_LINES`], which is
+/// right for a preview and wrong for handing the issue to someone as a
+/// specification: an issue longer than the cap loses its tail silently. This
+/// returns the whole range, so what comes back is what the file holds.
+///
+/// The secret screen stays: a heading that carries credential-shaped text is
+/// refused here exactly as it is in a preview.
+pub fn org_text_from(rec: &IssueRec) -> Result<String, Error> {
+    let content = fs::read_to_string(&rec.path)?;
+    let lines: Vec<&str> = content.lines().collect();
+    let from = rec.heading.line_start.saturating_sub(1).min(lines.len());
+    let to = rec.heading.line_end.min(lines.len()).max(from);
+    let text = lines[from..to].join("\n");
+    if let Some(marker) = secret_marker(&text) {
+        return Err(Error::Other(anyhow::anyhow!(
+            "{} looks like secret material; open {} directly",
+            marker,
+            rec.path.display()
+        )));
+    }
+    Ok(text)
+}
+
 /// Text shape of [`crate::agent::body_excerpt`].
 pub(crate) fn format_body_excerpt(excerpt: &Excerpt) -> String {
     if excerpt.suppressed {

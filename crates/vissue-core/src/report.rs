@@ -155,10 +155,15 @@ pub fn show(layout: &Layout, id: &str) -> Result<String> {
         h.line_end
     )?;
     writeln!(out)?;
-    writeln!(
-        out,
-        "(body lives in file; open the range above to read or edit)"
-    )?;
+    // The body is what the issue actually asks for, so printing the file
+    // range and stopping leaves every reader to go fetch it by hand.
+    let body = h.body.trim_end();
+    if body.is_empty() {
+        writeln!(out, "(no body; edit the range above to add one)")?;
+    } else {
+        writeln!(out, "Body:")?;
+        writeln!(out, "{body}")?;
+    }
     Ok(out)
 }
 

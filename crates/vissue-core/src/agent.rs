@@ -54,6 +54,24 @@ pub fn body_excerpt(layout: &Layout, id: &str) -> Result<String> {
     Ok(format_body_excerpt(&excerpt_from(rec)?))
 }
 
+/// One issue's org text, in full, ready to write to a file.
+///
+/// [`body_excerpt`] is a preview and truncates; this does not. It is what a
+/// caller wants when the issue is being handed to someone as the thing to
+/// work from, rather than glanced at.
+pub fn org_text(layout: &Layout, id: &str) -> Result<String> {
+    let recs = load_recs(layout)?;
+    let rec = recs
+        .iter()
+        .find(|r| r.heading.id == id)
+        .ok_or_else(|| Error::IssueNotFound { id: id.to_string() })?;
+    let mut text = crate::catalog::org_text_from(rec)?;
+    if !text.ends_with('\n') {
+        text.push('\n');
+    }
+    Ok(text)
+}
+
 /// Issues waiting on this one.
 pub fn waiting_on(layout: &Layout, id: &str) -> Result<String> {
     report::backlinks(layout, id)
