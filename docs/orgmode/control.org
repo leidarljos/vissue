@@ -153,8 +153,10 @@ and no rows. List rows use =claimed_by=, not =holder=.
 
 =issue/get= / =issue/show= return =id=, =project=, =title=, =state=,
 =priority=, =properties=, =org_tags=, =tags=, =blocked_by=, =parent=,
-=claimed_by=, =claimed_at=, =file=, =line_start=, =line_end=, plus
-=revision=.
+=claimed_by=, =claimed_at=, =file=, =line_start=, =line_end=,
+=logbook=, plus =revision=. Logbook entries carry =timestamp=,
+=from_state=, =to_state=, =note=, and =raw= when the line is an
+opaque CLOCK (or similar) drawer line.
 
 =issue/excerpt= returns ={id, file, line_start, line_end, text,
 suppressed}=. =suppressed= is true when the screen hides the range;

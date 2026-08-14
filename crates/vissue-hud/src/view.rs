@@ -38,7 +38,7 @@ pub fn view(palette: &Palette) -> Element<'_, Message> {
 
     pane = pane.push(detail_panel(palette));
 
-    if palette.note_draft().is_some() {
+    if palette.note_draft().is_some() && palette.detail_tab() != DetailTab::Notes {
         pane = pane.push(note_bar(palette));
     }
     if let Some(kind) = palette.confirm() {
@@ -333,32 +333,35 @@ fn detail_panel(palette: &Palette) -> Element<'_, Message> {
         palette.detail_body()
     };
 
-    container(
-        column![
-            tabs,
-            scrollable(
-                text(body)
-                    .size(theme::SIZE_META)
-                    .color(theme::TEXT)
-                    .font(theme::FACE)
-            )
-            .height(Length::Fill),
-        ]
-        .spacing(8)
-        .padding(12),
-    )
-    .width(Fill)
-    .height(Length::FillPortion(2))
-    .style(|_| container::Style {
-        background: Some(Background::Color(theme::MANTLE)),
-        border: Border {
-            radius: 12.0.into(),
-            width: 1.0,
-            color: theme::SURFACE1,
-        },
-        ..container::Style::default()
-    })
-    .into()
+    let mut card = column![
+        tabs,
+        scrollable(
+            text(body)
+                .size(theme::SIZE_META)
+                .color(theme::TEXT)
+                .font(theme::FACE)
+        )
+        .height(Length::Fill),
+    ]
+    .spacing(8)
+    .padding(12);
+    if palette.detail_tab() == DetailTab::Notes {
+        card = card.push(note_bar(palette));
+    }
+
+    container(card)
+        .width(Fill)
+        .height(Length::FillPortion(2))
+        .style(|_| container::Style {
+            background: Some(Background::Color(theme::MANTLE)),
+            border: Border {
+                radius: 12.0.into(),
+                width: 1.0,
+                color: theme::SURFACE1,
+            },
+            ..container::Style::default()
+        })
+        .into()
 }
 
 fn note_bar(palette: &Palette) -> Element<'_, Message> {

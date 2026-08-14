@@ -12,7 +12,7 @@ use vissue_core::catalog::{
     search_hits_from, tree_from, tree_text_from, CatalogService,
 };
 use vissue_core::error::Error;
-use vissue_core::model::IssueHeading;
+use vissue_core::model::{IssueHeading, LogEntry};
 use vissue_core::views::{IssueRec, ListQuery};
 
 /// One issue. Everything optional is set through the builder methods so a
@@ -215,6 +215,49 @@ fn detail_carries_the_tags_and_the_file_range() {
     assert_eq!(detail.line_start, 1);
     // `file` is the range an editor opens, not just the path.
     assert!(detail.file.ends_with("issues.org:1-6"), "{}", detail.file);
+}
+
+#[test]
+fn detail_carries_the_logbook() {
+    let mut rec = issue("atlas", "atlas-1a2b", "STARTED", "Parse the header");
+    rec.heading.logbook = vec![
+        LogEntry {
+            timestamp: "[2026-01-14 Wed 09:12]".into(),
+            from_state: Some("TODO".into()),
+            to_state: Some("STARTED".into()),
+            note: None,
+            raw: None,
+        },
+        LogEntry {
+            timestamp: String::new(),
+            from_state: None,
+            to_state: None,
+            note: None,
+            raw: Some("CLOCK: [2026-01-14 Wed 09:12]--[2026-01-14 Wed 10:42] =>  1:30".into()),
+        },
+        LogEntry {
+            timestamp: "[2026-01-14 Wed 11:00]".into(),
+            from_state: None,
+            to_state: None,
+            note: Some("parser landed".into()),
+            raw: None,
+        },
+    ];
+    let detail = CatalogService::from_recs(&[rec])
+        .detail("atlas-1a2b")
+        .unwrap();
+    assert_eq!(detail.logbook.len(), 3);
+    assert_eq!(detail.logbook[0].from_state.as_deref(), Some("TODO"));
+    assert_eq!(detail.logbook[0].to_state.as_deref(), Some("STARTED"));
+    assert!(
+        detail.logbook[1]
+            .raw
+            .as_deref()
+            .is_some_and(|raw| raw.starts_with("CLOCK:")),
+        "{:?}",
+        detail.logbook[1]
+    );
+    assert_eq!(detail.logbook[2].note.as_deref(), Some("parser landed"));
 }
 
 #[test]

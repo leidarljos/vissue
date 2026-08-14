@@ -154,7 +154,7 @@ the wrong vault. `q` quits; `?` lists the keys.
 
 `vissue hud` is the same board as `vissue tui`, in a window: Ready,
 List, Claims, Agenda, and Search, with a show / excerpt / tree / related
-card for the selected row. `s` cycles TODO/STARTED/BLOCKED. `c` claims.
+/ notes card for the selected row. `s` cycles TODO/STARTED/BLOCKED. `c` claims.
 `n` notes. `p` filters by project. `D`/`X` close with confirm. `--rofi`
 is the seat dmenu picker.
 

@@ -228,7 +228,8 @@ Body edits stay in the file.
 
 =vissue hud= is the terminal board in a window. Panes: Ready, List,
 Claims, Agenda, Search. The selected row has show / excerpt / tree /
-related. Keys match the TUI: =s= cycles TODO/STARTED/BLOCKED, =c=
+related / notes. The notes tab lists the logbook and keeps a composer
+open. Keys match the TUI: =s= cycles TODO/STARTED/BLOCKED, =c=
 claims, =n= notes, =p= project, =D=/=X= close, =o= opens, =?= help.
 =a= adds a task. =Tab= or =1=--=5= switch panes.
 

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use crate::model::IssueHeading;
+use crate::model::{IssueHeading, LogEntry};
 
 /// One parsed heading plus the `issues.org` it came from.
 #[derive(Debug, Clone)]
@@ -55,6 +55,9 @@ pub struct IssueDetail {
     pub file: String,
     pub line_start: usize,
     pub line_end: usize,
+    /// Newest first. Empty when the heading has no `:LOGBOOK:` drawer.
+    #[serde(default)]
+    pub logbook: Vec<LogEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

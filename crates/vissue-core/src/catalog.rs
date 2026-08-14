@@ -239,6 +239,7 @@ fn issue_detail(rec: &IssueRec) -> IssueDetail {
         ),
         line_start: rec.heading.line_start,
         line_end: rec.heading.line_end,
+        logbook: rec.heading.logbook.clone(),
     }
 }
 

@@ -1,7 +1,7 @@
 //! The issue heading and its logbook: parsing, accessors, and rendering.
 
 use chrono::Local;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// TODO keywords recognised on a heading, in org declaration order.
@@ -88,7 +88,7 @@ pub const CLAIMED_BY: &str = "CLAIMED_BY";
 pub const CLAIMED_AT: &str = "CLAIMED_AT";
 
 /// One line of an issue's `:LOGBOOK:` drawer.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LogEntry {
     pub timestamp: String,
     pub from_state: Option<String>,

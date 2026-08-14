@@ -18,7 +18,7 @@ vissue hud  (same board as vissue tui)
 
 j/k, arrows   move
 Tab, 1-5      pane (Ready List Claims Agenda Search)
-Enter         cycle detail (show / excerpt / tree / related)
+Enter         cycle detail (show / excerpt / tree / related / notes)
 p             cycle project filter
 /             search
 a             add a task
@@ -82,17 +82,24 @@ impl BoardFilter {
     }
 }
 
-/// Detail card. Same tabs as the terminal board.
+/// Detail card. Same tabs as the terminal board, plus the logbook.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DetailTab {
     Show,
     Excerpt,
     Tree,
     Related,
+    Notes,
 }
 
 impl DetailTab {
-    pub const ALL: [Self; 4] = [Self::Show, Self::Excerpt, Self::Tree, Self::Related];
+    pub const ALL: [Self; 5] = [
+        Self::Show,
+        Self::Excerpt,
+        Self::Tree,
+        Self::Related,
+        Self::Notes,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -100,6 +107,7 @@ impl DetailTab {
             Self::Excerpt => "excerpt",
             Self::Tree => "tree",
             Self::Related => "related",
+            Self::Notes => "notes",
         }
     }
 
@@ -598,6 +606,7 @@ impl Palette {
                         Ok(result) => {
                             self.message = result.report.trim().to_string();
                             self.focus = Focus::List;
+                            self.detail_tab = DetailTab::Notes;
                             let _ = self.reload();
                         }
                         Err(err) => {
@@ -811,6 +820,13 @@ impl Palette {
             },
             DetailTab::Related => match self.backend.related(&id, 2, 20) {
                 Ok(hits) => self.detail_body = format_related(&hits),
+                Err(err) => self.detail_body = err.to_string(),
+            },
+            DetailTab::Notes => match self.backend.get(&id) {
+                Ok(detail) => {
+                    self.detail_body = format_logbook(&detail.logbook);
+                    self.detail = Some(detail);
+                }
                 Err(err) => self.detail_body = err.to_string(),
             },
         }
@@ -1103,6 +1119,18 @@ fn format_related(hits: &[vissue_core::views::RelatedHit]) -> String {
             hit.score,
             hit.evidence.join(", ")
         ));
+    }
+    out
+}
+
+fn format_logbook(entries: &[vissue_core::LogEntry]) -> String {
+    if entries.is_empty() {
+        return "no logbook entries\n".into();
+    }
+    let mut out = String::new();
+    for entry in entries {
+        out.push_str(&entry.render());
+        out.push('\n');
     }
     out
 }
@@ -1593,5 +1621,40 @@ mod tests {
             palette.backend().get("atlas-2c3d").unwrap().state,
             "BLOCKED"
         );
+    }
+
+    #[test]
+    fn notes_tab_renders_logbook_and_a_submitted_note() {
+        let (_dir, layout) = writable();
+        let mut palette = Palette::open_core(layout, "hud-test".into()).unwrap();
+        assert_eq!(palette.selected_id(), Some("atlas-1a2b"));
+        palette.set_detail_tab(DetailTab::Notes);
+        assert_eq!(palette.detail_tab(), DetailTab::Notes);
+        let body = palette.detail_body();
+        assert!(body.contains("[2026-01-14 Wed 09:12]"), "{body}");
+        assert!(body.contains(r#"State "STARTED" from "TODO""#), "{body}");
+        assert!(body.contains("CLOCK:"), "{body}");
+
+        palette.handle_key(PaletteKey::Char('n'));
+        assert!(palette.note_draft().is_some());
+        for c in "from the notes tab".chars() {
+            palette.handle_key(PaletteKey::Char(c));
+        }
+        palette.handle_key(PaletteKey::Enter);
+        assert!(palette.note_draft().is_none());
+        assert_eq!(palette.detail_tab(), DetailTab::Notes);
+        let body = palette.detail_body();
+        assert!(body.contains("from the notes tab"), "{body}");
+        assert!(body.contains(r#"Note: "from the notes tab""#), "{body}");
+    }
+
+    #[test]
+    fn notes_tab_says_when_the_logbook_is_empty() {
+        let (_dir, layout) = writable();
+        let mut palette = Palette::open_core(layout, "hud-test".into()).unwrap();
+        palette.set_query("atlas-2c3d");
+        palette.focus_list();
+        palette.set_detail_tab(DetailTab::Notes);
+        assert_eq!(palette.detail_body(), "no logbook entries\n");
     }
 }

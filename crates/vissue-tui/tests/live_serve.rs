@@ -96,12 +96,7 @@ fn a_claim_is_visible_to_the_next_read() {
     );
 }
 
-/// A note the client sends is recorded, and the server admits to it.
-///
-/// `IssueDetail` carries no logbook, so the note text is not readable back
-/// over the wire; what the client can observe is the report the server
-/// returns and the revision it moves. The text itself is checked in the
-/// file, which is the only place it lands.
+/// A note the client sends is recorded, and the next get reads it back.
 #[test]
 fn a_note_reaches_the_file_and_moves_the_revision() {
     let (_dir, layout, owner) = live();
@@ -116,6 +111,16 @@ fn a_note_reaches_the_file_and_moves_the_revision() {
 
     let file = std::fs::read_to_string(layout.project_issues_path("atlas")).expect("read");
     assert!(file.contains("seen from the live test"), "{file}");
+
+    let detail = backend.get(&id).expect("get after note");
+    assert!(
+        detail
+            .logbook
+            .iter()
+            .any(|e| e.note.as_deref() == Some("seen from the live test")),
+        "{:?}",
+        detail.logbook
+    );
 }
 
 /// The revision the server reports moves forward when the corpus changes.
