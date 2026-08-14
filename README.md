@@ -492,7 +492,8 @@ hierarchy.
 
 Each line is an object with `id`, `project`, `title`, `state`, `priority`,
 `properties`, `logbook`, `body`, `line_start`, and `line_end`. Logbook entries
-carry `timestamp`, `from`, `to`, and `note`.
+carry `timestamp`, `from`, `to`, and `note`. CLOCK and other opaque drawer
+lines also carry `raw`, the verbatim Org line.
 
 ### MCP server
 
@@ -501,8 +502,10 @@ its root from `VISSUE_ROOT` and `VISSUE_PREFIX`. Tools mirror the CLI verbs:
 `vissue_list`, `vissue_ready`, `vissue_show`, `vissue_create`, `vissue_update`,
 `vissue_claim`, `vissue_count`, `vissue_search`, `vissue_children`,
 `vissue_backlinks`, `vissue_related`, `vissue_waiting_on`, `vissue_body_excerpt`, `vissue_tree`,
-`vissue_graph`, `vissue_roadmap`, `vissue_export`, `vissue_check`,
-`vissue_hygiene`, `vissue_mirror`, `vissue_projects`, and `vissue_identity`.
+`vissue_graph`, `vissue_ancestors`, `vissue_impact`, `vissue_cycles`,
+`vissue_refile`, `vissue_wait`, `vissue_whoami`, `vissue_roadmap`,
+`vissue_export`, `vissue_check`, `vissue_hygiene`, `vissue_mirror`,
+`vissue_projects`, and `vissue_identity`.
 
 ## Ecosystem
 

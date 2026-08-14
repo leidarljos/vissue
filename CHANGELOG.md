@@ -10,6 +10,16 @@ All notable changes to vissue are recorded here. The format follows
 
 - Logo mark: a tessellated V of issue nodes with one ready cell, plus a
   circular crest and wordmark lockup under `assets/`.
+- MCP tools for `ancestors`, `impact`, `cycles`, `refile`, `wait`, and
+  `whoami`. `identity` also emits `root=` / `prefix=` tokens.
+
+### Fixed
+
+- Text `ready` now uses the corpus-wide open-blocker set, matching
+  `count --ready` and JSON ready.
+- Auto-unblock to TODO releases the claim.
+- JSONL export and digest include CLOCK `raw` logbook lines.
+- Event generation and log append take a file lock.
 
 ### Changed
 
