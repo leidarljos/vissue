@@ -142,9 +142,7 @@ impl VissueServer {
         ))
     }
 
-    #[tool(
-        description = "Append a dated note to an issue's logbook without touching state or claim."
-    )]
+    #[tool(description = "Add a dated note to an issue's logbook without touching state or claim.")]
     async fn vissue_note(
         &self,
         Parameters(args): Parameters<NoteArgs>,

@@ -224,16 +224,16 @@ The blocked issue is gone from the list, which is the whole point of `ready`.
 
 ```console
 $ vissue claim parser-k29f
-claimed parser-k29f
-parser-k29f: state TODO -> STARTED
+claimed parser-k29f by you@yourhost (TODO -> STARTED)
 ID:       parser-k29f
 ...
 $ vissue update parser-k29f --state DONE
-parser-k29f: state STARTED -> DONE
+parser-k29f: state STARTED -> DONE, claim released (you@yourhost)
 [hint] parser-3xq7 (in parser) lists this as a blocker; clear with `vissue update parser-3xq7 --unblock parser-k29f`
 ```
 
-Closing a blocker names every issue still waiting on it.
+Closing a blocker gives up the claim and names every issue still waiting on
+it. The hint goes to stderr, so a pipeline reading stdout is unaffected.
 
 **5. Clear the edge and see the backlog open up.**
 
@@ -469,7 +469,7 @@ and which root are in play before you commit to a mutation.
 | `create`, `q` | Add an issue; `q` prints only the new id |
 | `list`, `show` | Rows of issues; one issue's metadata and file range |
 | `update`, `claim`, `refile` | Change state, priority, or blockers; take an issue; move it between projects |
-| `note` | Append a dated logbook entry; state and claim untouched |
+| `note` | Add a dated logbook entry; state and claim untouched |
 | `claims` | Every live claim, oldest first: who holds what, for how long |
 | `fold` | Turn an inbox org file's unstamped `* TODO` headings into issues, stamping in place |
 | `whoami` | The identity a claim would record |

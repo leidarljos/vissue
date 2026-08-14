@@ -158,7 +158,7 @@ enum Command {
         #[arg(long)]
         force: bool,
     },
-    /// Append a dated note to an issue's logbook; state and claim untouched.
+    /// Add a dated note to the top of an issue's logbook; state and claim untouched.
     Note {
         id: String,
         /// The note. Multiple words are joined with spaces.
