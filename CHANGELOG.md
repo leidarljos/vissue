@@ -20,6 +20,22 @@ All notable changes to vissue are recorded here. The format follows
 - Auto-unblock to TODO releases the claim.
 - JSONL export and digest include CLOCK `raw` logbook lines.
 - Event generation and log append take a file lock.
+- A heading whose priority cookie holds a multi-byte character no longer
+  panics the parser.
+- `graph` and `tree --format dot` escape backslashes and newlines in titles
+  and ids, so issue text cannot become DOT syntax.
+- `--project` folds case in `list`, `count`, `ready`, `export`, `graph`,
+  `roadmap`, and the JSON rows, matching `claims`, `agenda`, and every verb
+  that writes.
+- A prefix-scoped `issues.config.toml` overrides `vissue.toml` key by key
+  instead of resetting the keys it does not name.
+- `refile` writes the target file before removing the heading from the
+  source, so a failed write cannot lose the issue.
+- `note` adds its entry at the top of the logbook, where state transitions
+  and claim releases already go.
+- `check` counts a duplicate id as an error.
+- `hygiene` matches issues by id rather than by row prefix.
+- An `issues.org` is flushed to the device before the rename publishes it.
 
 ### Changed
 

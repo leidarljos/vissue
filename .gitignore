@@ -29,3 +29,8 @@ rustc-ice-*.txt
 # Local scratch
 *.org.lock
 .issues.org.tmp.*
+
+# Change stream a tracker drops beside its project directories
+.vault-events.jsonl
+.vault-events.gen
+.vault-events.lock

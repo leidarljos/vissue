@@ -144,14 +144,25 @@ back [24], [25], [26].
 ## Install
 
 ```console
-$ cargo install --git https://github.com/HaoZeke/vissue vissue-cli
+$ cargo install vissue-cli
 ```
 
 The MCP server is a second binary in the same workspace:
 
 ```console
+$ cargo install vissue-mcp
+```
+
+Both crates track one version. To build the unreleased `main` instead, name
+the repository:
+
+```console
+$ cargo install --git https://github.com/HaoZeke/vissue vissue-cli
 $ cargo install --git https://github.com/HaoZeke/vissue vissue-mcp
 ```
+
+Tagged releases also carry prebuilt archives and a shell installer; see the
+[releases page](https://github.com/HaoZeke/vissue/releases).
 
 ## Tutorial: from an empty directory to a tracked backlog
 
@@ -246,7 +257,9 @@ changes; it is output, not a second source of truth.
 ## How to
 
 **Filter and count.** `--project` (also `-p` or `-P`) and `--state` apply to
-`list`, `count`, `ready`, `graph`, `roadmap`, and `export`.
+`list`, `count`, `ready`, `graph`, `roadmap`, and `export`. A project name
+matches the directory on disk without regard to case, so `-p Parser` and
+`-p parser` select the same tracker whichever verb reads it.
 
 ```console
 $ vissue list --project parser --state TODO
@@ -376,7 +389,7 @@ $ vissue claims --by grind-worker-3 --json | jq -r '.[0].claimed_at'
 settable in `vissue.toml` or per run with `--stale-days`), and STARTED issues
 that nobody has claimed.
 
-**Report progress without taking over.** `note` appends a dated entry to an
+**Report progress without taking over.** `note` adds a dated entry to an
 issue's logbook and touches nothing else, so an agent can leave a trail on an
 issue someone else holds:
 
