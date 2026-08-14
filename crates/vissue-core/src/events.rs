@@ -15,6 +15,7 @@
 //! untouched.
 
 use anyhow::{Context, Result};
+use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
@@ -22,7 +23,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
-    Mutex, OnceLock,
+    Arc, Mutex, OnceLock,
 };
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -30,6 +31,40 @@ use crate::config::Layout;
 
 static LAST_SEQ: AtomicU64 = AtomicU64::new(0);
 static LAST_EMIT_MS_BY_DIR: OnceLock<Mutex<HashMap<PathBuf, u64>>> = OnceLock::new();
+static PROCESS_LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
+
+const LOCK_NAME: &str = ".vault-events.lock";
+
+fn with_events_lock<R, F>(dir: &Path, f: F) -> Result<R>
+where
+    F: FnOnce() -> Result<R>,
+{
+    let key = dir.to_path_buf();
+    let mutex = {
+        let mut map = PROCESS_LOCKS
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        map.entry(key)
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
+    };
+    let _proc = mutex.lock().unwrap_or_else(|p| p.into_inner());
+    fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
+    let lock_path = dir.join(LOCK_NAME);
+    let file = OpenOptions::new()
+        .create(true)
+        .read(true)
+        .append(true)
+        .open(&lock_path)
+        .with_context(|| format!("open {}", lock_path.display()))?;
+    file.lock_exclusive()
+        .with_context(|| format!("lock {}", lock_path.display()))?;
+    let result = f();
+    let _ = FileExt::unlock(&file);
+    let _ = file;
+    result
+}
 
 /// Repeated writes inside this window bump the generation without appending a
 /// line, so an editor or agent saving in a burst does not flood the log.
@@ -121,50 +156,52 @@ pub fn emit_in(
     path: Option<&Path>,
     detail: Option<&str>,
 ) -> Result<u64> {
-    fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
+    with_events_lock(dir, || {
+        fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
 
-    let prev = read_gen(dir).max(LAST_SEQ.load(Ordering::Relaxed));
-    let seq = prev.saturating_add(1);
-    LAST_SEQ.store(seq, Ordering::Relaxed);
+        let prev = read_gen(dir).max(LAST_SEQ.load(Ordering::Relaxed));
+        let seq = prev.saturating_add(1);
+        LAST_SEQ.store(seq, Ordering::Relaxed);
 
-    let event = Event {
-        seq,
-        ts: now_secs(),
-        kind: kind.to_string(),
-        project: project.map(|s| s.to_string()),
-        id: id.map(|s| s.to_string()),
-        path: path.map(|p| p.display().to_string()),
-        detail: detail.map(|s| s.to_string()),
-    };
+        let event = Event {
+            seq,
+            ts: now_secs(),
+            kind: kind.to_string(),
+            project: project.map(|s| s.to_string()),
+            id: id.map(|s| s.to_string()),
+            path: path.map(|p| p.display().to_string()),
+            detail: detail.map(|s| s.to_string()),
+        };
 
-    if kind == "issues_write" {
-        let now_ms = now_millis();
-        let key = dir.to_path_buf();
-        let mut last_by_dir = LAST_EMIT_MS_BY_DIR
-            .get_or_init(|| Mutex::new(HashMap::new()))
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let previous = last_by_dir.get(&key).copied().unwrap_or(0);
-        if previous > 0 && now_ms.saturating_sub(previous) < DEBOUNCE_MS {
-            // Inside the window: advance the generation so pollers still wake,
-            // but leave the log alone.
-            write_gen(dir, seq)?;
-            LAST_SEQ.store(seq, Ordering::Relaxed);
+        if kind == "issues_write" {
+            let now_ms = now_millis();
+            let key = dir.to_path_buf();
+            let mut last_by_dir = LAST_EMIT_MS_BY_DIR
+                .get_or_init(|| Mutex::new(HashMap::new()))
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let previous = last_by_dir.get(&key).copied().unwrap_or(0);
+            if previous > 0 && now_ms.saturating_sub(previous) < DEBOUNCE_MS {
+                // Inside the window: advance the generation so pollers still wake,
+                // but leave the log alone.
+                write_gen(dir, seq)?;
+                LAST_SEQ.store(seq, Ordering::Relaxed);
+                last_by_dir.insert(key, now_ms);
+                return Ok(seq);
+            }
             last_by_dir.insert(key, now_ms);
-            return Ok(seq);
         }
-        last_by_dir.insert(key, now_ms);
-    }
 
-    let line = serde_json::to_string(&event)?;
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_path(dir))?;
-    writeln!(file, "{line}")?;
-    file.flush()?;
-    write_gen(dir, seq)?;
-    Ok(seq)
+        let line = serde_json::to_string(&event)?;
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_path(dir))?;
+        writeln!(file, "{line}")?;
+        file.flush()?;
+        write_gen(dir, seq)?;
+        Ok(seq)
+    })
 }
 
 /// Record that a project's issues.org was rewritten. Called by the store after
@@ -407,6 +444,29 @@ mod tests {
         ensure_gitignore_hint(dir.path()).unwrap();
         let again = fs::read_to_string(dir.path().join(".gitignore")).unwrap();
         assert_eq!(text, again);
+    }
+
+    #[test]
+    fn concurrent_emits_assign_unique_sequences() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let dir = tempfile::tempdir().unwrap();
+        let d = Arc::new(dir.path().to_path_buf());
+        let handles: Vec<_> = (0..16)
+            .map(|i| {
+                let d = Arc::clone(&d);
+                thread::spawn(move || emit_in(&d, "ping", None, None, None, Some(&format!("{i}"))))
+            })
+            .collect();
+        let mut seqs = Vec::new();
+        for handle in handles {
+            seqs.push(handle.join().unwrap().unwrap());
+        }
+        seqs.sort_unstable();
+        seqs.dedup();
+        assert_eq!(seqs.len(), 16, "duplicate event sequences: {seqs:?}");
+        assert_eq!(generation_in(&d), *seqs.last().unwrap());
     }
 
     #[test]
