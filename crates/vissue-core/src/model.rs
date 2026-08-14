@@ -17,14 +17,70 @@ const DEFAULT_PROPERTY_ORDER: &[&str] = &[
     "TYPE",
     "PARENT",
     "BLOCKED_BY",
-    "DEADLINE",
-    "SCHEDULED",
-    "TAGS",
+    "VISSUE_TAGS",
     "CLAIMED_BY",
     "CLAIMED_AT",
     "FILES",
     "VERIFY",
 ];
+
+/// Keys org keeps on the planning line under a heading rather than in the
+/// property drawer, in the order org itself writes them.
+///
+/// vissue holds them in the property map like any other field, because that
+/// is what every query and the JSONL export already read; only the on-disk
+/// shape is org's.
+pub const PLANNING_KEYS: &[&str] = &["CLOSED", "SCHEDULED", "DEADLINE"];
+
+/// Column org right-aligns headline tags to, matching the `org-tags-column`
+/// default. Writing them anywhere else makes the next Emacs edit realign the
+/// line and show up as a diff that changed nothing.
+const TAG_COLUMN: usize = 77;
+
+/// Whether `c` may appear in an Org tag. Org's own tag syntax is
+/// `[[:alnum:]_@#%]+`, so a vissue tag like `needs-review` is not one and
+/// stays in the `:TAGS:` property where it round-trips intact.
+pub fn is_org_tag_char(c: char) -> bool {
+    c.is_alphanumeric() || matches!(c, '_' | '@' | '#' | '%')
+}
+
+/// Split a trailing `:a:b:` tag run off a heading's text.
+///
+/// Returns the title and the tags. A title that merely ends in a colon, or
+/// whose trailing run holds a character org would not accept in a tag, keeps
+/// its text.
+pub fn split_headline_tags(text: &str) -> (String, Vec<String>) {
+    let trimmed = text.trim_end();
+    let Some(run_start) = trimmed.rfind(char::is_whitespace).map(|i| i + 1) else {
+        return (trimmed.to_string(), Vec::new());
+    };
+    let run = &trimmed[run_start..];
+    if run.len() < 3 || !run.starts_with(':') || !run.ends_with(':') {
+        return (trimmed.to_string(), Vec::new());
+    }
+    let tags: Vec<String> = run
+        .trim_matches(':')
+        .split(':')
+        .map(str::to_string)
+        .collect();
+    if tags.is_empty()
+        || tags
+            .iter()
+            .any(|tag| tag.is_empty() || !tag.chars().all(is_org_tag_char))
+    {
+        return (trimmed.to_string(), Vec::new());
+    }
+    (trimmed[..run_start].trim_end().to_string(), tags)
+}
+
+/// Property holding tags Org itself cannot carry on a heading.
+///
+/// Not `TAGS`: Org reserves that name for the headline tags it exposes as a
+/// special property, and `org-lint` reports a drawer that claims it.
+pub const TAGS_PROPERTY: &str = "VISSUE_TAGS";
+/// The name this property had before the clash with Org was found. Read on
+/// parse and rewritten under the current name.
+pub const LEGACY_TAGS_PROPERTY: &str = "TAGS";
 
 /// Property naming the identity that holds a STARTED issue.
 pub const CLAIMED_BY: &str = "CLAIMED_BY";
@@ -140,6 +196,11 @@ pub struct IssueHeading {
     pub state: String,
     pub priority: char,
     pub properties: BTreeMap<String, String>,
+    /// Tags written on the heading itself, which is where Org's own tag
+    /// search and agenda look. Kept apart from the `:TAGS:` property so each
+    /// round-trips as it was written; [`IssueHeading::tags`] reads both.
+    #[serde(default)]
+    pub org_tags: Vec<String>,
     #[serde(skip_serializing)]
     pub property_order: Vec<String>,
     #[serde(skip_serializing)]
@@ -164,16 +225,25 @@ impl IssueHeading {
             .unwrap_or_default()
     }
 
+    /// Every tag on the issue: the `:TAGS:` property and the heading's own Org
+    /// tags, in that order and without duplicates.
     pub fn tags(&self) -> Vec<String> {
-        self.properties
-            .get("TAGS")
+        let mut tags: Vec<String> = self
+            .properties
+            .get(TAGS_PROPERTY)
             .map(|s| {
                 s.split([',', ':'])
                     .map(|x| x.trim().to_string())
                     .filter(|x| !x.is_empty())
                     .collect()
             })
-            .unwrap_or_default()
+            .unwrap_or_default();
+        for tag in &self.org_tags {
+            if !tags.iter().any(|seen| seen == tag) {
+                tags.push(tag.clone());
+            }
+        }
+        tags
     }
 
     pub fn deadline(&self) -> Option<&str> {
@@ -231,14 +301,18 @@ impl IssueHeading {
     }
 
     pub fn render(&self) -> String {
-        let mut out = format!("* {} [#{}] {}\n", self.state, self.priority, self.title);
+        let mut out = render_heading_line(&self.state, self.priority, &self.title, &self.org_tags);
+        if let Some(planning) = self.render_planning_line() {
+            out.push_str(&planning);
+        }
         out.push_str(":PROPERTIES:\n");
         out.push_str(&render_property("ID", &self.id));
         for key in self.ordered_property_keys() {
-            if key != "ID" {
-                if let Some(val) = self.properties.get(&key) {
-                    out.push_str(&render_property(&key, val));
-                }
+            if key == "ID" || PLANNING_KEYS.contains(&key.as_str()) {
+                continue;
+            }
+            if let Some(val) = self.properties.get(&key) {
+                out.push_str(&render_property(&key, val));
             }
         }
         out.push_str(":END:\n");
@@ -258,6 +332,22 @@ impl IssueHeading {
             }
         }
         out
+    }
+
+    /// The `CLOSED: ... SCHEDULED: ... DEADLINE: ...` line org puts under a
+    /// heading, or `None` when the issue carries no dates.
+    ///
+    /// Org's agenda reads this line and ignores a same-named property, so a
+    /// deadline written into the drawer is a deadline Emacs cannot see.
+    fn render_planning_line(&self) -> Option<String> {
+        let parts: Vec<String> = PLANNING_KEYS
+            .iter()
+            .filter_map(|key| {
+                let value = self.properties.get(*key)?.trim();
+                (!value.is_empty()).then(|| format!("{key}: {value}"))
+            })
+            .collect();
+        (!parts.is_empty()).then(|| format!("{}\n", parts.join(" ")))
     }
 
     /// Keys as they appeared on disk first, then the house order, then the rest.
@@ -304,6 +394,28 @@ impl IssueHeading {
     }
 }
 
+/// Append a `:tag:tag:` run to a heading, right-aligned the way Org aligns it,
+/// so running `org-align-tags` in Emacs over the result changes nothing.
+pub fn align_tags(stem: &str, org_tags: &[String]) -> String {
+    if org_tags.is_empty() {
+        return stem.to_string();
+    }
+    let run = format!(":{}:", org_tags.join(":"));
+    let width = stem.chars().count() + run.chars().count();
+    let pad = if width < TAG_COLUMN {
+        TAG_COLUMN - width
+    } else {
+        1
+    };
+    format!("{stem}{}{run}", " ".repeat(pad))
+}
+
+/// `* STATE [#P] Title            :tag:tag:`.
+fn render_heading_line(state: &str, priority: char, title: &str, org_tags: &[String]) -> String {
+    let stem = format!("* {} [#{}] {}", state, priority, title);
+    format!("{}\n", align_tags(&stem, org_tags))
+}
+
 fn render_property(key: &str, val: &str) -> String {
     let key_part = format!(":{}:", key);
     let pad = if key_part.len() < PROPERTY_COLUMN {
@@ -345,6 +457,7 @@ mod tests {
             state: "TODO".into(),
             priority: 'A',
             properties: props,
+            org_tags: Vec::new(),
             property_order: vec!["ID".into(), "CREATED".into(), "TYPE".into()],
             body: "Some body lines.\nWith multiple lines.".into(),
             logbook: Vec::new(),
@@ -366,7 +479,7 @@ mod tests {
     fn tags_split_on_commas_and_colons() {
         let mut h = sample_heading();
         h.properties
-            .insert("TAGS".into(), "rust:perf, scaling".into());
+            .insert(TAGS_PROPERTY.into(), "rust:perf, scaling".into());
         assert_eq!(h.tags(), vec!["rust", "perf", "scaling"]);
     }
 
@@ -432,6 +545,65 @@ mod tests {
             "{rendered}"
         );
         assert!(rendered.contains("State \"DONE\""), "{rendered}");
+    }
+
+    #[test]
+    fn headline_tags_split_off_the_title() {
+        assert_eq!(
+            split_headline_tags("Document the retry policy   :docs:retry:"),
+            (
+                "Document the retry policy".to_string(),
+                vec!["docs".to_string(), "retry".to_string()]
+            )
+        );
+    }
+
+    #[test]
+    fn a_title_is_not_mistaken_for_a_tag_run() {
+        // Org tags are `[[:alnum:]_@#%]+`, so neither of these is one and the
+        // text has to survive intact.
+        for title in [
+            "Scope: the header block",
+            "Rename the key :needs-review:",
+            "A ratio of 3:1",
+            "Trailing colon:",
+        ] {
+            assert_eq!(
+                split_headline_tags(title),
+                (title.to_string(), Vec::new()),
+                "{title:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn tags_read_the_property_and_the_heading_together() {
+        let mut h = sample_heading();
+        h.properties
+            .insert(TAGS_PROPERTY.into(), "needs-review, perf".into());
+        h.org_tags = vec!["docs".into(), "perf".into()];
+        assert_eq!(h.tags(), vec!["needs-review", "perf", "docs"]);
+    }
+
+    #[test]
+    fn a_heading_renders_its_tags_where_org_aligns_them() {
+        let mut h = sample_heading();
+        h.state = "TODO".into();
+        h.priority = 'B';
+        h.title = "Document the retry policy".into();
+        h.org_tags = vec!["docs".into(), "retry".into()];
+        let line = h.render().lines().next().unwrap().to_string();
+        assert_eq!(line.chars().count(), TAG_COLUMN, "{line:?}");
+        assert!(line.ends_with(":docs:retry:"), "{line:?}");
+    }
+
+    #[test]
+    fn a_long_title_keeps_one_space_before_its_tags() {
+        let mut h = sample_heading();
+        h.title = "t".repeat(TAG_COLUMN);
+        h.org_tags = vec!["docs".into()];
+        let line = h.render().lines().next().unwrap().to_string();
+        assert!(line.ends_with(" :docs:"), "{line:?}");
     }
 
     #[test]

@@ -82,6 +82,8 @@ pub fn show_json(layout: &Layout, id: &str) -> Result<Value> {
         "state": h.state,
         "priority": h.priority.to_string(),
         "properties": h.properties,
+        "org_tags": h.org_tags,
+        "tags": h.tags(),
         "blocked_by": h.blocked_by(),
         "parent": h.parent(),
         "claimed_by": h.claimed_by(),

@@ -111,7 +111,11 @@ fn export_rows_carry_the_documented_schema() {
     assert_eq!(parser["project"], "atlas");
     assert_eq!(parser["state"], "STARTED");
     assert_eq!(parser["priority"], "A");
-    assert_eq!(parser["properties"]["TAGS"], "parser,core");
+    // Tags ride the heading, where Org reads them, and the export names both
+    // the Org run and the union a caller filters on.
+    assert_eq!(parser["org_tags"][0], "parser");
+    assert_eq!(parser["org_tags"][1], "core");
+    assert_eq!(parser["tags"][0], "parser");
     assert_eq!(parser["logbook"][0]["to"], "STARTED");
     assert_eq!(parser["logbook"][0]["from"], "TODO");
     assert!(parser["body"]
@@ -643,7 +647,16 @@ fn a_search_finds_body_and_property_text() {
     assert!(report::search(&layout, "backoff table", 10)
         .unwrap()
         .contains("beacon-5j6k"));
-    assert!(report::search(&layout, "PARSER,CORE", 10)
+    // A tag is searchable whether it sits on the heading or in the drawer,
+    // and the scan folds case either way.
+    assert!(report::search(&layout, "PARSER", 10)
+        .unwrap()
+        .contains("atlas-1a2b"));
+    assert!(report::search(&layout, "core", 10)
+        .unwrap()
+        .contains("atlas-1a2b"));
+    // Still reaches drawer properties: TYPE on the same issue.
+    assert!(report::search(&layout, "feature", 10)
         .unwrap()
         .contains("atlas-1a2b"));
     assert_eq!(

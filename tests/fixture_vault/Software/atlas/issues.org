@@ -5,12 +5,11 @@
 #+STATUS: Active
 #+TODO: TODO STARTED BLOCKED | DONE CANCELLED
 
-* STARTED [#A] Parse the manifest header
+* STARTED [#A] Parse the manifest header                        :parser:core:
 :PROPERTIES:
 :ID:         atlas-1a2b
 :CREATED:    [2026-01-12 Mon]
 :TYPE:       feature
-:TAGS:       parser,core
 :CLAIMED_BY: fixture-agent
 :CLAIMED_AT: [2026-01-14 Wed 09:12]
 :END:
@@ -23,12 +22,12 @@ Scope: read the header block before the first record.
 Done-when: a malformed header names the offending line number.
 
 * BLOCKED [#A] Publish the release notes
+DEADLINE: <2026-03-01 Sun>
 :PROPERTIES:
 :ID:         atlas-3e4f
 :CREATED:    [2026-01-13 Tue]
 :TYPE:       task
 :BLOCKED_BY: atlas-1a2b
-:DEADLINE:   <2026-03-01 Sun>
 :END:
 :LOGBOOK:
 - State "BLOCKED" from "TODO" [2026-01-15 Thu 11:05]
@@ -36,13 +35,12 @@ Done-when: a malformed header names the offending line number.
 
 Waits on the parser landing, because the notes quote its error text.
 
-* TODO [#B] Emit a summary table
+* TODO [#B] Emit a summary table                                  :reporting:
 :PROPERTIES:
 :ID:         atlas-2c3d
 :CREATED:    [2026-01-16 Fri]
 :TYPE:       feature
 :PARENT:     atlas-1a2b
-:TAGS:       reporting
 :END:
 
 Scope: one row per parsed record, counts only.

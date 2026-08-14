@@ -5,14 +5,13 @@
 #+STATUS: Active
 #+TODO: TODO STARTED BLOCKED | DONE CANCELLED
 
-* TODO [#B] Document the retry policy
+* TODO [#B] Document the retry policy                            :docs:retry:
+SCHEDULED: <2026-02-10 Tue>
 :PROPERTIES:
 :ID:         beacon-5j6k
 :CREATED:    [2026-01-20 Tue]
 :TYPE:       docs
 :PARENT:     beacon-design-0001
-:SCHEDULED:  <2026-02-10 Tue>
-:TAGS:       docs,retry
 :END:
 
 Scope: the backoff table and what a caller sees on the final failure.

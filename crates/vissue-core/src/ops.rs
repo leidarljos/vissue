@@ -82,14 +82,26 @@ pub fn create(layout: &Layout, project: &str, title: &str, opts: CreateOpts<'_>)
             validate_org_date(s)?;
             props.insert("SCHEDULED".into(), s.into());
         }
+        // A tag Org can hold goes on the heading, where Org's own tag search
+        // and agenda read it. One Org would not accept, `needs-review` say,
+        // stays in the property so it survives instead of becoming title text.
+        let mut org_tags: Vec<String> = Vec::new();
         if let Some(tags) = opts.tags {
-            let normalized: Vec<String> = tags
-                .split([',', ':'])
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-            if !normalized.is_empty() {
-                props.insert("TAGS".into(), normalized.join(","));
+            let mut property_tags: Vec<String> = Vec::new();
+            for tag in tags.split([',', ':']).map(str::trim) {
+                if tag.is_empty() {
+                    continue;
+                }
+                if tag.chars().all(crate::model::is_org_tag_char) {
+                    if !org_tags.iter().any(|seen| seen == tag) {
+                        org_tags.push(tag.to_string());
+                    }
+                } else if !property_tags.iter().any(|seen| seen == tag) {
+                    property_tags.push(tag.to_string());
+                }
+            }
+            if !property_tags.is_empty() {
+                props.insert(crate::model::TAGS_PROPERTY.into(), property_tags.join(","));
             }
         }
         if let Some(p) = opts.parent {
@@ -102,6 +114,7 @@ pub fn create(layout: &Layout, project: &str, title: &str, opts: CreateOpts<'_>)
             state: "TODO".into(),
             priority,
             properties: props,
+            org_tags,
             property_order: Vec::new(),
             body: match opts.body {
                 Some(b) if !b.trim().is_empty() => format!("{}\n", b.trim_end()),
@@ -732,7 +745,7 @@ mod tests {
     }
 
     #[test]
-    fn tags_are_normalised_to_a_comma_list() {
+    fn org_safe_tags_go_on_the_heading_and_the_rest_stay_in_the_property() {
         let dir = tempfile::tempdir().unwrap();
         let layout = fresh_layout(dir.path());
         create(
@@ -740,15 +753,26 @@ mod tests {
             "sample",
             "tagged",
             CreateOpts {
-                tags: Some("rust: perf ,, scaling"),
+                tags: Some("rust: perf ,, scaling, needs-review"),
                 ..Default::default()
             },
         )
         .unwrap();
         let doc = IssueDoc::parse_file("sample", &layout.project_issues_path("sample")).unwrap();
+        let h = &doc.headings[0];
+        assert_eq!(h.org_tags, vec!["rust", "perf", "scaling"]);
         assert_eq!(
-            doc.headings[0].properties.get("TAGS").map(|s| s.as_str()),
-            Some("rust,perf,scaling")
+            h.properties
+                .get(crate::model::TAGS_PROPERTY)
+                .map(|s| s.as_str()),
+            Some("needs-review"),
+            "a tag Org cannot hold keeps the property"
+        );
+        // Whichever half a tag landed in, a query sees all of them.
+        assert_eq!(
+            h.tags(),
+            vec!["needs-review", "rust", "perf", "scaling"],
+            "{h:?}"
         );
     }
 

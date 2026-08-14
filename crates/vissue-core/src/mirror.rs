@@ -307,14 +307,27 @@ pub fn render(
 const ISSUE_LEVEL: usize = 2;
 
 fn render_org_issue(out: &mut String, h: &IssueHeading) -> Result<()> {
-    writeln!(out, "** {} [#{}] {}", h.state, h.priority, h.title)?;
+    // The projection is an Org file someone opens in Emacs, so it carries the
+    // dates and tags the same way the tracker does: on the planning line and
+    // the heading, where Org's agenda and tag search read them.
+    let stem = format!("** {} [#{}] {}", h.state, h.priority, h.title);
+    writeln!(out, "{}", crate::model::align_tags(&stem, &h.org_tags))?;
+    let planning: Vec<String> = crate::model::PLANNING_KEYS
+        .iter()
+        .filter_map(|key| {
+            let value = h.properties.get(*key)?.trim();
+            (!value.is_empty()).then(|| format!("{key}: {value}"))
+        })
+        .collect();
+    if !planning.is_empty() {
+        writeln!(out, "{}", planning.join(" "))?;
+    }
     writeln!(out, ":PROPERTIES:")?;
     writeln!(out, "{}", property_line("ID", &h.id))?;
     for key in [
         "PARENT",
         "BLOCKED_BY",
-        "TAGS",
-        "DEADLINE",
+        crate::model::TAGS_PROPERTY,
         "TYPE",
         "CLAIMED_BY",
         "CLAIMED_AT",
@@ -377,11 +390,15 @@ fn render_markdown_issue(out: &mut String, h: &IssueHeading) -> Result<()> {
     writeln!(out, "### {} [#{}] {}", h.state, h.priority, h.title)?;
     writeln!(out)?;
     writeln!(out, "- id: `{}`", h.id)?;
+    let tags = h.tags();
+    if !tags.is_empty() {
+        writeln!(out, "- tags: {}", tags.join(","))?;
+    }
     for key in [
         "PARENT",
         "BLOCKED_BY",
-        "TAGS",
         "DEADLINE",
+        "SCHEDULED",
         "TYPE",
         "CLAIMED_BY",
         "CLAIMED_AT",
@@ -465,7 +482,12 @@ mod tests {
         assert!(text.contains("* alpha"), "{text}");
         assert!(!text.contains("* beta"), "{text}");
         assert!(text.contains("** TODO [#A] wire the parser"), "{text}");
-        assert!(text.contains(":TAGS:       parser,core"), "{text}");
+        // Tags ride the heading, which is where Org's tag search reads them.
+        let heading = text
+            .lines()
+            .find(|l| l.starts_with("** TODO [#A] wire the parser"))
+            .expect("issue heading");
+        assert!(heading.ends_with(":parser:core:"), "{heading:?}");
         assert!(text.contains("Scope: the front end."), "{text}");
     }
 

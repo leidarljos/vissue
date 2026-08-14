@@ -273,15 +273,34 @@ fn parse_heading(lines: &[&str], start: usize) -> Result<(IssueHeading, usize)> 
         return Err(anyhow!("unknown TODO keyword {:?}", state));
     }
 
-    let (priority, title) = match parse_priority_cookie(after) {
-        Some((p, rest)) => (p, rest.trim().to_string()),
-        None => ('C', after.to_string()),
+    let (priority, heading_text) = match parse_priority_cookie(after) {
+        Some((p, rest)) => (p, rest.trim()),
+        None => ('C', after),
     };
+    let (title, org_tags) = crate::model::split_headline_tags(heading_text);
 
     let mut properties = BTreeMap::new();
     let mut property_order = Vec::new();
     let mut logbook: Vec<LogEntry> = Vec::new();
     let mut i = start + 1;
+
+    // Org writes DEADLINE, SCHEDULED, and CLOSED on a planning line between
+    // the heading and the drawer. Reading it is what keeps `C-c C-d` in Emacs
+    // from making the file unparseable here.
+    while i < lines.len() {
+        let found = parse_planning_line(lines[i]);
+        if found.is_empty() {
+            break;
+        }
+        for (key, value) in found {
+            if !property_order.contains(&key) {
+                property_order.push(key.clone());
+            }
+            properties.insert(key, value);
+        }
+        i += 1;
+    }
+
     let mut body_start = i;
     if i < lines.len() && lines[i].trim() == ":PROPERTIES:" {
         i += 1;
@@ -329,6 +348,16 @@ fn parse_heading(lines: &[&str], start: usize) -> Result<(IssueHeading, usize)> 
         .trim_end()
         .to_string();
 
+    // Carry a drawer written under the old name forward, so an existing
+    // tracker reads the same and the next rewrite settles on the name Org
+    // does not reserve.
+    if let Some(legacy) = properties.remove(crate::model::LEGACY_TAGS_PROPERTY) {
+        property_order.retain(|key| key != crate::model::LEGACY_TAGS_PROPERTY);
+        properties
+            .entry(crate::model::TAGS_PROPERTY.to_string())
+            .or_insert(legacy);
+    }
+
     let id = properties
         .get("ID")
         .cloned()
@@ -341,6 +370,7 @@ fn parse_heading(lines: &[&str], start: usize) -> Result<(IssueHeading, usize)> 
             state,
             priority,
             properties,
+            org_tags,
             property_order,
             body,
             logbook,
@@ -349,6 +379,35 @@ fn parse_heading(lines: &[&str], start: usize) -> Result<(IssueHeading, usize)> 
         },
         body_end,
     ))
+}
+
+/// Read an Org planning line into its `KEY -> timestamp` pairs.
+///
+/// Org packs several onto one line, as `CLOSED: [...] SCHEDULED: <...>`, and
+/// a line holding anything else is not a planning line at all.
+fn parse_planning_line(line: &str) -> Vec<(String, String)> {
+    let mut rest = line.trim();
+    let mut found = Vec::new();
+    while !rest.is_empty() {
+        let Some(key) = crate::model::PLANNING_KEYS
+            .iter()
+            .find(|key| rest.starts_with(&format!("{key}:")))
+        else {
+            return Vec::new();
+        };
+        let after = rest[key.len() + 1..].trim_start();
+        let close = match after.chars().next() {
+            Some('<') => '>',
+            Some('[') => ']',
+            _ => return Vec::new(),
+        };
+        let Some(end) = after.find(close) else {
+            return Vec::new();
+        };
+        found.push((key.to_string(), after[..=end].to_string()));
+        rest = after[end + 1..].trim_start();
+    }
+    found
 }
 
 /// Split a leading `[#A]` cookie off a heading, returning the cookie character
@@ -581,6 +640,7 @@ mod tests {
             state: "TODO".into(),
             priority: 'A',
             properties: props,
+            org_tags: Vec::new(),
             property_order: vec!["ID".into(), "CREATED".into(), "TYPE".into()],
             body: "Some body lines.\nWith multiple lines.".into(),
             logbook: Vec::new(),
@@ -630,6 +690,80 @@ mod tests {
         let doc = IssueDoc::parse("x", PathBuf::from("/tmp/x.org"), content).unwrap();
         assert_eq!(doc.headings[0].priority, 'C');
         assert_eq!(doc.headings[0].title, "[#not a cookie] stays");
+    }
+
+    #[test]
+    fn an_org_planning_line_parses_instead_of_hiding_the_drawer() {
+        // What `C-c C-d`, `C-c C-s`, and `org-log-done` write in Emacs. Before
+        // the planning line was read, the drawer below it went unseen and the
+        // whole file failed with ":ID: property missing".
+        let content = "#+TITLE: x issues\n\n* DONE [#A] Ship it\nCLOSED: [2026-08-14 Fri 03:33] SCHEDULED: <2026-09-05 Sat> DEADLINE: <2026-09-01 Tue>\n:PROPERTIES:\n:ID:         x-aaaa\n:END:\n\nBody stays body.\n";
+        let doc = IssueDoc::parse("x", PathBuf::from("/tmp/x.org"), content).unwrap();
+        let h = &doc.headings[0];
+        assert_eq!(h.id, "x-aaaa");
+        assert_eq!(h.deadline(), Some("<2026-09-01 Tue>"));
+        assert_eq!(h.scheduled(), Some("<2026-09-05 Sat>"));
+        assert_eq!(
+            h.properties.get("CLOSED").map(String::as_str),
+            Some("[2026-08-14 Fri 03:33]")
+        );
+        assert_eq!(h.body, "Body stays body.");
+    }
+
+    #[test]
+    fn a_planning_line_round_trips_in_orgs_own_order() {
+        let content = "#+TITLE: x issues\n\n* DONE [#A] Ship it\nCLOSED: [2026-08-14 Fri 03:33] SCHEDULED: <2026-09-05 Sat> DEADLINE: <2026-09-01 Tue>\n:PROPERTIES:\n:ID:         x-aaaa\n:END:\n";
+        let doc = IssueDoc::parse("x", PathBuf::from("/tmp/x.org"), content).unwrap();
+        let rendered = doc.headings[0].render();
+        assert!(
+            rendered.contains(
+                "\nCLOSED: [2026-08-14 Fri 03:33] SCHEDULED: <2026-09-05 Sat> DEADLINE: <2026-09-01 Tue>\n"
+            ),
+            "{rendered}"
+        );
+        assert!(!rendered.contains(":DEADLINE:"), "{rendered}");
+    }
+
+    #[test]
+    fn a_legacy_date_property_is_promoted_to_a_planning_line() {
+        // Trackers written before dates moved out of the drawer still parse,
+        // and the next rewrite puts them where Org's agenda reads them.
+        let content = "#+TITLE: x issues\n\n* TODO [#A] Ship it\n:PROPERTIES:\n:ID:         x-aaaa\n:DEADLINE:   <2026-09-01 Tue>\n:END:\n";
+        let doc = IssueDoc::parse("x", PathBuf::from("/tmp/x.org"), content).unwrap();
+        assert_eq!(doc.headings[0].deadline(), Some("<2026-09-01 Tue>"));
+        let rendered = doc.headings[0].render();
+        assert!(
+            rendered.contains("\nDEADLINE: <2026-09-01 Tue>\n"),
+            "{rendered}"
+        );
+        assert!(!rendered.contains(":DEADLINE:"), "{rendered}");
+    }
+
+    #[test]
+    fn a_line_that_only_looks_like_planning_is_left_as_body() {
+        let content = "#+TITLE: x issues\n\n* TODO [#A] Ship it\n:PROPERTIES:\n:ID:         x-aaaa\n:END:\n\nDEADLINE: is discussed in the design note.\n";
+        let doc = IssueDoc::parse("x", PathBuf::from("/tmp/x.org"), content).unwrap();
+        assert_eq!(doc.headings[0].deadline(), None);
+        assert_eq!(
+            doc.headings[0].body,
+            "DEADLINE: is discussed in the design note."
+        );
+    }
+
+    #[test]
+    fn a_legacy_tags_property_moves_to_the_name_org_leaves_alone() {
+        // `TAGS` is one of Org's own special property names, so a drawer that
+        // claims it is what `org-lint` reports. Existing trackers still read.
+        let content = "#+TITLE: x issues\n\n* TODO [#A] Ship it\n:PROPERTIES:\n:ID:         x-aaaa\n:TAGS:       needs-review,perf\n:END:\n";
+        let doc = IssueDoc::parse("x", PathBuf::from("/tmp/x.org"), content).unwrap();
+        let h = &doc.headings[0];
+        assert_eq!(h.tags(), vec!["needs-review", "perf"]);
+        let rendered = h.render();
+        assert!(
+            rendered.contains(":VISSUE_TAGS: needs-review,perf"),
+            "{rendered}"
+        );
+        assert!(!rendered.contains(":TAGS:"), "{rendered}");
     }
 
     #[test]

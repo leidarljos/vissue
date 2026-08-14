@@ -22,7 +22,7 @@ rest of the repository it lives in. A CLI and a Model Context Protocol server
 share the same library.
 
 The store is an Org file [1]. The graph has several justifications, and
-they are not interchangeable. `:PARENT:` plus `:TYPE:` and `:TAGS:`
+they are not interchangeable. `:PARENT:` plus `:TYPE:` and tags
 store the output of hierarchical task-network decomposition [3], [4]:
 the agent is the planner, the file is the network. `:BLOCKED_BY:` is a
 least-commitment partial order [2]. `ready` and `claim` are a
@@ -414,7 +414,7 @@ Like `create`, `fold` auto-detects the project from `.project-ctx.toml`
 when `--project` is omitted.
 
 **See what is due.** `agenda` lists open and blocked issues whose
-`:DEADLINE:` or `:SCHEDULED:` falls inside a horizon (default 14 days),
+`DEADLINE` or `SCHEDULED` falls inside a horizon (default 14 days),
 overdue first; a blocked issue still appears, because its date does not
 stop mattering while it waits:
 
@@ -493,7 +493,7 @@ to `C`.
 ### Properties
 
 `:ID:` is required and generated. `:CREATED:` is set on create. `:PARENT:`,
-`:BLOCKED_BY:`, `:TAGS:`, `:TYPE:`, `:DEADLINE:`, `:SCHEDULED:`,
+`:BLOCKED_BY:`, `:VISSUE_TAGS:`, `:TYPE:`,
 `:CLAIMED_BY:`, `:CLAIMED_AT:`, and `:DISCOVERED_FROM:` are read by the query
 verbs; any other property is preserved
 untouched, in the order it appears on disk. `:BLOCKED_BY:` accepts commas,
@@ -501,10 +501,37 @@ whitespace, or both. `:PARENT:` may name another issue or any org heading with
 an `:ID:` under the tracker prefix, so a design document can head a work
 hierarchy.
 
+### What Org owns
+
+Three fields live where Org keeps them rather than in the drawer, because Org
+reads them from there and nowhere else:
+
+| Field | Written as | What it buys |
+|---|---|---|
+| Deadline, scheduled, closed | The planning line under the heading: `CLOSED: [...] SCHEDULED: <...> DEADLINE: <...>` | `org-agenda` shows the issue |
+| Tags Org can hold | The heading's own `:tag:tag:` run | `org-agenda` tag search and `C-c \` match |
+| Identity | `:ID:` | `[[id:...]]` links resolve through `org-id` |
+
+A tag Org will not accept in a heading, `needs-review` say, stays in
+`:VISSUE_TAGS:` and still answers `search` and `related`. `vissue create
+--tags` splits a list between the two on that rule, and `show`, `export`, and
+the markdown mirror report the union.
+
+Both shapes are read, so a tracker written before this and one edited in Emacs
+parse the same; the next rewrite settles on the Org shape. `:TAGS:`,
+`:DEADLINE:`, and `:SCHEDULED:` in a drawer are names Org reserves, which
+`org-lint` reports, so they are migrated rather than kept.
+
+Because Org owns them, `C-c C-d`, `C-c C-s`, `C-c C-q`, and marking an issue
+DONE with `org-log-done` are all safe to run on a tracker; `tests/org_interop.sh`
+is Emacs doing exactly that and vissue reading the result back.
+
 ### JSONL export schema
 
 Each line is an object with `id`, `project`, `title`, `state`, `priority`,
-`properties`, `logbook`, `body`, `line_start`, and `line_end`. Logbook entries
+`properties`, `org_tags`, `tags`, `logbook`, `body`, `line_start`, and
+`line_end`. `org_tags` is the heading's Org tag run and `tags` is the union
+with `:VISSUE_TAGS:`, which is the field to filter on. Logbook entries
 carry `timestamp`, `from`, `to`, and `note`. CLOCK and other opaque drawer
 lines also carry `raw`, the verbatim Org line.
 

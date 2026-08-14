@@ -163,6 +163,10 @@ pub fn show(layout: &Layout, id: &str) -> Result<String> {
             None => writeln!(out, "Claimed:  {who}")?,
         }
     }
+    let tags = h.tags();
+    if !tags.is_empty() {
+        writeln!(out, "Tags:     {}", tags.join(", "))?;
+    }
     if h.properties.iter().any(|(k, _)| k != "ID") {
         writeln!(out, "Properties:")?;
         for (k, v) in &h.properties {
@@ -203,6 +207,11 @@ pub fn search(layout: &Layout, query: &str, limit: usize) -> Result<String> {
             hay.push_str(k);
             hay.push(':');
             hay.push_str(v);
+            hay.push(' ');
+        }
+        // Tags on the heading are as searchable as tags in the drawer.
+        for tag in h.tags() {
+            hay.push_str(&tag);
             hay.push(' ');
         }
         hay.push_str(&h.body);
@@ -497,6 +506,8 @@ pub fn export(layout: &Layout, project_filter: Option<&str>) -> Result<String> {
             "state": h.state,
             "priority": h.priority.to_string(),
             "properties": h.properties,
+            "org_tags": h.org_tags,
+            "tags": h.tags(),
             "logbook": logbook,
             "body": h.body,
             "line_start": h.line_start,

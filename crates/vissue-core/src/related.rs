@@ -39,8 +39,13 @@ fn issue_terms(project: &str, issue: &IssueHeading) -> IssueTerms {
     text.push_str(&issue.title);
     text.push(' ');
     text.push_str(&issue.body);
+    // A tag counts as a term wherever it was written, drawer or heading.
+    for tag in &issue.org_tags {
+        text.push(' ');
+        text.push_str(tag);
+    }
     for (key, value) in &issue.properties {
-        if matches!(key.as_str(), "TYPE" | "TAGS") {
+        if matches!(key.as_str(), "TYPE") || key == crate::model::TAGS_PROPERTY {
             text.push(' ');
             text.push_str(value);
         } else if !matches!(
