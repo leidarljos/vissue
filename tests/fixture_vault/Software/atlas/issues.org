@@ -1,4 +1,5 @@
 #+TITLE: atlas issues
+#+CATEGORY: atlas
 #+FILETAGS: :issues:atlas:
 #+DATE: [2026-01-12 Mon]
 #+DESCRIPTION: Issue tracking file for atlas specs, plans, and implementation tasks.

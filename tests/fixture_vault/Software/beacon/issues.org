@@ -1,4 +1,5 @@
 #+TITLE: beacon issues
+#+CATEGORY: beacon
 #+FILETAGS: :issues:beacon:
 #+DATE: [2026-01-20 Tue]
 #+DESCRIPTION: Issue tracking file for beacon specs, plans, and implementation tasks.

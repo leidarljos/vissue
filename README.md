@@ -182,6 +182,7 @@ The file now exists, with a preamble and one heading:
 ```console
 $ cat Software/parser/issues.org
 #+TITLE: parser issues
+#+CATEGORY: parser
 #+FILETAGS: :issues:parser:
 #+DATE: [2026-08-03 Mon]
 #+DESCRIPTION: Issue tracking file for parser specs, plans, and implementation tasks.
@@ -511,6 +512,7 @@ reads them from there and nowhere else:
 | Deadline, scheduled, closed | The planning line under the heading: `CLOSED: [...] SCHEDULED: <...> DEADLINE: <...>` | `org-agenda` shows the issue |
 | Tags Org can hold | The heading's own `:tag:tag:` run | `org-agenda` tag search and `C-c \` match |
 | Identity | `:ID:` | `[[id:...]]` links resolve through `org-id` |
+| Project | `#+CATEGORY:` in the preamble | the agenda labels a row by project, not by the file name every project shares |
 
 A tag Org will not accept in a heading, `needs-review` say, stays in
 `:VISSUE_TAGS:` and still answers `search` and `related`. `vissue create

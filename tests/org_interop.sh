@@ -64,6 +64,10 @@ agenda=$(emacs --batch -Q --eval "(progn
       (princ (buffer-substring-no-properties (point-min) (point-max)))))" 2>/dev/null)
 grep -q "Deadline:.*Ship the parser" <<<"$agenda" ||
   fail "org-agenda did not see the deadline"
+# Every project file is named issues.org, so without #+CATEGORY: the agenda
+# labels every row with the file name instead of the project.
+grep -q "demo:.*Ship the parser" <<<"$agenda" ||
+  fail "org-agenda labelled the row by file name, not by project"
 grep -q "Scheduled:.*Draft the notes" <<<"$agenda" ||
   fail "org-agenda did not see the scheduled date"
 

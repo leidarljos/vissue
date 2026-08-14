@@ -427,9 +427,14 @@ fn parse_priority_cookie(after: &str) -> Option<(char, &str)> {
     Some((priority, &rest[close + 1..]))
 }
 
+/// The header a fresh project file gets.
+///
+/// `#+CATEGORY:` names the project, because Org otherwise takes the category
+/// from the file name and every project's file is `issues.org`: an agenda
+/// spanning several projects would label every row `issues`.
 pub fn default_preamble(project: &str) -> String {
     format!(
-        "#+TITLE: {project} issues\n#+FILETAGS: :issues:{project}:\n#+DATE: {}\n#+DESCRIPTION: Issue tracking file for {project} specs, plans, and implementation tasks.\n#+STATUS: Active\n{}",
+        "#+TITLE: {project} issues\n#+CATEGORY: {project}\n#+FILETAGS: :issues:{project}:\n#+DATE: {}\n#+DESCRIPTION: Issue tracking file for {project} specs, plans, and implementation tasks.\n#+STATUS: Active\n{}",
         today_inactive_bracket(),
         TODO_HEADER
     )
@@ -843,6 +848,9 @@ mod tests {
         let written = fs::read_to_string(&path).unwrap();
         for expected in [
             "#+TITLE: sample issues",
+            // Org takes the category from the file name otherwise, and every
+            // project's file is issues.org.
+            "#+CATEGORY: sample",
             "#+FILETAGS: :issues:sample:",
             "#+DATE:",
             "#+STATUS: Active",

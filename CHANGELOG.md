@@ -24,6 +24,9 @@ All notable changes to vissue are recorded here. The format follows
   `org-lint` reports; a drawer written under the old name is migrated on
   parse.
 - JSONL export and `show --json` carry `org_tags` and a `tags` union.
+- A new project file carries `#+CATEGORY: <project>`. Org otherwise takes
+  the agenda category from the file name, and every project's file is
+  `issues.org`, so a multi-project agenda labelled every row `issues`.
 - `tests/org_interop.sh` drives Emacs over a tracker in CI: org-lint,
   org-agenda, tag search, and org-id all have to agree, and Org's own edits
   have to survive a vissue rewrite.
