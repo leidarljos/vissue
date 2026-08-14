@@ -642,6 +642,47 @@ fn a_file_without_a_stamp_reads_as_stale() {
 }
 
 #[test]
+fn check_names_a_parent_cycle() {
+    // Every :PARENT: id resolves, so the edge checks pass; the loop still
+    // makes the hierarchy unwalkable and has to be reported.
+    let dir = tempfile::tempdir().unwrap();
+    let layout = Layout::new(dir.path(), DEFAULT_PREFIX);
+    fs::create_dir_all(layout.projects_dir().join("loop")).unwrap();
+    fs::write(
+        layout.project_issues_path("loop"),
+        r#"#+TITLE: loop issues
+#+TODO: TODO STARTED BLOCKED | DONE CANCELLED
+
+* TODO [#A] First
+:PROPERTIES:
+:ID:         loop-aaaa
+:PARENT:     loop-bbbb
+:CREATED:    [2026-08-14 Fri]
+:END:
+
+* TODO [#A] Second
+:PROPERTIES:
+:ID:         loop-bbbb
+:PARENT:     loop-aaaa
+:CREATED:    [2026-08-14 Fri]
+:END:
+"#,
+    )
+    .unwrap();
+
+    let report = report::check(&layout).unwrap();
+    assert_eq!(report.errors, 1, "{}", report.text);
+    assert!(report.text.contains("parent cycle"), "{}", report.text);
+    // Reported once, not once per entry point into the loop.
+    assert_eq!(
+        report.text.matches("parent cycle").count(),
+        1,
+        "{}",
+        report.text
+    );
+}
+
+#[test]
 fn a_search_finds_body_and_property_text() {
     let layout = fixture_layout();
     assert!(report::search(&layout, "backoff table", 10)

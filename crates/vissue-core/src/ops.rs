@@ -66,7 +66,7 @@ pub fn create(layout: &Layout, project: &str, title: &str, opts: CreateOpts<'_>)
 
     with_issues_lock(&path, || {
         let mut doc = IssueDoc::parse_file(&project, &path)?;
-        let id = generate_id(&project, &doc.known_ids(), cfg.issues.id_length);
+        let id = generate_id(&project, &doc.known_ids(), cfg.issues.id_length)?;
 
         let mut props = BTreeMap::new();
         props.insert("ID".into(), id.clone());

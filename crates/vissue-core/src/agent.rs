@@ -117,10 +117,9 @@ pub fn body_excerpt(layout: &Layout, id: &str) -> Result<String> {
         excerpt.truncate(BODY_EXCERPT_MAX_CHARS);
         excerpt.push_str("\n...");
     }
-    let lower = excerpt.to_lowercase();
-    if lower.contains("private_key") || lower.contains("begin rsa") || lower.contains("api_key=") {
+    if let Some(marker) = secret_marker(&excerpt) {
         return Ok(format!(
-            "(excerpt suppressed: possible secret material; open {} directly)\n",
+            "(excerpt suppressed: {marker} looks like secret material; open {} directly)\n",
             path.display()
         ));
     }
@@ -132,6 +131,88 @@ pub fn body_excerpt(layout: &Layout, id: &str) -> Result<String> {
         from + 1,
         to
     ))
+}
+
+/// The marker that makes an excerpt look like it carries a credential.
+///
+/// A guard against handing an agent a secret by accident, not a redaction
+/// guarantee: it screens the shapes credentials are usually written in, and
+/// SECURITY.md says plainly that the answer is to keep them out of issue
+/// bodies. Widening it is cheap; relying on it is not.
+fn secret_marker(excerpt: &str) -> Option<&'static str> {
+    let lower = excerpt.to_lowercase();
+    // PEM and OpenSSH private key blocks, whatever the algorithm.
+    if lower.contains("-----begin") && lower.contains("private key") {
+        return Some("a private key block");
+    }
+    for token in [
+        "private_key",
+        "secret_key",
+        "client_secret",
+        "access_token",
+        "refresh_token",
+        "bearer ",
+        "authorization:",
+        "aws_secret_access_key",
+        "begin rsa",
+        "begin openssh",
+        "begin pgp private",
+    ] {
+        if lower.contains(token) {
+            return Some("a credential keyword");
+        }
+    }
+    // `key = value` shapes: an assignment whose name reads like a credential
+    // and whose value holds no space, which prose after a colon usually does.
+    // Judged on the name, not on how random the value looks: a guard should
+    // suppress a placeholder in an `api_key =` line rather than reason about
+    // whether this particular one is live.
+    for line in lower.lines() {
+        let Some((name, value)) = line.split_once(['=', ':']) else {
+            continue;
+        };
+        let name = name
+            .trim()
+            .trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
+        let value = value.trim().trim_matches(['"', '\'']);
+        if value.len() < 12 || value.contains(char::is_whitespace) {
+            continue;
+        }
+        if ["password", "passwd", "api_key", "apikey", "token", "secret"]
+            .iter()
+            .any(|needle| name.ends_with(needle))
+        {
+            return Some("an assignment to a credential name");
+        }
+    }
+    // Token prefixes, matched on a whole word and in the case they are
+    // issued in. A substring test here is what turns "making" into a cloud
+    // key and "task-force" into an API one.
+    for word in excerpt.split(|c: char| c.is_whitespace() || c == '"' || c == '\'') {
+        let word = word.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-');
+        if word.len() < 12 {
+            continue;
+        }
+        for prefix in [
+            "ghp_",
+            "gho_",
+            "ghs_",
+            "github_pat_",
+            "xoxb-",
+            "xoxp-",
+            "xoxa-",
+            "xoxs-",
+            "sk-",
+            "AKIA",
+            "ASIA",
+            "glpat-",
+        ] {
+            if word.starts_with(prefix) {
+                return Some("a vendor token prefix");
+            }
+        }
+    }
+    None
 }
 
 /// Issues waiting on this one.
@@ -325,6 +406,37 @@ mod tests {
         let text = body_excerpt(&layout, &doc.headings[0].id).unwrap();
         assert!(text.contains("Scope: the excerpt path."), "{text}");
         assert!(text.contains("Done-when: it reads back."), "{text}");
+    }
+
+    #[test]
+    fn the_secret_screen_reads_shapes_not_substrings() {
+        // Suppressed: the shapes a credential is actually written in.
+        for carrier in [
+            "-----BEGIN OPENSSH PRIVATE KEY-----",
+            "aws_secret_access_key = wJalrXUtnFEMI",
+            "Authorization: Bearer abcdefghijklmno",
+            "api_key = 9f8e7d6c5b4a3210ff",
+            "token: ghp_0123456789abcdefghij",
+            "AKIAIOSFODNN7EXAMPLE is the key",
+        ] {
+            assert!(
+                secret_marker(carrier).is_some(),
+                "missed a credential: {carrier:?}"
+            );
+        }
+        // Not suppressed: ordinary prose. A substring screen flags every one
+        // of these -- "making" holds "aki", "task-force" holds "sk-".
+        for prose in [
+            "Scope: read the header block before the first record.",
+            "making the parser reject a bad manifest",
+            "the task-force agreed on the schema",
+            "deployments in Asia are slower",
+            "next-token: reviewed by the release owner",
+            "Deadline: the parser lands before the notes.",
+            "See the design note for the token grammar.",
+        ] {
+            assert_eq!(secret_marker(prose), None, "false positive: {prose:?}");
+        }
     }
 
     #[test]

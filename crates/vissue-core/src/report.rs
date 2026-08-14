@@ -953,6 +953,39 @@ pub fn check(layout: &Layout) -> Result<CheckReport> {
         }
     }
 
+    // A :PARENT: loop passes every edge check, because each id resolves, yet
+    // it makes the hierarchy unwalkable: `tree` stops on it and prints
+    // "(cycle, stopping)". Naming it here is what keeps a corpus that holds
+    // one from reading as clean.
+    let mut settled: HashSet<&str> = HashSet::new();
+    for (_, h) in &all {
+        if settled.contains(h.id.as_str()) {
+            continue;
+        }
+        let mut path: Vec<&str> = Vec::new();
+        let mut on_path: HashSet<&str> = HashSet::new();
+        let mut cursor = h.id.as_str();
+        loop {
+            if settled.contains(cursor) {
+                break;
+            }
+            if !on_path.insert(cursor) {
+                let start = path.iter().position(|id| *id == cursor).unwrap_or(0);
+                let mut loop_ids: Vec<&str> = path[start..].to_vec();
+                loop_ids.push(cursor);
+                writeln!(out, "[err]  parent cycle: {}", loop_ids.join(" -> "))?;
+                errors += 1;
+                break;
+            }
+            path.push(cursor);
+            match by_id.get(cursor).and_then(|(_, owner)| owner.parent()) {
+                Some(parent) if by_id.contains_key(parent) => cursor = parent,
+                _ => break,
+            }
+        }
+        settled.extend(path);
+    }
+
     if errors == 0 {
         if let Err(err) = DependencyGraph::from_issues(&all) {
             writeln!(out, "[err]  blocker graph: {err}")?;

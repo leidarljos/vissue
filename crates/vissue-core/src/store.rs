@@ -59,6 +59,35 @@ fn write_synced(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     file.sync_all()
 }
 
+/// Replace `path` with `body` through a flushed temporary and a rename.
+///
+/// For generated output a reader shares, which is a mirror: a plain write
+/// truncates first, so a reader mid-pull, or a crash, sees a half file where
+/// a whole one was.
+pub fn replace_file_atomically(path: &Path, body: &str) -> Result<()> {
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    fs::create_dir_all(&parent).with_context(|| format!("create {}", parent.display()))?;
+    let seq = WRITE_TMP_SEQ.fetch_add(1, Ordering::Relaxed);
+    let base = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("output");
+    let tmp = parent.join(format!(".{}.tmp.{}-{}", base, std::process::id(), seq));
+    if let Err(e) = write_synced(&tmp, body.as_bytes()) {
+        let _ = fs::remove_file(&tmp);
+        return Err(e).with_context(|| format!("write temp {}", tmp.display()));
+    }
+    if let Err(e) = fs::rename(&tmp, path) {
+        let _ = fs::remove_file(&tmp);
+        return Err(e).with_context(|| format!("rename {} -> {}", tmp.display(), path.display()));
+    }
+    Ok(())
+}
+
 fn issues_lock_path(path: &Path) -> PathBuf {
     let mut s = path.as_os_str().to_owned();
     s.push(".lock");
@@ -525,14 +554,26 @@ pub fn load_all(layout: &Layout) -> Result<Vec<(String, IssueHeading)>> {
 }
 
 /// `<project>-<base36 suffix>`, retried until it does not collide.
-pub fn generate_id(project: &str, existing: &[String], length: usize) -> String {
+///
+/// Fails rather than looping forever when the suffix space is full. That is
+/// reachable, not hypothetical: `id_length = 2` is 1296 suffixes, so a
+/// project can outgrow it, and the answer is a longer id rather than a
+/// crash inside a write.
+pub fn generate_id(project: &str, existing: &[String], length: usize) -> Result<String> {
     let len = length.max(2);
-    let mut counter: u128 = 0;
+    let taken: std::collections::HashSet<&str> = existing.iter().map(String::as_str).collect();
     let base = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(1);
-    loop {
+    // Bounded by the size of the space, so a full space is reported instead
+    // of spun on. 36^len saturates well before it could overflow.
+    let attempts = 36usize
+        .checked_pow(len as u32)
+        .map(|space| space.saturating_mul(2))
+        .unwrap_or(usize::MAX)
+        .min(2_000_000);
+    for counter in 0..attempts as u128 {
         let mut n = base
             .wrapping_add(counter.wrapping_mul(17))
             .wrapping_mul(2654435761);
@@ -542,14 +583,14 @@ pub fn generate_id(project: &str, existing: &[String], length: usize) -> String 
             n /= 36;
         }
         let id = format!("{}-{}", project, suffix);
-        if !existing.iter().any(|e| e == &id) {
-            return id;
-        }
-        counter += 1;
-        if counter > 1_000_000 {
-            panic!("could not generate unique issue id for {}", project);
+        if !taken.contains(id.as_str()) {
+            return Ok(id);
         }
     }
+    Err(anyhow!(
+        "no free id left for {project:?} at id_length = {len}; \
+         raise `id_length` under [issues] in vissue.toml"
+    ))
 }
 
 /// Walk up from `start` for a `.project-ctx.toml` and read `[project].name`.
@@ -863,11 +904,28 @@ mod tests {
     #[test]
     fn generated_ids_are_unique_and_sized() {
         let existing = vec!["p-aaaa".to_string()];
-        let id = generate_id("p", &existing, 4);
+        let id = generate_id("p", &existing, 4).unwrap();
         assert!(id.starts_with("p-"));
         assert!(!existing.contains(&id));
         assert_eq!(id.len(), 1 + 1 + 4);
-        assert_eq!(generate_id("q", &[], 6).len(), 1 + 1 + 6);
+        assert_eq!(generate_id("q", &[], 6).unwrap().len(), 1 + 1 + 6);
+    }
+
+    #[test]
+    fn a_full_suffix_space_is_an_error_and_not_a_panic() {
+        // id_length 2 is 36^2 suffixes. Hand it every one of them and it has
+        // to say so rather than spin or abort inside a write.
+        let mut existing = Vec::new();
+        for a in ID_ALPHABET {
+            for b in ID_ALPHABET {
+                existing.push(format!("p-{}{}", *a as char, *b as char));
+            }
+        }
+        let err = generate_id("p", &existing, 2).unwrap_err();
+        assert!(err.to_string().contains("id_length"), "{err}");
+        // One free suffix is still found.
+        existing.pop();
+        assert!(generate_id("p", &existing, 2).is_ok());
     }
 
     #[test]

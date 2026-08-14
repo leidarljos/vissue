@@ -67,7 +67,16 @@ All notable changes to vissue are recorded here. The format follows
   source, so a failed write cannot lose the issue.
 - `note` adds its entry at the top of the logbook, where state transitions
   and claim releases already go.
-- `check` counts a duplicate id as an error.
+- `check` counts a duplicate id as an error, and reports a `:PARENT:` cycle.
+  Every id in a parent loop resolves, so the edge checks passed it while the
+  hierarchy stayed unwalkable and `tree` printed "(cycle, stopping)".
+- `create` reports a full id space instead of panicking inside the write.
+  `id_length = 2` is 1296 suffixes, which a project can outgrow.
+- `mirror --out` writes through a flushed temporary and a rename, so a reader
+  mid-pull cannot see a half-written projection.
+- The `body-excerpt` secret screen reads credential shapes rather than three
+  substrings, and matches vendor token prefixes on a whole word: the old form
+  would have flagged "making" as an AWS key had that prefix been listed.
 - `hygiene` matches issues by id rather than by row prefix.
 - An `issues.org` is flushed to the device before the rename publishes it.
 - A reader that closes the pipe, as `vissue export | head` does, exits 0
