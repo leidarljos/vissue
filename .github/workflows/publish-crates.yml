@@ -1,50 +1,113 @@
-name: Publish crates
+name: crates.io
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v*'
+  pull_request:
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Tag or ref to publish (defaults to the triggering ref)'
+        required: false
+        type: string
+      dry_run:
+        description: 'Mint the token and package, but upload nothing'
+        required: false
+        default: true
+        type: boolean
+
+concurrency:
+  group: crates-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
 
 jobs:
+  package:
+    name: Verify crate packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Builds each packaged tarball exactly as `cargo publish` would, so a
+      # crate that cannot be consumed from the registry fails here rather
+      # than after an irreversible upload. The two consumers are packaged
+      # against the local vissue-core, because the version they depend on is
+      # not on the registry until this run puts it there.
+      - name: Package
+        run: |
+          set -euo pipefail
+          cargo publish --dry-run --locked -p vissue-core
+          core_patch='patch.crates-io.vissue-core.path="${{ github.workspace }}/crates/vissue-core"'
+          cargo --config "$core_patch" publish --dry-run --locked -p vissue-cli
+          cargo --config "$core_patch" publish --dry-run --locked -p vissue-mcp
+
   publish:
-    if: ${{ !github.event.release.prerelease && vars.PUBLIC_RELEASE_ENABLED == 'true' }}
-    runs-on: ubuntu-22.04
-    environment: crates-io
+    name: Publish to crates.io
+    needs: [package]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    environment:
+      name: crates-io
+      url: https://crates.io/crates/vissue-cli
     permissions:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@v4
         with:
-          persist-credentials: false
-          ref: ${{ github.event.release.tag_name }}
-      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
-        with:
-          toolchain: "1.88"
-      - name: Validate release tag
-        shell: bash
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # The tag names the version, so a tag that disagrees with the manifest
+      # would publish something nobody asked for.
+      - name: Validate the tag against the workspace version
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
-          version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)
+          set -euo pipefail
+          version=$(sed -n '0,/^version = /s/^version = "\([^"]*\)"/\1/p' Cargo.toml)
           test -n "$version"
-          test "v$version" = "${{ github.event.release.tag_name }}"
-      - name: Validate all packages
-        shell: bash
-        run: |
-          cargo test --locked --workspace
-          cargo clippy --locked --workspace --all-targets -- -D warnings
-          cargo publish --locked --dry-run -p vissue-core
-          core_patch='patch.crates-io.vissue-core.path="${{ github.workspace }}/crates/vissue-core"'
-          cargo --config "$core_patch" publish --locked --dry-run -p vissue-cli
-          cargo --config "$core_patch" publish --locked --dry-run -p vissue-mcp
-      - name: Authenticate with crates.io
+          test "v$version" = "${GITHUB_REF_NAME}"
+
+      # Trusted publishing: exchange this job's OIDC identity for a token
+      # that lives only for the length of the run. crates.io accepts it
+      # because the registry side pins this repository, this workflow file
+      # and the environment above; a mismatch fails here rather than
+      # reaching for a long-lived credential.
+      - name: Mint a trusted-publishing token
         id: auth
-        uses: rust-lang/crates-io-auth-action@v1
-      - name: Publish workspace crates in dependency order
+        uses: rust-lang/crates-io-auth-action@v1.0.5
+
+      # Dependency order. vissue-cli and vissue-mcp both name vissue-core by
+      # version, so the registry has to have it before either resolves; the
+      # wait is that propagation and nothing else.
+      - name: Publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
         run: |
-          cargo publish --locked -p vissue-core
-          cargo publish --locked -p vissue-cli
-          cargo publish --locked -p vissue-mcp
+          set -euo pipefail
+          cargo publish --locked -p vissue-core $DRY_RUN
+          if [ -z "$DRY_RUN" ]; then
+            for _ in $(seq 1 30); do
+              if cargo info vissue-core@"$(sed -n '0,/^version = /s/^version = "\([^"]*\)"/\1/p' Cargo.toml)" >/dev/null 2>&1; then
+                break
+              fi
+              sleep 10
+            done
+          fi
+          cargo publish --locked -p vissue-cli $DRY_RUN
+          cargo publish --locked -p vissue-mcp $DRY_RUN

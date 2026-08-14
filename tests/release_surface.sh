@@ -28,8 +28,13 @@ grep -q 'pr-run-mode = "upload"' dist-workspace.toml
 grep -q 'aarch64-apple-darwin' dist-workspace.toml
 grep -q 'x86_64-unknown-linux-gnu' dist-workspace.toml
 grep -q 'cargo-dist-installer.sh' .github/workflows/release.yml
+# Publication is trusted publishing: an OIDC identity exchanged for a token
+# that lives only as long as the run, with no long-lived registry secret in
+# the repository at all.
 grep -q 'crates-io-auth-action@v1' .github/workflows/publish-crates.yml
-grep -Fq "vars.PUBLIC_RELEASE_ENABLED == 'true'" .github/workflows/publish-crates.yml
+grep -q 'id-token: write' .github/workflows/publish-crates.yml
+grep -q 'name: crates-io' .github/workflows/publish-crates.yml
+! grep -q 'secrets.CARGO_REGISTRY_TOKEN' .github/workflows/publish-crates.yml
 grep -q 'cargo publish --locked -p vissue-core' .github/workflows/publish-crates.yml
 grep -q 'cargo publish --locked -p vissue-cli' .github/workflows/publish-crates.yml
 grep -q 'cargo publish --locked -p vissue-mcp' .github/workflows/publish-crates.yml
@@ -38,17 +43,22 @@ grep -q 'patch.crates-io.vissue-core.path' .github/workflows/publish-crates.yml
 grep -q 'dist build --artifacts=local --target="\$host_target"' scripts/release-prepare.sh
 ! grep -q 'dist build --artifacts=all' scripts/release-prepare.sh
 
-tag_create_line=$(grep -n '^\$ git tag -s v' RELEASING.md | head -n 1 | cut -d: -f1)
-publish_line=$(grep -n '^\$ cargo publish --locked -p vissue-core' RELEASING.md | head -n 1 | cut -d: -f1)
-tag_line=$(grep -n '^\$ git push origin v' RELEASING.md | head -n 1 | cut -d: -f1)
-arm_line=$(grep -n '^\$ gh variable set PUBLIC_RELEASE_ENABLED' RELEASING.md | head -n 1 | cut -d: -f1)
-test -n "$tag_create_line"
-test -n "$publish_line"
-test -n "$tag_line"
-test -n "$arm_line"
-test "$tag_create_line" -lt "$publish_line"
-test "$publish_line" -lt "$tag_line"
-test "$tag_line" -lt "$arm_line"
+# The bootstrap has to read in the order it must be performed: the crates
+# exist before a trusted publisher can name them, and the tag-driven flow
+# comes after both.
+bootstrap_line=$(grep -n '^## First public version$' RELEASING.md | head -n 1 | cut -d: -f1)
+core_line=$(grep -n '^\$ cargo publish --locked -p vissue-core' RELEASING.md | head -n 1 | cut -d: -f1)
+mcp_line=$(grep -n '^\$ cargo publish --locked -p vissue-mcp' RELEASING.md | head -n 1 | cut -d: -f1)
+tagflow_line=$(grep -n '^## Tag-driven releases$' RELEASING.md | head -n 1 | cut -d: -f1)
+test -n "$bootstrap_line"
+test -n "$core_line"
+test -n "$mcp_line"
+test -n "$tagflow_line"
+test "$bootstrap_line" -lt "$core_line"
+test "$core_line" -lt "$mcp_line"
+test "$mcp_line" -lt "$tagflow_line"
+# The scope that the bootstrap actually needs, which is what bit us.
+grep -q 'publish-new' RELEASING.md
 
 # The documentation site ships as Org sources plus a reproducible build, and
 # the generated CLI assets have to exist for a packager to install them.
