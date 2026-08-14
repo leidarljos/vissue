@@ -18,19 +18,28 @@ pub struct DependencyGraph {
 impl DependencyGraph {
     /// Build a graph and reject malformed duplicate IDs or cyclic dependencies.
     pub fn from_issues(issues: &[(String, IssueHeading)]) -> Result<Self> {
+        Self::from_headings(issues.iter().map(|(_, heading)| heading))
+    }
+
+    /// Same graph as [`Self::from_issues`], without copying headings.
+    pub fn from_headings<'a, I>(issues: I) -> Result<Self>
+    where
+        I: IntoIterator<Item = &'a IssueHeading>,
+    {
+        let headings: Vec<&IssueHeading> = issues.into_iter().collect();
         let mut graph = Self {
             dag: Dag::new(),
-            ids: HashMap::with_capacity(issues.len()),
+            ids: HashMap::with_capacity(headings.len()),
         };
         let mut seen_edges = HashSet::new();
-        for (_, issue) in issues {
+        for issue in &headings {
             if graph.ids.contains_key(&issue.id) {
                 bail!("duplicate issue id {}", issue.id);
             }
             let node = graph.dag.add_node(issue.id.clone());
             graph.ids.insert(issue.id.clone(), node);
         }
-        for (_, issue) in issues {
+        for issue in &headings {
             for blocker in blocker_ids(issue) {
                 let Some(&from) = graph.ids.get(blocker) else {
                     continue;

@@ -616,6 +616,11 @@ pub fn children_from(issues: &[IssueRec], parent_id: &str) -> Result<Vec<WalkHit
             ));
         }
     }
+    if rows.is_empty() && !known_issue_id(issues, parent_id) {
+        return Err(Error::IssueNotFound {
+            id: parent_id.to_string(),
+        });
+    }
     rows.sort_by(|a, b| {
         a.0.cmp(&b.0)
             .then_with(|| a.1.cmp(&b.1))
@@ -635,11 +640,8 @@ fn walk_from(
     depth: usize,
     kind: WalkKind,
 ) -> Result<Vec<WalkHit>, Error> {
-    let pairs: Vec<_> = issues
-        .iter()
-        .map(|r| (r.project.clone(), r.heading.clone()))
-        .collect();
-    let graph = DependencyGraph::from_issues(&pairs).map_err(Error::from)?;
+    let graph =
+        DependencyGraph::from_headings(issues.iter().map(|r| &r.heading)).map_err(Error::from)?;
     let walked = match kind {
         WalkKind::Ancestors => graph.ancestors(id, depth)?,
         WalkKind::Impact => graph.descendants(id, depth)?,
@@ -688,7 +690,16 @@ pub fn backlinks_from(issues: &[IssueRec], target_id: &str) -> Result<Vec<WalkHi
             out.push(walk_hit(rec, "body mention"));
         }
     }
+    if out.is_empty() && !known_issue_id(issues, target_id) {
+        return Err(Error::IssueNotFound {
+            id: target_id.to_string(),
+        });
+    }
     Ok(out)
+}
+
+fn known_issue_id(issues: &[IssueRec], id: &str) -> bool {
+    issues.iter().any(|r| r.heading.id == id)
 }
 
 fn walk_hit(rec: &IssueRec, relation: &str) -> WalkHit {

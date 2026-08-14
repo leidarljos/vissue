@@ -5,10 +5,22 @@ use std::fmt;
 /// Recoverable catalog and mutation failures with a stable shape.
 #[derive(Debug)]
 pub enum Error {
-    IssueNotFound { id: String },
-    ClaimConflict { id: String, holder: String },
-    BlockerCycle { blocker: String, issue: String },
-    InvalidState { id: String, state: String },
+    IssueNotFound {
+        id: String,
+    },
+    ClaimConflict {
+        id: String,
+        holder: String,
+        claimed_at: Option<String>,
+    },
+    BlockerCycle {
+        blocker: String,
+        issue: String,
+    },
+    InvalidState {
+        id: String,
+        state: String,
+    },
     Other(anyhow::Error),
 }
 
@@ -16,9 +28,14 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::IssueNotFound { id } => write!(f, "issue {id} not found"),
-            Error::ClaimConflict { id, holder } => write!(
+            Error::ClaimConflict {
+                id,
+                holder,
+                claimed_at,
+            } => write!(
                 f,
-                "{id} is claimed by {holder}; pass --force to take it over"
+                "{id} is claimed by {holder} since {}; pass --force to take it over",
+                claimed_at.as_deref().unwrap_or("an unknown time")
             ),
             Error::BlockerCycle { blocker, issue } if blocker == issue => {
                 write!(f, "issue {issue} cannot block itself")

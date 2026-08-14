@@ -1137,13 +1137,19 @@ fn claim_conflict_is_matchable_without_parsing_display() {
         .downcast_ref::<Error>()
         .expect("claim conflict should be a typed Error");
     match typed {
-        Error::ClaimConflict { id, holder } => {
+        Error::ClaimConflict {
+            id,
+            holder,
+            claimed_at,
+        } => {
             assert_eq!(id, "atlas-1a2b");
             assert_eq!(holder, "fixture-agent");
+            assert_eq!(claimed_at.as_deref(), Some("[2026-01-14 Wed 09:12]"));
         }
         other => panic!("expected ClaimConflict, got {other:?}"),
     }
     assert!(err.to_string().contains("claimed by fixture-agent"));
+    assert!(err.to_string().contains("since [2026-01-14 Wed 09:12]"));
     assert!(err.to_string().contains("--force"));
 }
 
@@ -1186,4 +1192,54 @@ fn ready_from_is_corpus_wide() {
         CatalogService::from_recs(&recs).ready(None).unwrap().len(),
         2
     );
+}
+
+#[test]
+fn missing_ids_are_typed_issue_not_found() {
+    let layout = fixture_layout();
+    let recs = load_recs(&layout).unwrap();
+    let catalog = CatalogService::from_recs(&recs);
+
+    match catalog.detail("no-such") {
+        Err(Error::IssueNotFound { id }) => assert_eq!(id, "no-such"),
+        other => panic!("expected IssueNotFound from detail, got {other:?}"),
+    }
+    match catalog.children("no-such") {
+        Err(Error::IssueNotFound { id }) => assert_eq!(id, "no-such"),
+        other => panic!("expected IssueNotFound from children, got {other:?}"),
+    }
+    match catalog.backlinks("no-such") {
+        Err(Error::IssueNotFound { id }) => assert_eq!(id, "no-such"),
+        other => panic!("expected IssueNotFound from backlinks, got {other:?}"),
+    }
+
+    let err = vissue_core::ops::claim(&layout, "no-such", false).unwrap_err();
+    match err.downcast_ref::<Error>() {
+        Some(Error::IssueNotFound { id }) => assert_eq!(id, "no-such"),
+        other => panic!("expected IssueNotFound from claim, got {other:?}"),
+    }
+
+    // A known issue with no children is empty, not not-found. A design-document
+    // parent is not an IssueRec but still has children.
+    assert!(catalog.children("atlas-4g5h").unwrap().is_empty());
+    assert!(catalog
+        .children("beacon-design-0001")
+        .unwrap()
+        .iter()
+        .any(|hit| hit.id == "beacon-5j6k"));
+}
+
+#[test]
+fn claiming_a_closed_issue_is_typed_invalid_state() {
+    let _guard = EVENTS_ENV.lock().unwrap_or_else(|p| p.into_inner());
+    let (_dir, layout) = writable_copy();
+    let err = vissue_core::ops::claim(&layout, "atlas-4g5h", false).unwrap_err();
+    match err.downcast_ref::<Error>() {
+        Some(Error::InvalidState { id, state }) => {
+            assert_eq!(id, "atlas-4g5h");
+            assert_eq!(state, "DONE");
+        }
+        other => panic!("expected InvalidState, got {other:?}"),
+    }
+    assert!(err.to_string().contains("cannot claim"));
 }

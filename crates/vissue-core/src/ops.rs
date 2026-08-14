@@ -338,6 +338,7 @@ pub fn claim_as(layout: &Layout, id: &str, force: bool, identity: &str) -> Resul
                 return Err(Error::ClaimConflict {
                     id: id.to_string(),
                     holder: holder.to_string(),
+                    claimed_at: h.claimed_at().map(str::to_string),
                 }
                 .into());
             }
