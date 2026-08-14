@@ -52,6 +52,11 @@ All notable changes to vissue are recorded here. The format follows
 - `search` and `related` read tags from the heading as well as the drawer.
 
 
+### Developer
+
+- The Emacs interop check reports the error when Emacs itself fails, instead of exiting with a bare status and no message.
+
+
 ## [0.1.0] - 2026-08-12
 
 ### Added
