@@ -560,7 +560,9 @@ flowchart LR
     vissue["vissue: work items"]
     protocol["CLI provider protocol"]
     orgaw["orgaw: time and evidence"]
+    emacs["Emacs: agenda, tags, id links"]
     corpus <--> vissue
+    corpus <--> emacs
     vissue --> protocol --> orgaw
     orgaw --> corpus
 ```
@@ -576,6 +578,14 @@ $ orgaw issues
 $ orgaw in project-id
 $ orgaw out
 ```
+
+Emacs is a client of the corpus rather than of the command: a tracker is an
+ordinary Org file, so the agenda, tag search, and `id:` links work against it
+with nothing installed.
+[vissue.el](https://github.com/HaoZeke/vissue.el) is the optional convenience
+layer. `M-x vissue-add-to-agenda` puts the tracker files on `org-agenda-files`
+and refreshes `org-id` locations; `M-x vissue-list` works the ready set from a
+buffer.
 
 ## Explanation
 

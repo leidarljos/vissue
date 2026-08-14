@@ -24,6 +24,11 @@ All notable changes to vissue are recorded here. The format follows
   `org-lint` reports; a drawer written under the old name is migrated on
   parse.
 - JSONL export and `show --json` carry `org_tags` and a `tags` union.
+- `tests/org_interop.sh` drives Emacs over a tracker in CI: org-lint,
+  org-agenda, tag search, and org-id all have to agree, and Org's own edits
+  have to survive a vissue rewrite.
+- README names [vissue.el](https://github.com/HaoZeke/vissue.el) as the
+  optional Emacs convenience layer.
 
 
 - README leads with the multi-agent plan graph, a worked board example,
