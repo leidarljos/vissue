@@ -24,9 +24,19 @@ All notable changes to vissue are recorded here. The format follows
   `org-lint` reports; a drawer written under the old name is migrated on
   parse.
 - JSONL export and `show --json` carry `org_tags` and a `tags` union.
+- **Compatibility**: a tracker written by this version is not readable by
+  0.1.0, which fails on the planning line with ":ID: property missing".
+  Upgrade `vissue`, `orgaw`, and any other reader together. orgaw needs the
+  planning-line fix in its own `clock` module: an older orgaw inserts a
+  `:LOGBOOK:` drawer above the planning line and breaks the file for every
+  reader, including a current `vissue`.
 - A new project file carries `#+CATEGORY: <project>`. Org otherwise takes
   the agenda category from the file name, and every project's file is
   `issues.org`, so a multi-project agenda labelled every row `issues`.
+- `tests/orgaw_interop.sh` runs the cross-tool check CONTRIBUTING.md asks
+  for: orgaw reads the protocol, clocks in and out through the same file,
+  and the planning line, the CLOCK, and org-lint all survive. Skips when
+  orgaw is absent.
 - `tests/org_interop.sh` drives Emacs over a tracker in CI: org-lint,
   org-agenda, tag search, and org-id all have to agree, and Org's own edits
   have to survive a vissue rewrite.
