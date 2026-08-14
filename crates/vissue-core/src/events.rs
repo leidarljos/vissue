@@ -282,8 +282,12 @@ pub fn since(layout: &Layout, since_seq: u64, limit: usize) -> Result<Vec<Event>
 /// Text plus a trailing JSON block, the shape existing readers parse.
 pub fn since_report(layout: &Layout, since_seq: u64, limit: usize) -> Result<String> {
     let dir = events_dir(layout);
-    let generation_now = generation_in(&dir);
     let events = since_in(&dir, since_seq, limit)?;
+    Ok(render_events(&dir, since_seq, events))
+}
+
+fn render_events(dir: &Path, since_seq: u64, events: Vec<Event>) -> String {
+    let generation_now = generation_in(dir);
     let mut text = format!(
         "generation={} since={} count={}\n",
         generation_now,
@@ -300,13 +304,13 @@ pub fn since_report(layout: &Layout, since_seq: u64, limit: usize) -> Result<Str
         "generation": generation_now,
         "since": since_seq,
         "events": events,
-        "log": log_path(&dir).display().to_string(),
-        "gen_file": gen_path(&dir).display().to_string(),
+        "log": log_path(dir).display().to_string(),
+        "gen_file": gen_path(dir).display().to_string(),
     });
     text.push_str("\n---json---\n");
     text.push_str(&data.to_string());
     text.push('\n');
-    Ok(text)
+    text
 }
 
 /// Append a manual event, waking pollers without touching an issues.org.
@@ -346,11 +350,34 @@ pub fn wait_generation(layout: &Layout, last: u64, poll_ms: u64, timeout_ms: u64
     }
 }
 
+/// The last `n` events in the log.
+///
+/// Counted from the end of the log rather than back from the generation: a
+/// debounced burst advances the generation without appending, so a sequence
+/// window that wide can hold fewer lines than the caller asked for, or none.
+pub fn tail_in(dir: &Path, n: usize) -> Result<Vec<Event>> {
+    let log = log_path(dir);
+    if !log.is_file() {
+        return Ok(Vec::new());
+    }
+    let text = fs::read_to_string(&log)?;
+    let mut out: Vec<Event> = text
+        .lines()
+        .rev()
+        .filter(|line| !line.trim().is_empty())
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .take(n)
+        .collect();
+    out.reverse();
+    Ok(out)
+}
+
 /// The last `n` events, for a reader that only wants what is recent.
 pub fn tail_report(layout: &Layout, n: usize) -> Result<String> {
-    let generation_now = generation(layout);
-    let since_seq = generation_now.saturating_sub(n as u64);
-    since_report(layout, since_seq.saturating_sub(1), n)
+    let dir = events_dir(layout);
+    let events = tail_in(&dir, n)?;
+    let since_seq = events.first().map(|e| e.seq.saturating_sub(1)).unwrap_or(0);
+    Ok(render_events(&dir, since_seq, events))
 }
 
 /// Add the event files to a `.gitignore` that already exists beside them. Best
@@ -467,6 +494,22 @@ mod tests {
         seqs.dedup();
         assert_eq!(seqs.len(), 16, "duplicate event sequences: {seqs:?}");
         assert_eq!(generation_in(&d), *seqs.last().unwrap());
+    }
+
+    #[test]
+    fn a_tail_counts_lines_not_sequence_numbers() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        for i in 0..5 {
+            emit_in(d, "manual", None, None, None, Some(&format!("event {i}"))).unwrap();
+        }
+        // A ping with no log line of its own would still move the generation
+        // past the window a sequence-derived tail would look in.
+        let tailed = tail_in(d, 3).unwrap();
+        assert_eq!(tailed.len(), 3, "{tailed:?}");
+        assert_eq!(tailed[2].detail.as_deref(), Some("event 4"));
+        assert_eq!(tailed[0].detail.as_deref(), Some("event 2"));
+        assert!(tail_in(d, 50).unwrap().len() == 5);
     }
 
     #[test]

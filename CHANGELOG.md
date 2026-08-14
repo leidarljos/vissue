@@ -42,6 +42,8 @@ All notable changes to vissue are recorded here. The format follows
   peer write that landed first is part of the answer.
 - A `fold` that fails partway stamps the issues it did create, so rerunning
   does not create them twice.
+- `events::tail_report` counts log lines rather than sequence numbers, so a
+  debounced burst no longer shortens the tail.
 
 ### Changed
 
