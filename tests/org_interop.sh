@@ -82,11 +82,19 @@ grep -q "Ship the parser" <<<"$tagged" || fail "org tag search missed the issue:
 echo "4. Org ids resolve, so [[id:...]] links work"
 first_id=$("$bin" --root "$root" export | head -1 |
   python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
-found=$(emacs --batch -Q --eval "(progn
+# Keep stderr: an Emacs that errors here exits non-zero with nothing on
+# stdout, and swallowing it turns a diagnosable failure into a bare 255.
+if ! found=$(emacs --batch -Q --eval "(progn
+    (require 'org)
     (require 'org-id)
-    (setq org-id-locations-file \"$work/id-locations.el\")
+    (setq org-id-locations-file \"$work/id-locations.el\"
+          org-id-track-globally t
+          org-agenda-files (list \"$issues\"))
     (org-id-update-id-locations (list \"$issues\"))
-    (princ (format \"%S\" (org-id-find \"$first_id\"))))" 2>/dev/null)
+    (princ (format \"%S\" (org-id-find \"$first_id\"))))" 2>&1); then
+  fail "emacs failed resolving $first_id:
+$found"
+fi
 grep -q "issues.org" <<<"$found" || fail "org-id could not resolve $first_id: $found"
 
 echo "5. Emacs edits the tracker the way a person would"
