@@ -9,7 +9,7 @@ authors:
     orcid: "https://orcid.org/0000-0002-2393-8056"
 license: MIT
 repository-code: "https://github.com/HaoZeke/vissue"
-version: 0.1.0
+version: 0.2.0
 keywords:
   - issue tracking
   - orgmode

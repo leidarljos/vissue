@@ -4,6 +4,23 @@
 published in dependency order. Git tags use `vX.Y.Z` and must match the
 workspace version in `Cargo.toml`.
 
+## Cutting a version
+
+`cog bump` drives it. The pre-bump hooks move every version surface together,
+fold the news fragments into `CHANGELOG.md`, and run the release-surface gate,
+so a bump that would produce an inconsistent tree fails before the tag exists.
+
+```console
+$ cog bump --minor          # or --patch / --major / --version X.Y.Z
+```
+
+That leaves a version commit and a `vX.Y.Z` tag. Review both before pushing;
+the tag is what the release workflows key on.
+
+To move the surfaces without bumping, `scripts/sync-version.sh X.Y.Z`. To see
+the release notes without consuming the fragments, `uvx towncrier build
+--draft --version X.Y.Z`.
+
 ## Private preparation
 
 Run the complete gate on a supported build host before creating a tag:

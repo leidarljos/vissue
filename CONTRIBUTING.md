@@ -41,9 +41,20 @@ Shell completions and the manual page are generated from the CLI definition
 
 ## Changes
 
-Keep commits focused and use a Conventional Commit subject. Add user-visible
-changes under `Unreleased` in `CHANGELOG.md`. Security reports follow
-`SECURITY.md` and must not be opened publicly.
+Keep commits focused and use a Conventional Commit subject.
+
+A user-visible change adds a news fragment under `docs/newsfragments/` rather
+than editing `CHANGELOG.md`, which towncrier assembles at release time:
+
+```console
+$ printf 'What changed, for someone using it.\n' \
+    > docs/newsfragments/+short-slug.fixed.md
+$ uvx towncrier build --draft --version 0.0.0   # preview, writes nothing
+```
+
+`docs/newsfragments/README.md` covers the types and when a fragment is
+required. Security reports follow `SECURITY.md` and must not be opened
+publicly.
 
 ## The file is a contract
 

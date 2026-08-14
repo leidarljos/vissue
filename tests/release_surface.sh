@@ -69,4 +69,27 @@ for manifest in crates/vissue-core/Cargo.toml crates/vissue-cli/Cargo.toml crate
   grep -q '^readme.workspace = true$' "$manifest"
 done
 
-echo "vissue release surface: ok"
+# Every surface that names a version has to name the same one. A release
+# whose citation metadata or documentation site disagrees with the crates is
+# a release that is wrong somewhere.
+cargo_version=$(sed -n '0,/^version = /s/^version = "\([^"]*\)"/\1/p' Cargo.toml)
+test -n "$cargo_version"
+citation_version=$(sed -n 's/^version: *//p' CITATION.cff | head -n 1)
+docs_release=$(sed -n 's/^release = "\([^"]*\)"/\1/p' docs/source/conf.py | head -n 1)
+news_version=$(sed -n '0,/^version = /s/^version = "\([^"]*\)"/\1/p' towncrier.toml)
+for pair in "CITATION.cff:$citation_version" "docs/source/conf.py:$docs_release" \
+    "towncrier.toml:$news_version"; do
+  name=${pair%%:*}
+  value=${pair#*:}
+  if [ "$value" != "$cargo_version" ]; then
+    echo "version mismatch: Cargo.toml is $cargo_version but $name is $value" >&2
+    echo "run scripts/sync-version.sh $cargo_version" >&2
+    exit 1
+  fi
+done
+
+# Towncrier owns the changelog from its marker down.
+grep -q '<!-- towncrier release notes start -->' CHANGELOG.md
+test -d docs/newsfragments
+
+echo "vissue release surface: ok (version $cargo_version)"

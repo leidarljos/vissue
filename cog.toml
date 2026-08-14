@@ -1,11 +1,18 @@
-from_latest_tag = false
+from_latest_tag = true
 ignore_merge_commits = true
-disable_changelog = false
+# Towncrier owns CHANGELOG.md; cog still makes the version commit and the tag.
+disable_changelog = true
+disable_bump_commit = false
 tag_prefix = "v"
+branch_whitelist = ["main"]
 
 pre_bump_hooks = [
-    "sed -i '0,/^version = /s/^version = \".*\"/version = \"{{version}}\"/' Cargo.toml",
-    "cargo generate-lockfile",
+    # Every surface that names a version moves together, then the curated
+    # fragments become the release section, then the whole gate has to pass
+    # before a tag exists.
+    "bash scripts/sync-version.sh {{version}}",
+    "uvx towncrier build --yes --version {{version}}",
+    "bash tests/release_surface.sh",
 ]
 
 [commit_types]
