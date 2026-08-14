@@ -82,7 +82,7 @@ impl Layout {
 struct RootConfig {
     prefix: Option<String>,
     agent: Option<String>,
-    issues: Option<IssuesSection>,
+    issues: IssuesOverride,
 }
 
 impl RootConfig {
@@ -119,6 +119,31 @@ impl Default for IssuesSection {
     }
 }
 
+/// The subset of [`IssuesSection`] a configuration file names. A key left out
+/// of a file stays whatever the layer below it set, so a file that tunes one
+/// knob does not silently reset the others.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+struct IssuesOverride {
+    default_priority: Option<char>,
+    id_length: Option<usize>,
+    stale_claim_days: Option<i64>,
+}
+
+impl IssuesOverride {
+    fn apply_to(&self, base: &mut IssuesSection) {
+        if let Some(value) = self.default_priority {
+            base.default_priority = value;
+        }
+        if let Some(value) = self.id_length {
+            base.id_length = value;
+        }
+        if let Some(value) = self.stale_claim_days {
+            base.stale_claim_days = value;
+        }
+    }
+}
+
 /// Effective configuration for one layout.
 #[derive(Debug, Clone, Default)]
 pub struct VissueConfig {
@@ -128,21 +153,25 @@ pub struct VissueConfig {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 struct PrefixConfigFile {
-    issues: IssuesSection,
+    issues: IssuesOverride,
 }
 
 impl VissueConfig {
     /// `<root>/<prefix>/issues.config.toml` overrides `<root>/vissue.toml`,
-    /// which overrides the compiled defaults. Neither file is required.
+    /// which overrides the compiled defaults. Neither file is required, and
+    /// each layer overrides key by key rather than wholesale.
     pub fn load(layout: &Layout) -> Result<Self> {
-        let mut issues = RootConfig::load(layout.root())?.issues.unwrap_or_default();
+        let mut issues = IssuesSection::default();
+        RootConfig::load(layout.root())?
+            .issues
+            .apply_to(&mut issues);
         let path = layout.projects_dir().join("issues.config.toml");
         if path.exists() {
             let raw =
                 fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
             let parsed: PrefixConfigFile =
                 toml::from_str(&raw).with_context(|| format!("parse {}", path.display()))?;
-            issues = parsed.issues;
+            parsed.issues.apply_to(&mut issues);
         }
         Ok(Self { issues })
     }
@@ -325,5 +354,30 @@ mod tests {
         let cfg = VissueConfig::load(&layout).unwrap();
         assert_eq!(cfg.issues.default_priority, 'A');
         assert_eq!(cfg.issues.id_length, 6);
+    }
+
+    #[test]
+    fn a_partial_override_keeps_the_keys_it_does_not_name() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("vissue.toml"),
+            "[issues]\ndefault_priority = \"B\"\nid_length = 5\nstale_claim_days = 3\n",
+        )
+        .unwrap();
+        let layout = Layout::new(dir.path(), DEFAULT_PREFIX);
+        fs::create_dir_all(layout.projects_dir()).unwrap();
+        fs::write(
+            layout.projects_dir().join("issues.config.toml"),
+            "[issues]\nid_length = 6\n",
+        )
+        .unwrap();
+
+        let cfg = VissueConfig::load(&layout).unwrap();
+        assert_eq!(cfg.issues.id_length, 6, "the named key is overridden");
+        assert_eq!(
+            cfg.issues.default_priority, 'B',
+            "an unnamed key keeps the root value"
+        );
+        assert_eq!(cfg.issues.stale_claim_days, 3);
     }
 }
