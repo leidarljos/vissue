@@ -347,8 +347,9 @@ pub struct UpdateOutcome {
     pub hints: Vec<String>,
 }
 
-/// Append a dated note to an issue's logbook. State, claim, and properties
-/// stay untouched, so an agent can record progress without owning the issue.
+/// Add a dated note to the top of an issue's logbook. State, claim, and
+/// properties stay untouched, so an agent can record progress without owning
+/// the issue.
 pub fn note(layout: &Layout, id: &str, text: &str) -> Result<String> {
     // One line in the drawer: fold internal whitespace, and swap double
     // quotes for singles so the rendered `- Note: "..."` line re-parses.
@@ -369,13 +370,18 @@ pub fn note(layout: &Layout, id: &str, text: &str) -> Result<String> {
             .iter_mut()
             .find(|x| x.id == id)
             .ok_or_else(|| anyhow!("issue {id} not found"))?;
-        h.logbook.push(LogEntry {
-            timestamp: LogEntry::now(),
-            from_state: None,
-            to_state: None,
-            note: Some(text.clone()),
-            raw: None,
-        });
+        // Newest first, matching state transitions and claim releases. A
+        // drawer written from both ends reads as sorted by neither.
+        h.logbook.insert(
+            0,
+            LogEntry {
+                timestamp: LogEntry::now(),
+                from_state: None,
+                to_state: None,
+                note: Some(text.clone()),
+                raw: None,
+            },
+        );
         doc.write()?;
         Ok(format!("{id}: noted\n"))
     })
@@ -481,11 +487,16 @@ pub fn refile(layout: &Layout, id: &str, to_project: &str) -> Result<String> {
         let heading = src_doc
             .remove(id)
             .ok_or_else(|| anyhow!("issue {id} not found in {}", src_path.display()))?;
-        src_doc.write()?;
 
+        // Two files cannot be replaced in one atomic step, so choose which
+        // half-finished state a failure leaves behind. Writing the target
+        // first means a failed source write duplicates the id, which `check`
+        // reports and a person can resolve; the other order deletes the issue
+        // with nothing left naming it.
         let mut tgt_doc = IssueDoc::parse_file(&to_project, &target_path)?;
         tgt_doc.upsert(heading);
         tgt_doc.write()?;
+        src_doc.write()?;
         Ok(())
     })?;
     Ok(format!("{id}: {src_project} -> {to_project}\n"))
@@ -794,6 +805,34 @@ mod tests {
         let notes: Vec<&str> = h.logbook.iter().filter_map(|e| e.note.as_deref()).collect();
         // Whitespace collapses to single spaces; double quotes become single.
         assert_eq!(notes, vec!["first pass done, 'quoted' bit next"]);
+    }
+
+    #[test]
+    fn the_logbook_reads_newest_first_however_an_entry_arrived() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = fresh_layout(dir.path());
+        create(&layout, "sample", "ordered", CreateOpts::default()).unwrap();
+        let id = only_id(&layout, "sample");
+
+        note(&layout, &id, "first note").unwrap();
+        update(&layout, &id, Some("STARTED"), None, None, None).unwrap();
+        note(&layout, &id, "second note").unwrap();
+
+        let h = issue_at(&layout, "sample", &id);
+        let summary: Vec<String> = h
+            .logbook
+            .iter()
+            .map(|e| match (&e.note, &e.to_state) {
+                (Some(note), _) => note.clone(),
+                (_, Some(to)) => format!("state:{to}"),
+                _ => "?".into(),
+            })
+            .collect();
+        assert_eq!(
+            summary,
+            vec!["second note", "state:STARTED", "first note"],
+            "{h:?}"
+        );
     }
 
     #[test]
