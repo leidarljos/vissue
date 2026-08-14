@@ -71,19 +71,19 @@ pub fn list(
 
     let mut rows: Vec<(String, String, String, char, String)> = Vec::new();
 
+    let active_blockers: HashSet<String> = if ready_only {
+        load_all(layout)?
+            .into_iter()
+            .filter(|(_, h)| h.state != "DONE" && h.state != "CANCELLED")
+            .map(|(_, h)| h.id)
+            .collect()
+    } else {
+        HashSet::new()
+    };
+
     for project in projects {
         let path = layout.project_issues_path(&project);
         let doc = IssueDoc::parse_file(&project, &path)?;
-
-        let active_blockers: HashSet<String> = if ready_only {
-            doc.headings
-                .iter()
-                .filter(|h| h.state != "DONE" && h.state != "CANCELLED")
-                .map(|h| h.id.clone())
-                .collect()
-        } else {
-            HashSet::new()
-        };
 
         for h in &doc.headings {
             if let Some(s) = state_filter {
@@ -486,12 +486,16 @@ pub fn export(layout: &Layout, project_filter: Option<&str>) -> Result<String> {
             .logbook
             .iter()
             .map(|e| {
-                serde_json::json!({
+                let mut row = serde_json::json!({
                     "timestamp": e.timestamp,
                     "from": e.from_state,
                     "to": e.to_state,
                     "note": e.note,
-                })
+                });
+                if let Some(raw) = &e.raw {
+                    row["raw"] = serde_json::Value::String(raw.clone());
+                }
+                row
             })
             .collect();
         let row = serde_json::json!({

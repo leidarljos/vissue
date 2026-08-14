@@ -145,6 +145,46 @@ fn ready_hides_blocked_and_closed_work() {
 }
 
 #[test]
+fn ready_hides_an_issue_blocked_by_another_project() {
+    let (_dir, layout) = writable_copy();
+    let beacon = layout.project_issues_path("beacon");
+    let text = fs::read_to_string(&beacon).unwrap();
+    let text = text.replace(
+        ":ID:         beacon-5j6k\n",
+        ":ID:         beacon-5j6k\n:BLOCKED_BY: atlas-1a2b\n",
+    );
+    fs::write(&beacon, text).unwrap();
+
+    let ready = report::ready(&layout, None).unwrap();
+    assert!(
+        !ready.contains("beacon-5j6k"),
+        "cross-project blocker ignored: {ready}"
+    );
+    assert_eq!(report::count(&layout, None, None, true).unwrap(), "2\n");
+}
+
+#[test]
+fn export_includes_clock_raw_logbook_lines() {
+    let layout = fixture_layout();
+    let jsonl = report::export(&layout, Some("atlas")).unwrap();
+    let rows: Vec<serde_json::Value> = jsonl
+        .lines()
+        .map(|l| serde_json::from_str(l).expect("each line is one JSON object"))
+        .collect();
+    let parser = rows
+        .iter()
+        .find(|r| r["id"] == "atlas-1a2b")
+        .expect("the parser issue is exported");
+    let logbook = parser["logbook"].as_array().expect("logbook array");
+    assert!(
+        logbook.iter().any(|entry| entry["raw"]
+            .as_str()
+            .is_some_and(|raw| raw.contains("CLOCK:"))),
+        "CLOCK raw missing from export: {parser}"
+    );
+}
+
+#[test]
 fn claims_lists_only_claimed_issues_and_honors_filters() {
     let layout = fixture_layout();
     let all = report::claims(&layout, None, None, false).unwrap();
