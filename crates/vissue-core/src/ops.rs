@@ -148,6 +148,11 @@ pub fn update(
     let (_h0, path, project) =
         find_by_id(layout, id)?.ok_or_else(|| anyhow!("issue {id} not found"))?;
     let identity = crate::config::identity(layout);
+    let graph = if block_add.is_some() {
+        Some(DependencyGraph::from_issues(&load_all(layout)?)?)
+    } else {
+        None
+    };
 
     let (final_state, changed) = with_issues_lock(&path, || {
         let mut doc = IssueDoc::parse_file(&project, &path)?;
@@ -186,8 +191,9 @@ pub fn update(
         if let Some(blk) = block_add {
             let mut current = h.blocked_by();
             if !current.iter().any(|x| x == blk) {
-                let graph = DependencyGraph::from_issues(&load_all(layout)?)?;
-                graph.accepts_edge(blk, id)?;
+                if let Some(graph) = &graph {
+                    graph.accepts_edge(blk, id)?;
+                }
                 current.push(blk.to_string());
                 h.properties.insert("BLOCKED_BY".into(), current.join(","));
                 if h.state == "TODO" || h.state == "STARTED" {
@@ -207,8 +213,12 @@ pub fn update(
                 if current.is_empty() {
                     h.properties.remove("BLOCKED_BY");
                     if h.state == "BLOCKED" {
+                        let from = h.state.clone();
                         h.record_state_change("TODO");
                         changed.push("state BLOCKED -> TODO (auto on unblock)".to_string());
+                        for note in settle_claim(h, &from, "TODO", &identity) {
+                            changed.push(note);
+                        }
                     }
                 } else {
                     h.properties.insert("BLOCKED_BY".into(), current.join(","));
@@ -587,6 +597,26 @@ mod tests {
         let h = issue_at(&layout, "sample", &first);
         assert_eq!(h.state, "TODO");
         assert!(h.blocked_by().is_empty());
+    }
+
+    #[test]
+    fn auto_unblock_to_todo_releases_the_claim() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = fresh_layout(dir.path());
+        create(&layout, "sample", "first", CreateOpts::default()).unwrap();
+        create(&layout, "sample", "blocker", CreateOpts::default()).unwrap();
+        let doc = IssueDoc::parse_file("sample", &layout.project_issues_path("sample")).unwrap();
+        let first = doc.headings[0].id.clone();
+        let blocker = doc.headings[1].id.clone();
+
+        crate::agent::claim(&layout, &first, false).unwrap();
+        update(&layout, &first, None, None, Some(&blocker), None).unwrap();
+        assert!(issue_at(&layout, "sample", &first).claimed_by().is_some());
+
+        update(&layout, &first, None, None, None, Some(&blocker)).unwrap();
+        let h = issue_at(&layout, "sample", &first);
+        assert_eq!(h.state, "TODO");
+        assert!(h.claimed_by().is_none(), "claim stuck on TODO: {h:?}");
     }
 
     #[test]
