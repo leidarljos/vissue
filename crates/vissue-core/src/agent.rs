@@ -1,5 +1,5 @@
-//! Verbs shaped for agents: structured rows, claiming, a body excerpt, and a
-//! hygiene checklist.
+//! Verbs shaped for a program rather than a person: structured rows, claiming,
+//! a body excerpt, and a hygiene checklist.
 
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};

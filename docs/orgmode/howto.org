@@ -125,8 +125,9 @@ parser-k29f: noted
 
 * Fold in work discovered outside the tracker
 
-An agent without write access appends plain =* TODO <title>= headings to an
-inbox Org file on whatever shared surface it can reach. =fold= turns each
+Something without write access to the tracker appends plain =* TODO <title>=
+headings to an
+inbox Org file on whatever shared storage it can reach. =fold= turns each
 unstamped heading into a tracked issue, then flips the heading to DONE and
 stamps it with the assigned id in place, so the inbox doubles as its own
 receipt and folding twice creates nothing.
@@ -151,7 +152,7 @@ $ vissue agenda -d 30
 #+end_src
 
 Emacs shows the same dates in its own agenda without this command; see
-[[file:ecosystem.org][Ecosystem]].
+[[file:emacs.org][Emacs]].
 
 * Watch for changes without re-reading everything
 

@@ -45,23 +45,24 @@ Keep commits focused and use a Conventional Commit subject. Add user-visible
 changes under `Unreleased` in `CHANGELOG.md`. Security reports follow
 `SECURITY.md` and must not be opened publicly.
 
-## Ecosystem compatibility
+## The file is a contract
 
-[orgaw](https://github.com/HaoZeke/orgaw) consumes the public command protocol
-and writes CLOCK entries into the same `issues.org`. Changes to `identity`,
-`ready`, `list`, `export`, `show`, or `claim` output, and any change to the
-on-disk shape, need an integration check against orgaw before release:
-
-```console
-bash tests/orgaw_interop.sh ./target/release/vissue /path/to/orgaw
-```
-
-It skips when orgaw is absent, so it is safe to run unconditionally. Emacs is
-the other client of the same file:
+An `issues.org` is an ordinary Org file, and other tools read and write it.
+Two checks hold that promise, and a change to the command output or the
+on-disk shape has to pass both:
 
 ```console
-bash tests/org_interop.sh ./target/release/vissue
+bash tests/org_interop.sh ./target/release/vissue    # needs emacs
+bash tests/release_surface.sh
 ```
+
+The first drives a real Emacs over a tracker: `org-lint` must find nothing,
+the agenda must show the dates, tag search must match, `org-id` must resolve,
+and Emacs's own edits must survive a vissue rewrite.
+
+Before changing file rewrites, add a fixture that includes properties, body
+text, LOGBOOK entries, and CLOCK entries. Tests must prove that data outside
+the operation's ownership remains unchanged.
 
 The maintainer release sequence, including the private publication arm and
 first-version crates.io bootstrap, is documented in `RELEASING.md`.

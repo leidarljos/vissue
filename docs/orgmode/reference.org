@@ -122,7 +122,7 @@ library in process. It resolves its root from =VISSUE_ROOT= and
 =vissue_projects=, and =vissue_identity=.
 
 The server grants write access to every project under its root. Point it at a
-tracker root you are willing to let an agent edit, not at a home directory.
+tracker root you are willing to let the caller edit, not at a home directory.
 
 * Concurrency
 
@@ -131,7 +131,8 @@ on =issues.org.lock=, then writes through a temporary that is flushed to the
 device, uniquely named, and renamed into place. Concurrent creates from
 several processes therefore neither lose headings nor collide on the
 temporary, and a crash mid-write leaves the previous file rather than a
-truncated one. =orgaw= takes the same lock.
+truncated one. Any other tool writing the same file is expected to take that
+lock too.
 
 The lock covers one project file. Adding a blocker reads the whole corpus for
 the acyclicity check inside that lock, so it sees every write that has landed;

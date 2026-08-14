@@ -114,11 +114,12 @@ keys-e0pl TODO      [#C]  Epic: Colemak leader sequence
     * blocked-by keys-cata
 ```
 
-Two agents share that frontier by claiming, not by editing a checklist.
+Two workers share that frontier by claiming, not by editing a checklist.
 A common pairing is one implementer and one reviewer per node: the
 reviewer is a child issue blocked on the implementation issue, so it
-becomes ready only when the implementer closes. Identities are opaque
-strings; set `VISSUE_AGENT` to something stable.
+becomes ready only when the implementer closes. An identity is an opaque
+string, so it can name a person, a machine, or a script; set
+`VISSUE_AGENT` to something stable enough to recognise later.
 
 ```console
 $ VISSUE_AGENT=impl vissue claim keys-cata
@@ -126,14 +127,14 @@ claimed keys-cata by impl (TODO -> STARTED)
 $ vissue create --project keys --type task --parent keys-cata --tags review \
     "Review the bindable-action catalog"
 $ vissue update keys-revw --block keys-cata
-$ VISSUE_AGENT=review  vissue ready --project keys
+$ VISSUE_AGENT=review vissue ready --project keys
 # empty: the only open work is claimed or blocked
 $ vissue claims --project keys
 keys-cata              STARTED   [#C]    0d  impl  Catalog of bindable actions (keys)
 ```
 
-The tracker does not invent the children. An agent splits the plan
-[2], [3], [4]; vissue stores the resulting directed graph, names the
+The tracker does not invent the children. Whoever plans the work splits
+it [2], [3], [4]; vissue stores the resulting directed graph, names the
 ready set [8], [9], and refuses a cyclic edit [5], [6].
 
 `related` asks what else in the corpus is a neighbor, and why.
@@ -175,7 +176,7 @@ Full documentation is at **[vissue.rgoswami.me](https://vissue.rgoswami.me)**.
 | [How-to](https://vissue.rgoswami.me/howto.html) | One task at a time: filter, share, watch, fold, validate |
 | [Reference](https://vissue.rgoswami.me/reference.html) | Commands, properties, config, export schema, exit statuses |
 | [Explanation](https://vissue.rgoswami.me/explanation.html) | Why the file is the database, and what the citations justify |
-| [Ecosystem](https://vissue.rgoswami.me/ecosystem.html) | Emacs and `orgaw`, the other readers of the same file |
+| [Emacs](https://vissue.rgoswami.me/emacs.html) | The agenda, tag search, and `id:` links, with nothing installed |
 
 The sources are Org under `docs/orgmode/`; `bash docs/build.sh` renders the
 site.
@@ -200,29 +201,27 @@ parser-k29f            TODO      [#C]  Reject a manifest with no header
 the same node, and the file underneath is ordinary Org that Emacs reads
 without help.
 
-## Ecosystem
+## Emacs
 
-`vissue` manages intentional work items; [orgaw](https://github.com/HaoZeke/orgaw)
-records intentional time and evidence against them. Emacs is a client of the
-corpus rather than of the command: a tracker is an ordinary Org file, so the
-agenda, tag search, and `id:` links work against it with nothing installed.
-`vissue.el` is an optional convenience layer.
+A tracker is an ordinary Org file, so Emacs reads it with nothing installed:
+deadlines and scheduled dates sit on the planning line, tags in the heading's
+own tag run, `#+CATEGORY:` names the project, and `:ID:` resolves through
+`org-id`. `org-lint` has nothing to say about a file vissue wrote.
 
 ```mermaid
 flowchart LR
-    corpus["Org issues and CLOCK entries"]
-    vissue["vissue: work items"]
-    protocol["CLI provider protocol"]
-    orgaw["orgaw: time and evidence"]
-    emacs["Emacs: agenda, tags, id links"]
+    corpus["Software/&lt;project&gt;/issues.org"]
+    vissue["vissue: CLI and MCP"]
+    emacs["Emacs: agenda, tag search, id links"]
     corpus <--> vissue
     corpus <--> emacs
-    vissue --> protocol --> orgaw
-    orgaw --> corpus
 ```
 
-See [Ecosystem](https://vissue.rgoswami.me/ecosystem.html) for what the three
-agree on, and the checks that keep them agreeing.
+The traffic goes both ways: `C-c C-d`, `C-c C-s`, `C-c C-q`, and marking an
+issue DONE under `org-log-done` all work on an issue heading, and vissue reads
+back what they write. `tests/org_interop.sh` drives a real Emacs in CI to keep
+that true. See [Emacs](https://vissue.rgoswami.me/emacs.html) for the details,
+including what any other tool writing the same file has to respect.
 
 ## Contributing
 

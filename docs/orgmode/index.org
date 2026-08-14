@@ -15,7 +15,7 @@
      <div class="vi-hero-pills">
        <span>Org mode</span>
        <span>Plain text</span>
-       <span>Multi-agent</span>
+       <span>Shared by many workers</span>
        <span>CLI + MCP</span>
      </div>
    </div>
@@ -35,20 +35,20 @@ same bytes.
 
 Four properties carry the plan. =:PARENT:= groups work under it. =:BLOCKED_BY:=
 is the partial order. =ready= is the frontier anything can pick up. =claim= is
-the lock that stops two agents taking the same node.
+the lock that stops two workers taking the same node.
 
 * Where to go
 
 - [[file:getting-started.org][Getting started]] takes an empty directory to a tracked
-  backlog worked by two agents. Start here.
+  backlog two workers share. Start here.
 - [[file:howto.org][How-to]] answers a task at a time: filter, share a backlog, watch
   for changes, fold in work found elsewhere.
 - [[file:reference.org][Reference]] is the command surface, the properties, the
   configuration, and the export schema.
 - [[file:explanation.org][Explanation]] is why the file is the database, why the order
   is a partial order, and what the citations do and do not justify.
-- [[file:ecosystem.org][Ecosystem]] covers Emacs and =orgaw=, the other two readers of
-  the same file.
+- [[file:emacs.org][Emacs]] is the other reader of the same file: the agenda, tag
+  search, and =id:= links, with nothing installed.
 
 * Install
 
@@ -75,5 +75,5 @@ $ vissue man > ~/.local/share/man/man1/vissue.1
    howto
    reference
    explanation
-   ecosystem
+   emacs
 #+end_export

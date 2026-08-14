@@ -22,7 +22,7 @@ paper over it.
 Worse, =TAGS=, =DEADLINE=, and =SCHEDULED= are names Org reserves for its own
 special properties, so a drawer claiming them is not merely unread but wrong;
 =org-lint= says so. Writing them where Org keeps them costs nothing and buys
-the agenda, tag search, and every other Org tool. See [[file:ecosystem.org][Ecosystem]] for what
+the agenda, tag search, and every other Org tool. See [[file:emacs.org][Emacs]] for what
 that enables.
 
 * What the design costs
@@ -61,7 +61,7 @@ citation [14], [17].
 
 * Why =show= does not print the body
 =show= returns metadata and =file:line_start-line_end=. An editor or an
-agent opens that range when it wants the prose. Keeping prose out of the
+reader opens that range when it wants the prose. Keeping prose out of the
 command output is what stops a status check from turning into a wall of
 text.
 
@@ -86,7 +86,7 @@ repository. The relation is one of four:
 | Relation   | Meaning                                                                                              |
 |------------+------------------------------------------------------------------------------------------------------|
 | implements | The library runs this algorithm or formula.                                                          |
-| stores     | The file is the persistent form of this object's output. The agent, not vissue, produces the object. |
+| stores     | The file is the persistent form of this object's output. The planner, not vissue, produces the object. |
 | analogizes | Same interface, different domain. The mapping must name the issue property.                          |
 | refuses    | Cited so the opposite choice is checkable.                                                           |
 

@@ -18,7 +18,7 @@ import re
 import sys
 from pathlib import Path
 
-PAGES = ["getting-started", "howto", "reference", "explanation", "ecosystem"]
+PAGES = ["getting-started", "howto", "reference", "explanation", "emacs"]
 
 TOCTREE = """
 

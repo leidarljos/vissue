@@ -1,0 +1,71 @@
+#+title: Emacs
+#+options: toc:nil num:nil
+
+An =issues.org= is an ordinary Org file. Emacs is a client of it, not of the
+command: the agenda, tag search, and =id:= links work against a tracker with
+nothing installed.
+
+* What makes that true
+
+vissue writes what Org reads, rather than what would be convenient to parse
+back.
+
+| Field                       | Written as                                        | What Org does with it        |
+|-----------------------------+---------------------------------------------------+------------------------------|
+| Deadline, scheduled, closed | The planning line under the heading                | =org-agenda= lists the issue |
+| Tags Org can hold           | The heading's own =:tag:tag:= run, aligned to =org-tags-column= | Tag search matches |
+| Identity                    | =:ID:=                                            | =org-id= resolves an =id:= link |
+| Project                     | =#+CATEGORY:= in the preamble                     | The agenda labels rows by project |
+
+A deadline in a property drawer is invisible to the agenda, because Org reads
+the planning line and nothing else. =TAGS=, =DEADLINE=, and =SCHEDULED= are
+also names Org reserves, so a drawer claiming them is not merely unread but
+wrong, and =org-lint= says so. Nothing vissue writes draws an =org-lint=
+finding.
+
+* Editing a tracker in Emacs
+
+The traffic goes both ways. =C-c C-d=, =C-c C-s=, =C-c C-q=, and marking an
+issue DONE under =org-log-done= all work on an issue heading, and vissue
+reads back what they write.
+
+#+begin_src elisp
+;; Put a tracker in the agenda:
+(setq org-agenda-files
+      (directory-files-recursively "~/notes/Software" "issues\\.org\\'"))
+(org-id-update-id-locations org-agenda-files)
+#+end_src
+
+After that, =M-x org-agenda= lists issues by deadline, =C-c \= matches their
+tags, and an =[[id:parser-k29f]]= link from any other Org file jumps to the
+issue.
+
+* Anything else that writes the file
+
+A second tool is welcome to write an =issues.org= as long as it respects
+Org's own shape. Two rules cover it:
+
+- Take the advisory lock on =<path>.lock= before a read-modify-write cycle.
+  vissue holds it across parse and write; a writer that ignores it can lose an
+  edit that landed in between, with nothing to report it.
+- Put a =:LOGBOOK:= drawer *below* the planning line and the property drawer.
+  A stamp that stops touching its heading stops being a stamp, and the drawer
+  beneath it stops being findable.
+
+vissue keeps whatever it does not understand. CLOCK entries and other opaque
+drawer lines round-trip verbatim and appear in the JSONL export as =raw=, so
+data another tool records survives a vissue rewrite.
+
+* Checking the two agree
+
+=tests/org_interop.sh= drives real Emacs over a real tracker: =org-lint=
+finds nothing, the agenda shows both dates and labels rows by project, tag
+search matches, =org-id= resolves, and then Emacs performs the destructive
+edits and vissue reads the result back unchanged.
+
+#+begin_src console
+$ bash tests/org_interop.sh ./target/release/vissue
+#+end_src
+
+It is run in CI against a real Emacs, because the claim it checks is the whole
+reason the file format is what it is.

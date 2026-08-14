@@ -29,9 +29,5 @@ abstract: >-
   with collaborators who cannot read the tracker directly.
 references:
   - type: software
-    title: "orgaw: intentional time and evidence over Org issue headings"
-    repository-code: "https://github.com/HaoZeke/orgaw"
-    notes: "Ecosystem project that uses vissue as its reference issue provider."
-  - type: software
     title: "OokCite"
     notes: "Citation graph, PageRank prior, and neighbourhood ranking research that the vissue DAG follows."

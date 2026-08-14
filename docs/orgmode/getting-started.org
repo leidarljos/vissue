@@ -2,7 +2,8 @@
 #+options: toc:nil num:nil
 
 Everything below runs in a scratch directory and touches nothing else. By the
-end you will have a tracker two agents can work at once without colliding.
+end you will have a tracker two people, or two scripts, can work at once
+without colliding.
 
 * 1. Make a tracker
 
@@ -85,10 +86,11 @@ $ vissue ready
 parser-3xq7            TODO      [#A]  Publish the release notes
 #+end_src
 
-* 6. Put two agents on it
+* 6. Put a second worker on it
 
-This is what the graph is for. Identities are opaque strings; set
-=VISSUE_AGENT= to something stable enough to recognise across sessions.
+This is what the graph is for. A claim records who holds an issue, so the
+second worker is told there is nothing free rather than repeating the first
+one's work. The identity is an opaque string: a person, a machine, a script.
 
 #+begin_src console
 $ VISSUE_AGENT=impl-1 vissue claim parser-3xq7
@@ -98,8 +100,8 @@ $ VISSUE_AGENT=impl-2 vissue ready
 # empty: the only open work is claimed
 #+end_src
 
-A second agent sees nothing to take rather than duplicating the first one's
-work. =claims= is the standing answer to who holds what:
+The second worker sees nothing to take. =claims= is the standing answer to
+who holds what:
 
 #+begin_src console
 $ vissue claims
@@ -129,7 +131,7 @@ It exits 0 when current and 1 when not, so a script can gate on it.
 * Where next
 
 - [[file:howto.org][How-to]] for the rest of the verbs, one task at a time.
-- [[file:ecosystem.org][Ecosystem]] to put this tracker in the Emacs agenda, or to clock
-  time against it with =orgaw=.
+- [[file:emacs.org][Emacs]] to put this tracker in the Org agenda, where its
+  deadlines and tags already work.
 - [[file:explanation.org][Explanation]] for why the order is a partial order and why
   nothing infers an edge you did not write.
