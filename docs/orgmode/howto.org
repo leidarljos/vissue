@@ -49,6 +49,17 @@ Plain =show= prints the metadata and then the body, and =show --json=
 carries both along with the logbook, so a caller that already fetched
 the issue does not need a second read to learn what it asks for.
 
+* Reject work by redirecting it
+
+=reject= closes an issue as =CANCELLED= and points at a replacement: an
+existing id with =--to=, or a newly created heading with =--project= and a
+title. =--reason= is recorded on the source.
+
+#+begin_src console
+$ vissue reject parser-1a2b --to parser-9k0m --reason "duplicate of the rewrite"
+$ vissue reject parser-1a2b --project parser "Rewrite the manifest parser" --reason "superseded"
+#+end_src
+
 * Record what was done
 
 =append= adds a dated, attributed report to the issue's body.
@@ -205,8 +216,13 @@ $ vissue gen
 3167
 $ vissue events --since 3155 -n 5
 $ vissue wait --last 3167 --timeout-ms 30000   # exits 2 on timeout
+$ vissue wait --id parser-1a2b --until-terminal --timeout-ms 30000
+DONE 3182
 $ vissue ping --detail "external change"       # wake pollers by hand
 #+end_src
+
+=wait --until-terminal= needs =--id=. It prints =DONE <gen>= or
+=CANCELLED <gen>= and exits 0, or =TIMEOUT <state> <gen>= and exits 2.
 
 Set =VISSUE_EVENTS=0= to suppress emission when the tracker must stay
 untouched.

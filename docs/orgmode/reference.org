@@ -7,7 +7,7 @@
 |---------------------------------------------------------------------------+--------------------------------------------------------------------------|
 | =create=, =q=                                                             | Add an issue; =q= prints only the new id                                 |
 | =list=, =show=                                                            | Rows of issues; one issue's metadata and body (=--org= for the raw heading) |
-| =update=, =claim=, =refile=                                               | Change state, priority, or blockers; take an issue; move it              |
+| =update=, =claim=, =refile=, =reject=                                     | Change state, priority, or blockers; take an issue; move it; redirect a rejected issue |
 | =note=                                                                    | Add a dated logbook entry; state and claim untouched                     |
 | =append=                                                                  | Record a dated report under the heading, from =--text=, =--file=, or stdin |
 | =body-excerpt=                                                            | A capped preview of an issue's file range; =show --org= for the whole heading |
@@ -21,7 +21,7 @@
 | =roadmap=, =mirror=                                                       | Markdown roadmap; read-only Org or markdown projection                   |
 | =digest=, =mirror --check=                                                | Corpus digest; whether a mirror is still current                         |
 | =check=, =hygiene=                                                        | Validation                                                               |
-| =gen=, =events=, =wait=, =ping=                                           | Change stream for pollers                                                |
+| =gen=, =events=, =wait=, =ping=                                           | Change stream for pollers; =wait --id= =--until-terminal= watches one issue |
 | =projects=, =identity=                                                    | Layout introspection                                                     |
 | =serve=                                                                   | Own the per-user Unix control socket (= -d=, =stop=, =restart=, =status=) |
 | =tui=                                                                     | Terminal board (=--offline= never attaches)                              |
@@ -166,7 +166,7 @@ changes the picker list.
 |--------+----------------------------------------------------------------|
 |      0 | Success, including a reader that closed the pipe               |
 |      1 | Failure, a stale =mirror --check=, a failing =check=, or =serve status= when not live |
-|      2 | =wait= timed out without the generation advancing              |
+|      2 | =wait= timed out without the generation advancing, or =wait --until-terminal= timed out |
 
 * MCP server
 
@@ -179,7 +179,7 @@ Read one issue or many: =vissue_list=, =vissue_ready=, =vissue_show=,
 =vissue_body_excerpt=, =vissue_org=, =vissue_export=.
 
 Change one: =vissue_create=, =vissue_update=, =vissue_claim=, =vissue_note=,
-=vissue_append=, =vissue_refile=, =vissue_fold=.
+=vissue_append=, =vissue_refile=, =vissue_fold=, =vissue_reject=.
 
 Follow the graph: =vissue_tree=, =vissue_graph=, =vissue_children=,
 =vissue_ancestors=, =vissue_impact=, =vissue_backlinks=,

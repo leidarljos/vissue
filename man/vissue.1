@@ -37,6 +37,9 @@ Show one issue\*(Aqs metadata and file range
 vissue\-update(1)
 Update state, priority, or blocker edges
 .TP
+vissue\-reject(1)
+Reject an issue, redirecting to an existing destination or a new replacement
+.TP
 vissue\-ready(1)
 Actionable issues: TODO or STARTED with no open blocker
 .TP
@@ -125,7 +128,7 @@ vissue\-ping(1)
 Append a manual event, waking pollers without editing an issue
 .TP
 vissue\-wait(1)
-Block until the generation passes \-\-last. Exits 2 on timeout
+Block until the generation passes \-\-last, or until an issue is terminal. Exits 2 on timeout
 .TP
 vissue\-gen(1)
 Print the current generation counter
