@@ -15,7 +15,7 @@ use std::path::PathBuf;
 
 use vissue_core::config::Layout;
 use vissue_core::mirror::{self, Format};
-use vissue_core::ops::{self, CreateOpts};
+use vissue_core::ops::{self, CreateOpts, RejectOpts};
 use vissue_core::store;
 use vissue_core::{agent, events, report};
 
@@ -157,6 +157,29 @@ enum Command {
         /// Remove a blocker edge
         #[arg(long)]
         unblock: Option<String>,
+    },
+    /// Reject an issue, redirecting to an existing destination or a new replacement.
+    Reject {
+        /// Issue id to reject
+        id: String,
+        /// Existing destination issue
+        #[arg(long, required_unless_present = "project", conflicts_with = "project")]
+        to: Option<String>,
+        /// Project for a newly created replacement
+        #[arg(
+            short = 'p',
+            short_alias = 'P',
+            long,
+            required_unless_present = "to",
+            requires = "title"
+        )]
+        project: Option<String>,
+        /// Title of the newly created replacement
+        #[arg(required_unless_present = "to", conflicts_with = "to")]
+        title: Option<String>,
+        /// Why this issue is rejected
+        #[arg(long)]
+        reason: Option<String>,
     },
     /// Actionable issues: TODO or STARTED with no open blocker.
     Ready {
@@ -366,10 +389,17 @@ enum Command {
         #[arg(long)]
         detail: Option<String>,
     },
-    /// Block until the generation passes --last. Exits 2 on timeout.
+    /// Block until the generation passes --last, or until an issue is terminal.
+    /// Exits 2 on timeout.
     Wait {
         #[arg(long, default_value_t = 0)]
         last: u64,
+        /// Issue to watch when --until-terminal is set
+        #[arg(long)]
+        id: Option<String>,
+        /// Block until the issue is DONE or CANCELLED
+        #[arg(long)]
+        until_terminal: bool,
         #[arg(long, default_value_t = 200)]
         poll_ms: u64,
         #[arg(long, default_value_t = 10_000)]
@@ -622,6 +652,25 @@ fn run() -> Result<()> {
                 eprintln!("[hint] {hint}");
             }
         }
+        Command::Reject {
+            id,
+            to,
+            project,
+            title,
+            reason,
+        } => emit!(
+            "{}",
+            ops::reject(
+                &layout,
+                &id,
+                RejectOpts {
+                    to: to.as_deref(),
+                    project: project.as_deref(),
+                    title: title.as_deref(),
+                    reason: reason.as_deref(),
+                },
+            )?
+        ),
         Command::Ready { project, json } => {
             if json {
                 let rows = agent::issues_json(&layout, project.as_deref(), None, true)?;
@@ -749,15 +798,35 @@ fn run() -> Result<()> {
         }
         Command::Wait {
             last,
+            id,
+            until_terminal,
             poll_ms,
             timeout_ms,
         } => {
-            let generation = events::wait_generation(&layout, last, poll_ms, timeout_ms)?;
-            emitln!("{generation}");
-            if generation <= last {
-                // Unchanged: a polling script tells timeout from progress by
-                // the exit status rather than by parsing the number.
-                std::process::exit(2);
+            if until_terminal {
+                let Some(id) = id else {
+                    bail!("--until-terminal requires --id");
+                };
+                match events::wait_until_terminal(&layout, &id, poll_ms, timeout_ms)? {
+                    events::TerminalWait::Done { generation } => {
+                        emitln!("DONE {generation}");
+                    }
+                    events::TerminalWait::Cancelled { generation } => {
+                        emitln!("CANCELLED {generation}");
+                    }
+                    events::TerminalWait::Timeout { generation, state } => {
+                        emitln!("TIMEOUT {state} {generation}");
+                        std::process::exit(2);
+                    }
+                }
+            } else {
+                let generation = events::wait_generation(&layout, last, poll_ms, timeout_ms)?;
+                emitln!("{generation}");
+                if generation <= last {
+                    // Unchanged: a polling script tells timeout from progress by
+                    // the exit status rather than by parsing the number.
+                    std::process::exit(2);
+                }
             }
         }
         Command::Gen => emitln!("{}", events::generation(&layout)),

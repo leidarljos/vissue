@@ -686,6 +686,62 @@ pub fn refile(layout: &Layout, id: &str, to_project: &str) -> Result<String> {
     Ok(format!("{id}: {src_project} -> {to_project}\n"))
 }
 
+/// Destination for [`reject`]: an existing id, or a heading to create.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct RejectOpts<'a> {
+    /// Existing destination issue.
+    pub to: Option<&'a str>,
+    /// Project for a newly created replacement.
+    pub project: Option<&'a str>,
+    /// Title of the newly created replacement.
+    pub title: Option<&'a str>,
+    /// Why this issue is rejected.
+    pub reason: Option<&'a str>,
+}
+
+/// Close `src` as CANCELLED and point at a replacement.
+///
+/// `opts.to` names an existing heading. Otherwise `opts.project` and
+/// `opts.title` create one. `opts.reason` is recorded on the source.
+///
+/// # Errors
+///
+/// Returns an error if `src` is missing, neither destination form is
+/// given, the named destination is missing, or a write fails.
+pub fn reject(layout: &Layout, src: &str, opts: RejectOpts<'_>) -> Result<String> {
+    let dest = if let Some(to) = opts.to {
+        find_by_id(layout, to)?.ok_or_else(|| Error::IssueNotFound { id: to.to_string() })?;
+        to.to_string()
+    } else if let (Some(project), Some(title)) = (opts.project, opts.title) {
+        let created = create(
+            layout,
+            project,
+            title,
+            CreateOpts {
+                quiet: true,
+                ..Default::default()
+            },
+        )?;
+        created.trim().to_string()
+    } else {
+        return Err(anyhow!("pass --to <id> or --project <name> <title>").into());
+    };
+
+    let (heading, _, project) = find_by_id(layout, src)?.ok_or_else(|| Error::IssueNotFound {
+        id: src.to_string(),
+    })?;
+    let from = heading.state.clone();
+
+    if let Some(reason) = opts.reason {
+        note(layout, src, reason)?;
+    }
+
+    let outcome = update(layout, src, Some("CANCELLED"), None, None, None)?;
+    let _ = crate::events::emit_state_change(layout, &project, src, &from, "CANCELLED");
+
+    Ok(format!("{src}: CANCELLED -> {dest}\n{}", outcome.report))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

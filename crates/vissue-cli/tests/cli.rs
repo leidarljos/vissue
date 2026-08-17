@@ -1232,3 +1232,236 @@ fn concurrent_writers_all_land() {
         stdout(&run(&["check"]))
     );
 }
+
+#[test]
+fn reject_help_names_the_destination_flags() {
+    let out = vissue(&["reject", "--help"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = stdout(&out);
+    assert!(text.contains("--to"), "{text}");
+    assert!(text.contains("--project"), "{text}");
+    assert!(text.contains("--reason"), "{text}");
+}
+
+#[test]
+fn wait_help_names_until_terminal() {
+    let out = vissue(&["wait", "--help"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = stdout(&out);
+    assert!(text.contains("--until-terminal"), "{text}");
+    assert!(text.contains("--id"), "{text}");
+    assert!(text.contains("--poll-ms"), "{text}");
+    assert!(text.contains("--timeout-ms"), "{text}");
+    assert!(text.contains("--last"), "{text}");
+}
+
+/// `--until-terminal` watches one issue's state, not the generation
+/// counter. The printed token and the exit status are the contract, so a
+/// poller can tell DONE from still-open without parsing the heading.
+#[test]
+fn wait_until_terminal_reports_done_cancelled_or_timeout() {
+    let done = vissue(&[
+        "wait",
+        "--id",
+        "atlas-4g5h",
+        "--until-terminal",
+        "--timeout-ms",
+        "1000",
+    ]);
+    assert!(
+        done.status.success(),
+        "DONE issue should exit 0: {}",
+        String::from_utf8_lossy(&done.stderr)
+    );
+    let done_line = stdout(&done).trim().to_string();
+    assert!(
+        done_line.starts_with("DONE "),
+        "expected DONE <gen>, got {done_line:?}"
+    );
+    let done_gen: u64 = done_line
+        .split_whitespace()
+        .nth(1)
+        .expect("DONE generation")
+        .parse()
+        .expect("generation is a number");
+    let _ = done_gen;
+
+    let timed = vissue(&[
+        "wait",
+        "--id",
+        "atlas-1a2b",
+        "--until-terminal",
+        "--poll-ms",
+        "50",
+        "--timeout-ms",
+        "200",
+    ]);
+    assert_eq!(
+        timed.status.code(),
+        Some(2),
+        "open issue should time out: {}",
+        stdout(&timed)
+    );
+    let timed_line = stdout(&timed).trim().to_string();
+    assert!(
+        timed_line.starts_with("TIMEOUT STARTED "),
+        "expected TIMEOUT STARTED <gen>, got {timed_line:?}"
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let root = dir.path().to_str().unwrap();
+    let own = |args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", root];
+        argv.extend_from_slice(args);
+        Command::new(env!("CARGO_BIN_EXE_vissue"))
+            .args(argv)
+            .output()
+            .unwrap()
+    };
+    let id = stdout(&own(&["create", "-p", "atlas", "--quiet", "close me"]))
+        .trim()
+        .to_string();
+    let updated = own(&["update", &id, "--state", "CANCELLED"]);
+    assert!(
+        updated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&updated.stderr)
+    );
+    let cancelled = own(&[
+        "wait",
+        "--id",
+        &id,
+        "--until-terminal",
+        "--timeout-ms",
+        "1000",
+    ]);
+    assert!(
+        cancelled.status.success(),
+        "CANCELLED issue should exit 0: {}",
+        String::from_utf8_lossy(&cancelled.stderr)
+    );
+    let cancelled_line = stdout(&cancelled).trim().to_string();
+    assert!(
+        cancelled_line.starts_with("CANCELLED "),
+        "expected CANCELLED <gen>, got {cancelled_line:?}"
+    );
+}
+
+#[test]
+fn wait_until_terminal_without_id_exits_one() {
+    let out = vissue(&["wait", "--until-terminal", "--timeout-ms", "200"]);
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "missing --id must be exit 1, not clap's 2: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("--id"), "{err}");
+}
+
+#[test]
+fn wait_until_terminal_unknown_id_exits_one() {
+    let out = vissue(&[
+        "wait",
+        "--id",
+        "atlas-zzzz",
+        "--until-terminal",
+        "--timeout-ms",
+        "200",
+    ]);
+    assert_eq!(out.status.code(), Some(1), "{}", stdout(&out));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("atlas-zzzz"), "{err}");
+}
+
+/// `reject` closes the source and names a destination: an existing id, or
+/// a heading created for the purpose. `--reason` is recorded on the source.
+#[test]
+fn reject_redirects_to_an_existing_issue_or_a_new_one() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let root = dir.path().to_str().unwrap();
+    let own = |args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", root];
+        argv.extend_from_slice(args);
+        Command::new(env!("CARGO_BIN_EXE_vissue"))
+            .args(argv)
+            .output()
+            .unwrap()
+    };
+
+    let src = stdout(&own(&["create", "-p", "atlas", "--quiet", "old plan"]))
+        .trim()
+        .to_string();
+    let dst = stdout(&own(&["create", "-p", "atlas", "--quiet", "the rewrite"]))
+        .trim()
+        .to_string();
+    let rejected = own(&[
+        "reject",
+        &src,
+        "--to",
+        &dst,
+        "--reason",
+        "duplicate of the rewrite",
+    ]);
+    assert!(
+        rejected.status.success(),
+        "{}",
+        String::from_utf8_lossy(&rejected.stderr)
+    );
+    let shown = stdout(&own(&["show", "--org", &src]));
+    assert!(shown.contains("CANCELLED"), "source not closed: {shown}");
+    assert!(
+        shown.contains("duplicate of the rewrite"),
+        "reason missing: {shown}"
+    );
+
+    let src2 = stdout(&own(&[
+        "create",
+        "-p",
+        "atlas",
+        "--quiet",
+        "another old plan",
+    ]))
+    .trim()
+    .to_string();
+    let created = own(&[
+        "reject",
+        &src2,
+        "--project",
+        "atlas",
+        "Rewrite the old plan",
+        "--reason",
+        "superseded",
+    ]);
+    assert!(
+        created.status.success(),
+        "{}",
+        String::from_utf8_lossy(&created.stderr)
+    );
+    let listed = stdout(&own(&["list", "-p", "atlas"]));
+    assert!(
+        listed.contains("Rewrite the old plan"),
+        "replacement heading missing: {listed}"
+    );
+    let shown2 = stdout(&own(&["show", "--org", &src2]));
+    assert!(shown2.contains("CANCELLED"), "source2 not closed: {shown2}");
+}
+
+#[test]
+fn reject_without_a_destination_fails() {
+    let out = vissue(&["reject", "atlas-2c3d"]);
+    assert!(!out.status.success(), "reject with no dest must fail");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("--to") || err.contains("--project"), "{err}");
+}
