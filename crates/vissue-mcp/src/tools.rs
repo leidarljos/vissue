@@ -204,9 +204,27 @@ pub struct RefileArgs {
 }
 
 #[derive(Deserialize, JsonSchema)]
+pub struct RejectArgs {
+    /// Issue id to reject.
+    pub issue_id: String,
+    /// Existing destination issue.
+    pub to: Option<String>,
+    /// Project for a newly created replacement.
+    pub project: Option<String>,
+    /// Title of the newly created replacement.
+    pub title: Option<String>,
+    /// Why this issue is rejected.
+    pub reason: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
 pub struct WaitArgs {
     /// Wait until generation is greater than this value.
     pub last: Option<u64>,
+    /// Issue to watch when `until_terminal` is set.
+    pub id: Option<String>,
+    /// Block until the issue is DONE or CANCELLED.
+    pub until_terminal: Option<bool>,
     /// Poll interval in milliseconds.
     pub poll_ms: Option<u64>,
     /// Give up after this many milliseconds.
