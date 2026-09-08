@@ -778,9 +778,12 @@ fn related_reads_org_body_links_and_discovered_from_properties() {
         "Done-when: a malformed header names the offending line number.",
         "Done-when: a malformed header names the offending line number.\nSee [[id:atlas-3e4f][the release notes]] for the downstream contract.",
     );
+    // Anchored on the id rather than on whichever property happens to sit last,
+    // so a new property on the fixture heading does not quietly stop this
+    // setup from applying.
     text = text.replace(
-        ":TYPE:       chore\n:END:",
-        ":TYPE:       chore\n:DISCOVERED_FROM: atlas-1a2b\n:END:",
+        ":ID:         atlas-4g5h\n",
+        ":ID:         atlas-4g5h\n:DISCOVERED_FROM: atlas-1a2b\n",
     );
     fs::write(path, text).unwrap();
 

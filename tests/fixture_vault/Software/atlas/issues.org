@@ -57,6 +57,7 @@ Scope: one row per parsed record, counts only.
 :ID:         atlas-4g5h
 :CREATED:    [2026-01-05 Mon]
 :TYPE:       chore
+:DEEDS:      deed-patch-config-key
 :END:
 :LOGBOOK:
 - State "DONE" from "STARTED" [2026-01-08 Thu 16:40]
