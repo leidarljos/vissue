@@ -336,6 +336,25 @@ up: retrieving over a plan gives a ranked guess at an answer the plan states
 exactly, and walking edges for standing knowledge finds nothing, because nobody
 declared an edge to a preference.
 
+Forgetting falls out of the same split, and it is the sharper half of it.
+
+A pack accumulates. Something written a year ago is still in it, so a pack has to
+decide what fades, and packset decides it as a voter rather than as a deletion:
+an exponential half-life on an atom's age, multiplied into the merge, with the
+standing sources exempt and the whole thing off unless a half-life is configured.
+Nothing is removed. An atom that stops winning is still there to be found by a
+narrower query, which is the right call for a store whose writes were deliberate
+enough to be worth keeping.
+
+A working set has nothing to forget. It is not a store: it is recomputed from the
+current edges on every call, so an edge somebody removed is gone from the next
+answer without a policy, and one they added is present without an ingest. There
+is no half-life to tune because there is no accumulation to tune it against.
+
+That is the trade in one line. A pack buys recall across sessions and pays for it
+with a forgetting policy. A walk buys exactness and pays for it by answering only
+about the work somebody drew edges around.
+
 The property the two share is the one that matters for [[*Why there is nothing
 to poison][poisoning]]. Neither extracts. A packset atom is written by somebody
 saying *Remember:*, an edge here is written by a tracker mutation, and a deed is
