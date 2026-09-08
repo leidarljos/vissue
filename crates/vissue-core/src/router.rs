@@ -348,6 +348,29 @@ impl Router {
         }
     }
 
+    /// Layouts whose backlinks walk can answer for `id`.
+    ///
+    /// A known issue is walked in its own layout. An unknown accession is a
+    /// product, so every tracker in reach can cite it. Only
+    /// [`Error::IssueNotFound`] falls through to that scan:
+    /// [`Error::DuplicateId`] and I/O stay errors, because those are known
+    /// issues that cannot be named uniquely, not missing ids.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::IssueNotFound`] when `id` is neither a known issue nor an
+    /// accession. [`Error::DuplicateId`] when two layouts define the same id.
+    /// I/O from the underlying lookup.
+    pub fn backlinks_layouts(&self, id: &str) -> Result<Vec<Layout>> {
+        match self.find_by_id(id) {
+            Ok(hit) => Ok(vec![hit.layout]),
+            Err(Error::IssueNotFound { .. }) if crate::ops::is_deed_accession(id) => {
+                Ok(self.unique_layouts().into_iter().cloned().collect())
+            }
+            Err(err) => Err(err),
+        }
+    }
+
     fn hint_project(&self, id: &str) -> Option<String> {
         let mut names: Vec<String> = self.routes.keys().cloned().collect();
         for (_, dir) in self.routes.values() {
@@ -681,6 +704,43 @@ mod tests {
         match err {
             Error::DuplicateId { id, paths } => {
                 assert_eq!(id, "surf-same");
+                assert_eq!(paths.len(), 2);
+            }
+            other => panic!("expected DuplicateId, got {other}"),
+        }
+    }
+
+    #[test]
+    fn an_accession_shaped_duplicate_id_is_not_walked_as_a_deed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let vault = tmp.path().join("vault");
+        let work = tmp.path().join("work");
+        fs::create_dir_all(&vault).unwrap();
+        fs::create_dir_all(&work).unwrap();
+        seed(
+            &Layout::new(&work, "Issues"),
+            "keys",
+            "deed-patch-same",
+            "a",
+        );
+        seed(
+            &Layout::new(&vault, "Software"),
+            "keys",
+            "deed-patch-same",
+            "b",
+        );
+        let cfg = write_cfg(
+            tmp.path(),
+            &format!(
+                "[layouts.work]\nroot = \"{}\"\nprefix = \"Issues\"\n",
+                work.display()
+            ),
+        );
+        let router = Router::from_file(Layout::new(&vault, "Software"), &cfg).unwrap();
+        let err = router.backlinks_layouts("deed-patch-same").unwrap_err();
+        match err {
+            Error::DuplicateId { id, paths } => {
+                assert_eq!(id, "deed-patch-same");
                 assert_eq!(paths.len(), 2);
             }
             other => panic!("expected DuplicateId, got {other}"),

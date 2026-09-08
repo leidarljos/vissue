@@ -2563,3 +2563,79 @@ fn a_known_issue_id_wins_over_the_accession_shape() {
         "a known id is an issue whatever it looks like: {links}"
     );
 }
+
+/// Two headings sharing an accession-shaped id are a duplicate known issue,
+/// not a product to walk. `find_by_id` reports `DuplicateId`; swallowing that
+/// as "not found" would answer a cites list instead.
+#[test]
+fn an_accession_shaped_duplicate_id_answers_duplicate_not_cites() {
+    let tmp = tempfile::tempdir().unwrap();
+    let vault = tmp.path().join("vault");
+    let work = tmp.path().join("work");
+    fs::create_dir_all(vault.join("Software/keys")).unwrap();
+    fs::create_dir_all(work.join("Issues/keys")).unwrap();
+    fs::write(
+        vault.join("Software/keys/issues.org"),
+        "* TODO one\n:PROPERTIES:\n:ID:         deed-patch-same\n:END:\n",
+    )
+    .unwrap();
+    fs::write(
+        work.join("Issues/keys/issues.org"),
+        "* TODO two\n:PROPERTIES:\n:ID:         deed-patch-same\n:END:\n\
+         * TODO cites it\n:PROPERTIES:\n:ID:         keys-citer\n:DEEDS:      deed-patch-same\n:END:\n",
+    )
+    .unwrap();
+    let cfg = tmp.path().join("config.toml");
+    fs::write(
+        &cfg,
+        format!(
+            "[layouts.work]\nroot = \"{}\"\nprefix = \"Issues\"\n",
+            work.display()
+        ),
+    )
+    .unwrap();
+
+    let out = Command::new(env!("CARGO_BIN_EXE_vissue"))
+        .env_remove("VISSUE_NO_ROUTE")
+        .env("VISSUE_CONFIG", &cfg)
+        .args([
+            "--root",
+            vault.to_str().unwrap(),
+            "backlinks",
+            "deed-patch-same",
+        ])
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&out.stderr);
+    let text = stdout(&out);
+    assert!(
+        !out.status.success(),
+        "a duplicate is an error, not a walk: {text}{err}"
+    );
+    assert!(
+        err.contains("defined in more than one tracker"),
+        "DuplicateId, not a cites list: {err}"
+    );
+    assert!(
+        !text.contains("keys-citer") && !text.contains("(cites)"),
+        "the swallow would have answered the citer: {text}"
+    );
+
+    let json = Command::new(env!("CARGO_BIN_EXE_vissue"))
+        .env_remove("VISSUE_NO_ROUTE")
+        .env("VISSUE_CONFIG", &cfg)
+        .args([
+            "--root",
+            vault.to_str().unwrap(),
+            "backlinks",
+            "deed-patch-same",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        !json.status.success(),
+        "the structured shape agrees: {}",
+        stdout(&json)
+    );
+}

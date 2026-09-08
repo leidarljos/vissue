@@ -66,25 +66,25 @@ impl VissueServer {
         }
     }
 
+    #[cfg(test)]
+    fn with_router(layout: Layout, router: Router) -> Self {
+        Self { layout, router }
+    }
+
     fn layout_for_id(&self, id: &str) -> vissue_core::Result<Layout> {
         Ok(self.router.find_by_id(id)?.layout)
     }
 
     /// A known id routes to its own layout. An accession names a product
     /// rather than a heading, so it has no layout of its own and every tracker
-    /// in reach can cite it.
+    /// in reach can cite it. Only `IssueNotFound` falls through to that scan;
+    /// a duplicate id that happens to look like an accession stays a duplicate.
     fn backlinks_text(&self, id: &str) -> vissue_core::Result<String> {
-        match self.layout_for_id(id) {
-            Ok(layout) => report::backlinks(&layout, id),
-            Err(_) if ops::is_deed_accession(id) => {
-                let mut out = String::new();
-                for layout in self.router.unique_layouts() {
-                    out.push_str(&report::backlinks(layout, id)?);
-                }
-                Ok(out)
-            }
-            Err(err) => Err(err),
+        let mut out = String::new();
+        for layout in self.router.backlinks_layouts(id)? {
+            out.push_str(&report::backlinks(&layout, id)?);
         }
+        Ok(out)
     }
 
     /// `to` names an existing heading, so its own layout wins. Otherwise the
@@ -1395,5 +1395,50 @@ mod tests {
         );
         let info = server.get_info();
         assert!(info.capabilities.tools.is_some());
+    }
+
+    /// Two headings sharing an accession-shaped id are a duplicate known
+    /// issue. Swallowing `DuplicateId` as "not found" would walk the citer.
+    #[tokio::test]
+    async fn an_accession_shaped_duplicate_id_is_not_walked_as_a_deed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let vault = tmp.path().join("vault");
+        let work = tmp.path().join("work");
+        std::fs::create_dir_all(vault.join("Software/keys")).unwrap();
+        std::fs::create_dir_all(work.join("Issues/keys")).unwrap();
+        std::fs::write(
+            vault.join("Software/keys/issues.org"),
+            "* TODO one\n:PROPERTIES:\n:ID:         deed-patch-same\n:END:\n",
+        )
+        .unwrap();
+        std::fs::write(
+            work.join("Issues/keys/issues.org"),
+            "* TODO two\n:PROPERTIES:\n:ID:         deed-patch-same\n:END:\n\
+             * TODO cites it\n:PROPERTIES:\n:ID:         keys-citer\n:DEEDS:      deed-patch-same\n:END:\n",
+        )
+        .unwrap();
+        let cfg = tmp.path().join("config.toml");
+        std::fs::write(
+            &cfg,
+            format!(
+                "[layouts.work]\nroot = \"{}\"\nprefix = \"Issues\"\n",
+                work.display()
+            ),
+        )
+        .unwrap();
+        let layout = Layout::new(&vault, DEFAULT_PREFIX);
+        let router = Router::from_file(layout.clone(), &cfg).unwrap();
+        let server = VissueServer::with_router(layout, router);
+        let refused = server
+            .vissue_backlinks(Parameters(IdArgs {
+                issue_id: "deed-patch-same".into(),
+            }))
+            .await
+            .expect_err("a duplicate is an error, not a cites list");
+        assert!(
+            refused.message.contains("defined in more than one tracker"),
+            "{}",
+            refused.message
+        );
     }
 }
