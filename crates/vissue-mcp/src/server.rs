@@ -70,6 +70,23 @@ impl VissueServer {
         Ok(self.router.find_by_id(id)?.layout)
     }
 
+    /// A known id routes to its own layout. An accession names a product
+    /// rather than a heading, so it has no layout of its own and every tracker
+    /// in reach can cite it.
+    fn backlinks_text(&self, id: &str) -> vissue_core::Result<String> {
+        match self.layout_for_id(id) {
+            Ok(layout) => report::backlinks(&layout, id),
+            Err(_) if ops::is_deed_accession(id) => {
+                let mut out = String::new();
+                for layout in self.router.unique_layouts() {
+                    out.push_str(&report::backlinks(layout, id)?);
+                }
+                Ok(out)
+            }
+            Err(err) => Err(err),
+        }
+    }
+
     /// `to` names an existing heading, so its own layout wins. Otherwise the
     /// create project is routed, which keeps a bounce onto a routed name off
     /// the server's own root.
@@ -425,15 +442,14 @@ impl VissueServer {
         )
     }
 
-    #[tool(description = "List issues that refer to this id through any relation.")]
+    #[tool(
+        description = "List issues that refer to this id through any relation, or that cite this deed accession."
+    )]
     async fn vissue_backlinks(
         &self,
         Parameters(args): Parameters<IdArgs>,
     ) -> Result<CallToolResult, McpError> {
-        text(
-            self.layout_for_id(&args.issue_id)
-                .and_then(|layout| report::backlinks(&layout, &args.issue_id)),
-        )
+        text(self.backlinks_text(&args.issue_id))
     }
 
     #[tool(description = "Issues waiting on this id. Dependency hygiene alias for backlinks.")]

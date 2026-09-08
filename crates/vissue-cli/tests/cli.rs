@@ -2475,3 +2475,91 @@ fn the_plan_gate_fails_on_an_unvoted_or_split_child() {
     let settled = own("a", &["consensus", &plan, "--children", "--gate"]);
     assert!(settled.status.success(), "{}", stdout(&settled));
 }
+
+/// Forward, the join is fine: an issue names its accessions. Backwards, from a
+/// product to everything depending on it, is the question you have exactly when
+/// the product turns out to be wrong.
+#[test]
+fn backlinks_answers_for_a_deed_as_well_as_an_issue() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let own = |args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd().args(argv).output().unwrap()
+    };
+    let id = |args: &[&str]| -> String { stdout(&own(args)).trim().to_string() };
+
+    let one = id(&["create", "-p", "keys", "Built the overlay", "-q"]);
+    let two = id(&["create", "-p", "api", "Used the overlay", "-q"]);
+    let other = id(&["create", "-p", "api", "Unrelated", "-q"]);
+    own(&["deed", &one, "--add", "deed-patch-overlay"]);
+    own(&["deed", &two, "--add", "deed-patch-overlay"]);
+    own(&["deed", &other, "--add", "deed-file-something-else"]);
+
+    let cites = stdout(&own(&["backlinks", "deed-patch-overlay"]));
+    assert!(cites.contains(&one) && cites.contains(&two), "{cites}");
+    assert!(!cites.contains(&other), "only what cites this one: {cites}");
+    assert!(cites.contains("(cites)"), "the evidence is named: {cites}");
+
+    // The structured shape answers the same question, since a hook reading the
+    // rows and a person reading the table must not disagree.
+    let rows: serde_json::Value = serde_json::from_str(&stdout(&own(&[
+        "backlinks",
+        "deed-patch-overlay",
+        "--json",
+    ])))
+    .unwrap();
+    let rows = rows.as_array().unwrap();
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    assert!(
+        rows.iter().all(|r| r["relation"] == "cites"),
+        "the relation names the evidence: {rows:?}"
+    );
+
+    // An accession nobody cited is an empty answer, not an error: the deed may
+    // be real and simply unused.
+    assert_eq!(stdout(&own(&["backlinks", "deed-quote-nobody-cited"])), "");
+    assert!(
+        own(&["backlinks", "deed-quote-nobody-cited"])
+            .status
+            .success()
+    );
+
+    // An id nobody minted and that is not accession-shaped is still an error.
+    assert!(!own(&["backlinks", "keys-zzzz"]).status.success());
+}
+
+/// A project named `deed` mints ids that look exactly like accessions. The
+/// corpus decides, so a real id keeps its own meaning.
+#[test]
+fn a_known_issue_id_wins_over_the_accession_shape() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let own = |args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd().args(argv).output().unwrap()
+    };
+    let id = |args: &[&str]| -> String { stdout(&own(args)).trim().to_string() };
+
+    let target = id(&[
+        "create",
+        "-p",
+        "deed",
+        "A heading in a project called deed",
+        "-q",
+    ]);
+    assert!(
+        target.starts_with("deed-"),
+        "the collision this guards is real: {target}"
+    );
+    let child = id(&["create", "-p", "deed", "Waits on it", "-q"]);
+    own(&["update", &child, "--block", &target]);
+
+    let links = stdout(&own(&["backlinks", &target]));
+    assert!(
+        links.contains("(blocked-by)"),
+        "a known id is an issue whatever it looks like: {links}"
+    );
+}

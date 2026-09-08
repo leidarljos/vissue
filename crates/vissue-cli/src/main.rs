@@ -1374,14 +1374,11 @@ fn run() -> Result<()> {
             let dest = router.route(&to);
             emit!("{}", ops::refile_to(&found, &id, &dest.layout, &dest.dir)?)
         }
-        Command::Backlinks { id, json } => {
-            let found = layout_for_id(&router, &id)?;
-            emit_shape(
-                json,
-                || with_catalog(&found, |svc| svc.backlinks(&id)),
-                || report::backlinks(&found, &id),
-            )?;
-        }
+        Command::Backlinks { id, json } => emit_shape(
+            json,
+            || backlinks_rows(&router, &id),
+            || backlinks_text(&router, &id),
+        )?,
         Command::Roadmap { project } => {
             emit!("{}", roadmap_routed(&router, project.as_deref())?)
         }
@@ -1943,6 +1940,36 @@ fn hygiene_routed(router: &Router, stale_days: Option<i64>) -> Result<String> {
     let mut out = String::new();
     for layout in router.unique_layouts() {
         out.push_str(&agent::hygiene(layout, stale_days)?);
+    }
+    Ok(out)
+}
+
+/// A known id routes to its own layout and the walk answers there, the way
+/// every other walk does. An accession names a product rather than a heading,
+/// so it has no layout of its own and any tracker in reach can cite it: those
+/// are scanned in full.
+fn backlinks_layouts(router: &Router, id: &str) -> Result<Vec<Layout>> {
+    match layout_for_id(router, id) {
+        Ok(found) => Ok(vec![found]),
+        Err(_) if ops::is_deed_accession(id) => {
+            Ok(router.unique_layouts().into_iter().cloned().collect())
+        }
+        Err(err) => Err(err),
+    }
+}
+
+fn backlinks_rows(router: &Router, id: &str) -> Result<Vec<vissue_core::views::WalkHit>> {
+    let mut out = Vec::new();
+    for layout in backlinks_layouts(router, id)? {
+        out.extend(with_catalog(&layout, |svc| svc.backlinks(id))?);
+    }
+    Ok(out)
+}
+
+fn backlinks_text(router: &Router, id: &str) -> Result<String> {
+    let mut out = String::new();
+    for layout in backlinks_layouts(router, id)? {
+        out.push_str(&report::backlinks(&layout, id)?);
     }
     Ok(out)
 }

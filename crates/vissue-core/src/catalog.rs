@@ -998,11 +998,30 @@ fn recall_input(rec: &IssueRec, relation: &str, excerpts: bool) -> RecallInput {
 /// Issues that refer to `target_id` through an edge, a parent, a
 /// discovered-from or pivoted-to property, or a body mention.
 ///
+/// A deed accession is answered too, and there the relation is `cites`: the
+/// issues carrying it in `:DEEDS:`, plus any that name it only in prose. The
+/// corpus decides which of the two namespaces the target is in, so an issue id
+/// that happens to look like an accession keeps its own meaning.
+///
 /// # Errors
 ///
-/// Returns an error if `target_id` is not in the catalog and no backlinks exist.
+/// Returns an error if `target_id` is neither a known issue id nor an
+/// accession, and no backlinks exist.
 pub fn backlinks_from(issues: &[IssueRec], target_id: &str) -> Result<Vec<WalkHit>> {
     let mut out = Vec::new();
+    if !known_issue_id(issues, target_id) && crate::ops::is_deed_accession(target_id) {
+        for rec in issues {
+            if rec.heading.deeds().iter().any(|cited| cited == target_id) {
+                out.push(walk_hit(rec, "cites"));
+            } else if rec.heading.body.contains(target_id) {
+                out.push(walk_hit(rec, "body mention"));
+            }
+        }
+        // A deed nobody cited is an empty answer rather than an error. The
+        // product may be real and simply unused, which is a fact about the
+        // tracker and not a bad argument.
+        return Ok(out);
+    }
     for rec in issues {
         if rec.heading.id == target_id {
             continue;

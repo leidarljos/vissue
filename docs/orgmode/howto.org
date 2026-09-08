@@ -208,6 +208,38 @@ $ vissue export | jq -r '.properties.DEEDS // empty' | tr ", " "\n" \
     | grep . | sort -u | deedar evidence -
 #+end_src
 
+* Find everything standing on a product
+
+=deedar current= tells you a cited deed has been superseded. The next question
+is which work stood on it, and that is =backlinks= given an accession rather
+than an id:
+
+#+begin_src console
+$ vissue backlinks deed-patch-backpressure
+parser-3xq7            (cites) (parser)
+parser-9k2m            (cites) (parser)
+api-4tn8               (body mention) (api)
+#+end_src
+
+=(cites)= is a =:DEEDS:= citation; =(body mention)= is prose naming the
+accession and nothing declared. Under routing the scan covers every tracker in
+reach, since a product has no project of its own and anything can stand on it.
+
+The corpus decides which namespace the argument is in. A known issue id is an
+issue whatever it looks like, so a project literally named =deed= keeps
+working. A token nobody minted reads as an accession, and nothing else does. An accession
+nobody cited answers empty rather than failing, because the product may be real
+and simply unused.
+
+Chained, that sweeps a corpus for work standing on a superseded product:
+
+#+begin_src console
+$ vissue export | jq -r '.properties.DEEDS // empty' | tr ", " "\n" \
+    | grep . | sort -u | deedar current - \
+    | awk '$2 == "SUPERSEDED" { print $1 }' \
+    | while read -r deed; do vissue backlinks "$deed"; done
+#+end_src
+
 * Decide something several agents disagree about
 
 =vote= records one ballot per identity and counts them. =consensus= weighs the
@@ -227,8 +259,9 @@ agreement at all.
 * Follow the graph
 
 =tree= walks children and blockers below an id; =graph= emits the whole thing
-as Graphviz DOT; =backlinks= finds everything pointing at an id; =cycles=
-reports a blocker loop; =ancestors= and =impact= bound the walk by hop depth.
+as Graphviz DOT; =backlinks= finds everything pointing at an id, or citing a
+deed accession; =cycles= reports a blocker loop; =ancestors= and =impact= bound
+the walk by hop depth.
 
 #+begin_src console
 $ vissue tree parser-3xq7

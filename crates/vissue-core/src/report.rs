@@ -1970,6 +1970,27 @@ fn check_parent_cycle<'a>(
 pub fn backlinks(layout: &Layout, target_id: &str) -> Result<String> {
     let all = load_all(layout)?;
     let mut out = String::new();
+
+    // A deed accession is a different namespace from an issue id, and asking
+    // what points at a product is the question you have when the product turns
+    // out to be wrong. The corpus decides which namespace this is: a known id
+    // is an issue, whatever it looks like, so a project actually named `deed`
+    // keeps working. Only a token nobody minted is read as an accession.
+    let known = all.iter().any(|(_, h)| h.id == target_id);
+    if !known && crate::ops::is_deed_accession(target_id) {
+        for (project, h) in &all {
+            let relation = if h.deeds().iter().any(|cited| cited == target_id) {
+                "cites"
+            } else if h.body.contains(target_id) {
+                "body mention"
+            } else {
+                continue;
+            };
+            let _ = writeln!(out, "{:<22} ({relation}) ({project})", h.id);
+        }
+        return Ok(out);
+    }
+
     for (project, h) in &all {
         if h.id == target_id {
             continue;

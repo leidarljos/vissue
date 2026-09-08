@@ -16,13 +16,14 @@
 | =consensus=                                                               | Weigh the same ballots by who the group listens to; social power and the two ways there is none; =--children= rolls up over a plan |
 | =deed=                                                                    | Cite (=--add=), drop (=--remove=), or list the deeds this issue's work produced; =d= on either board |
 | =recall=                                                                  | The working set for an issue: plan, inputs and their deeds, and its own; =--excerpts= splices in what each input concluded |
+| =backlinks=                                                               | Everything pointing at an id; given a deed accession instead, the issues citing it, across every routed tracker |
 | =--json= on a read                                                        | =list=, =show=, =ready=, =claims=, =digest=, =search=, =children=, =ancestors=, =impact=, =backlinks=, =agenda=, =tree=, =body-excerpt=, =projects=, =recall=, =consensus= |
 | =fold=                                                                    | Turn an inbox file's unstamped =* TODO= headings into issues             |
 | =whoami=                                                                  | The identity a claim would record                                        |
 | =ready=, =count=, =search=, =children=, =ancestors=, =impact=, =related=, =stale= | Query the corpus; bounded dependency and related traversal        |
 | =agenda=                                                                  | Deadlines and scheduled starts inside a horizon, overdue first           |
 | =export=                                                                  | JSONL, one object per issue                                              |
-| =tree=, =graph=, =cycles=, =backlinks=, =waiting-on=                      | Relationships                                                            |
+| =tree=, =graph=, =cycles=, =waiting-on=                                   | Relationships                                                            |
 | =roadmap=, =mirror=                                                       | Markdown roadmap; read-only Org or markdown projection                   |
 | =digest=, =mirror --check=                                                | Corpus digest; whether a mirror is still current                         |
 | =check=, =hygiene=, =normalize=                                           | Validation; rewrite a tracker onto the house Org shape                    |

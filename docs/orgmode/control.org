@@ -127,7 +127,7 @@ Capabilities returned by =initialize= (v1):
 | =issue/children=   | Direct children                                           |
 | =issue/ancestors=  | Walk up; optional =depth=                                 |
 | =issue/impact=     | Walk down; optional =depth=                               |
-| =issue/backlinks=  | Everything pointing at the id                             |
+| =issue/backlinks=  | Everything pointing at the id, or citing the accession     |
 | =issue/open=       | Shared selection; notifies =issue/selected=               |
 | =issue/create=     | Create; fields of the CLI create verb                     |
 | =issue/update=     | State, priority, block, unblock                           |

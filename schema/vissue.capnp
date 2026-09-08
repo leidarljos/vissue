@@ -272,7 +272,7 @@ const operations :List(Operation) = [
       ( cli = "depth", tool = "depth", socket = "depth", note = "", toolType = "Option<usize>", socketType = "Option<usize>" )
     ] ),
   ( cli = "backlinks", socket = "issue/backlinks", mcp = "vissue_backlinks", mutates = false, local = false,
-    note = "",
+    note = "the argument is an issue id or a deed accession, and the corpus decides which: a known id is an issue whatever it looks like. An accession answers with the issues citing it, empty rather than an error when nobody does. The command line and the tool scan every routed tracker for one, since a product has no project of its own; the socket answers over the layout it was started on, as it does for every other verb",
     fields = [
       ( cli = "json", tool = "", socket = "", note = "the remote surfaces answer in structure already, so they need no flag to ask for it", toolType = "", socketType = "" )
     ] ),

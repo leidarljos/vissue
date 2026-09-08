@@ -1209,3 +1209,79 @@ fn the_export_row_types_the_deed_citations() {
         "and the drawer is still there verbatim"
     );
 }
+
+/// Forward, an issue names the products it stands on. Backwards, from a
+/// product to everything depending on it, is the question you have exactly
+/// when the product turns out to be wrong.
+#[test]
+fn backlinks_answer_a_deed_accession_as_a_citation() {
+    let mut recs = corpus();
+    recs.push(with_property(
+        issue("atlas", "atlas-c1t1", "DONE", "Built the overlay"),
+        "DEEDS",
+        "deed-patch-overlay",
+    ));
+    recs.push(with_property(
+        issue("keys", "keys-c2t2", "TODO", "Used the overlay"),
+        "DEEDS",
+        "deed-patch-overlay, deed-file-notes",
+    ));
+    recs.push(with_body(
+        issue("keys", "keys-m3t3", "TODO", "Talks about it"),
+        "Waiting on whatever deed-patch-overlay turns out to say.",
+    ));
+
+    let hits = backlinks_from(&recs, "deed-patch-overlay").unwrap();
+    let by_id: Vec<(&str, &str)> = hits
+        .iter()
+        .map(|h| (h.id.as_str(), h.relation.as_str()))
+        .collect();
+    assert!(by_id.contains(&("atlas-c1t1", "cites")), "{by_id:?}");
+    assert!(by_id.contains(&("keys-c2t2", "cites")), "{by_id:?}");
+    assert!(by_id.contains(&("keys-m3t3", "body mention")), "{by_id:?}");
+    assert_eq!(by_id.len(), 3, "nothing else cites it: {by_id:?}");
+
+    // A deed nobody cited is an empty answer, not an error: the product may be
+    // real and simply unused. An unknown issue id stays an error.
+    assert!(
+        backlinks_from(&recs, "deed-quote-unused")
+            .unwrap()
+            .is_empty()
+    );
+    assert!(matches!(
+        backlinks_from(&recs, "atlas-zzzz").unwrap_err(),
+        Error::IssueNotFound { .. }
+    ));
+}
+
+/// A project named `deed` mints ids that look exactly like accessions. The
+/// corpus decides, so a real id keeps its own meaning.
+#[test]
+fn a_known_id_is_an_issue_whatever_it_looks_like() {
+    let mut recs = corpus();
+    recs.push(issue("deed", "deed-patch-overlay", "TODO", "Not a deed"));
+    recs.push(with_property(
+        issue("deed", "deed-waits-on-it", "TODO", "Waits on it"),
+        "BLOCKED_BY",
+        "deed-patch-overlay",
+    ));
+    recs.push(with_property(
+        issue("atlas", "atlas-c4t4", "DONE", "Cites the accession"),
+        "DEEDS",
+        "deed-patch-overlay",
+    ));
+
+    let hits = backlinks_from(&recs, "deed-patch-overlay").unwrap();
+    let by_id: Vec<(&str, &str)> = hits
+        .iter()
+        .map(|h| (h.id.as_str(), h.relation.as_str()))
+        .collect();
+    assert!(
+        by_id.contains(&("deed-waits-on-it", "blocked-by")),
+        "{by_id:?}"
+    );
+    assert!(
+        !by_id.iter().any(|(_, rel)| *rel == "cites"),
+        "the id namespace wins outright: {by_id:?}"
+    );
+}
