@@ -252,6 +252,9 @@ enum Command {
         /// Print only the deed accessions, one per line.
         #[arg(long, conflicts_with = "json")]
         deeds_only: bool,
+        /// Include a capped excerpt of each input's heading.
+        #[arg(long)]
+        excerpts: bool,
         /// Emit a JSON object instead of text
         #[arg(long)]
         json: bool,
@@ -1201,6 +1204,7 @@ fn run() -> Result<()> {
             id,
             depth,
             deeds_only,
+            excerpts,
             json,
         } => {
             let found = layout_for_id(&router, &id)?;
@@ -1209,8 +1213,8 @@ fn run() -> Result<()> {
             } else {
                 emit_shape(
                     json,
-                    || with_catalog(&found, |svc| svc.recall(&id, depth)),
-                    || report::recall(&found, &id, depth),
+                    || with_catalog(&found, |svc| svc.recall(&id, depth, excerpts)),
+                    || report::recall(&found, &id, depth, excerpts),
                 )?;
             }
         }

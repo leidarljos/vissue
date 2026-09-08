@@ -2286,3 +2286,97 @@ fn a_plan_with_no_children_has_nothing_to_roll_up() {
     let rolled = stdout(&own(&["consensus", &alone, "--children"]));
     assert!(rolled.contains("no children"), "{rolled}");
 }
+
+/// What an input concluded is in its body, not in the deed it named. The deed
+/// is the product; the reasoning is the prose, and the next unit usually wants
+/// both.
+#[test]
+fn recall_can_splice_in_what_the_inputs_concluded() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let own = |args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd().args(argv).output().unwrap()
+    };
+    let id = |args: &[&str]| -> String { stdout(&own(args)).trim().to_string() };
+
+    let first = id(&[
+        "create",
+        "-p",
+        "keys",
+        "--body",
+        "Landed without the modifier table; the xkbcommon names win over the Emacs ones.",
+        "The groundwork",
+        "-q",
+    ]);
+    let second = id(&["create", "-p", "keys", "The next step", "-q"]);
+    own(&["update", &second, "--block", &first]);
+
+    let plain = stdout(&own(&["recall", &second]));
+    assert!(
+        !plain.contains("xkbcommon names win"),
+        "off unless asked, since most callers want the accessions: {plain}"
+    );
+
+    let spliced = stdout(&own(&["recall", &second, "--excerpts"]));
+    assert!(
+        spliced.contains("xkbcommon names win"),
+        "the input's own reasoning: {spliced}"
+    );
+
+    // And the structured form carries it, since the remote surfaces answer there.
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout(&own(&["recall", &second, "--excerpts", "--json"])))
+            .expect("json");
+    assert!(
+        json["inputs"][0]["excerpt"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("xkbcommon"),
+        "{json}"
+    );
+    let without: serde_json::Value =
+        serde_json::from_str(&stdout(&own(&["recall", &second, "--json"]))).expect("json");
+    assert!(
+        without["inputs"][0].get("excerpt").is_none(),
+        "the field is absent rather than null when it was not asked for: {without}"
+    );
+}
+
+/// An input whose body looks like credential material is suppressed here for
+/// the same reason `body-excerpt` suppresses it. A working set is pasted into a
+/// model's context, which is the last place a key should be spliced.
+#[test]
+fn a_credential_shaped_input_is_suppressed_in_the_working_set() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let own = |args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd().args(argv).output().unwrap()
+    };
+    let id = |args: &[&str]| -> String { stdout(&own(args)).trim().to_string() };
+
+    let leaky = id(&[
+        "create",
+        "-p",
+        "ops",
+        "--body",
+        "the runner needs access_token=abcd1234 to reach the registry",
+        "Wire up the runner",
+        "-q",
+    ]);
+    let next = id(&["create", "-p", "ops", "Use the runner", "-q"]);
+    own(&["update", &next, "--block", &leaky]);
+
+    let spliced = stdout(&own(&["recall", &next, "--excerpts"]));
+    assert!(
+        !spliced.contains("abcd1234"),
+        "a credential must not reach a working set: {spliced}"
+    );
+    assert!(
+        spliced.contains("excerpt suppressed"),
+        "and the reader has to know something was withheld: {spliced}"
+    );
+}

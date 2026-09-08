@@ -15,7 +15,7 @@
 | =vote=                                                                    | Cast this agent's ballot (=--for=), or read the tally; one ballot per identity |
 | =consensus=                                                               | Weigh the same ballots by who the group listens to; social power and the two ways there is none; =--children= rolls up over a plan |
 | =deed=                                                                    | Cite (=--add=), drop (=--remove=), or list the deeds this issue's work produced |
-| =recall=                                                                  | The working set for an issue: plan, inputs and their deeds, and its own |
+| =recall=                                                                  | The working set for an issue: plan, inputs and their deeds, and its own; =--excerpts= splices in what each input concluded |
 | =--json= on a read                                                        | =list=, =show=, =ready=, =claims=, =digest=, =search=, =children=, =ancestors=, =impact=, =backlinks=, =agenda=, =tree=, =body-excerpt=, =projects=, =recall=, =consensus= |
 | =fold=                                                                    | Turn an inbox file's unstamped =* TODO= headings into issues             |
 | =whoami=                                                                  | The identity a claim would record                                        |
@@ -796,6 +796,14 @@ set =issues.expect_deeds = true= and =hygiene= reports every issue that closed
 citing nothing. Off by default: plenty of issues produce nothing a deed store
 would hold, and a checklist that flags every answered question stops being
 read.
+
+=--excerpts= adds a capped excerpt of each input's heading. What an input
+concluded is in its body, since =append= writes the report there and the deed
+names the product rather than the reasoning. Off unless asked, because the
+common case wants the accessions and a working set carrying four screens of
+prose is one nobody reads. The excerpt goes through the same path
+=body-excerpt= uses, so it is capped and an input whose body looks like
+credential material is suppressed rather than spliced into a model's context.
 
 Each input also carries the last note in its logbook. An input that closed
 without naming a product would otherwise hand the next unit its title and

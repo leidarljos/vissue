@@ -965,6 +965,9 @@ pub struct RecallParams {
     /// Hops of the blocker walk.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub depth: Option<usize>,
+    /// Include a capped excerpt of each input's heading.
+    #[serde(default)]
+    pub excerpts: bool,
 }
 
 /// `issue/consensus` params.

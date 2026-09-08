@@ -192,8 +192,8 @@ impl<'a> CatalogService<'a> {
     ///
     /// Returns an error if `id` is not in the catalog, or the blocker graph
     /// cannot be built.
-    pub fn recall(&self, id: &str, depth: usize) -> Result<crate::views::Recall> {
-        recall_from(self.issues, id, depth)
+    pub fn recall(&self, id: &str, depth: usize, excerpts: bool) -> Result<crate::views::Recall> {
+        recall_from(self.issues, id, depth, excerpts)
     }
 
     /// Issues that refer to `id` through an edge, a parent, a discovered-from
@@ -890,7 +890,7 @@ fn walk_from(issues: &[IssueRec], id: &str, depth: usize, kind: WalkKind) -> Res
 ///
 /// Returns an error if `id` is not in the catalog, or the blocker graph cannot
 /// be built.
-pub fn recall_from(issues: &[IssueRec], id: &str, depth: usize) -> Result<Recall> {
+pub fn recall_from(issues: &[IssueRec], id: &str, depth: usize, excerpts: bool) -> Result<Recall> {
     let rec = issues
         .iter()
         .find(|r| r.heading.id == id)
@@ -945,7 +945,7 @@ pub fn recall_from(issues: &[IssueRec], id: &str, depth: usize) -> Result<Recall
         } else {
             format!("blocked-by:{distance}")
         };
-        inputs.push(recall_input(orec, &relation));
+        inputs.push(recall_input(orec, &relation, excerpts));
     }
     // Where the work came from is an input a blocker edge does not carry: a
     // bounce names its origin and nothing else points back at it.
@@ -953,7 +953,7 @@ pub fn recall_from(issues: &[IssueRec], id: &str, depth: usize) -> Result<Recall
         && !inputs.iter().any(|i| i.id == origin)
         && let Some(orec) = issues.iter().find(|r| r.heading.id == origin)
     {
-        inputs.push(recall_input(orec, "discovered-from"));
+        inputs.push(recall_input(orec, "discovered-from", excerpts));
     }
 
     Ok(Recall {
@@ -968,7 +968,7 @@ pub fn recall_from(issues: &[IssueRec], id: &str, depth: usize) -> Result<Recall
     })
 }
 
-fn recall_input(rec: &IssueRec, relation: &str) -> RecallInput {
+fn recall_input(rec: &IssueRec, relation: &str, excerpts: bool) -> RecallInput {
     RecallInput {
         id: rec.heading.id.clone(),
         project: rec.project.clone(),
@@ -976,6 +976,13 @@ fn recall_input(rec: &IssueRec, relation: &str) -> RecallInput {
         title: rec.heading.title.clone(),
         relation: relation.to_string(),
         deeds: rec.heading.deeds(),
+        // Through the excerpt path rather than the raw body, so the cap and the
+        // credential screening that `body-excerpt` applies are applied here too.
+        // A failure to read the file is not worth failing the whole working set
+        // over: the rest of the answer is still correct.
+        excerpt: excerpts
+            .then(|| excerpt_from(rec).ok().map(|e| e.text))
+            .flatten(),
         // Newest first, so the first note in the drawer is the last thing that
         // was said about the issue. The tracker's own claim-release line is not
         // one of those, and it is the newest note on almost every closed issue.

@@ -300,17 +300,20 @@ impl VissueServer {
     }
 
     #[tool(
-        description = "The working set for an issue: the plan it sits in, the deeds produced by what blocks it, the issue it was bounced from, and what it has produced itself. Read this before starting work on a node. Assembled from the declared edges rather than by resemblance, so it is what the plan says the work stands on and not a ranked guess; `vissue_related` answers the resemblance question."
+        description = "The working set for an issue: the plan it sits in, the deeds produced by what blocks it, the issue it was bounced from, and what it has produced itself. Read this before starting work on a node. Assembled from the declared edges rather than by resemblance, so it is what the plan says the work stands on and not a ranked guess; `vissue_related` answers the resemblance question. Set `excerpts` to splice in what each input concluded, which is in its body rather than in the deed it named."
     )]
     async fn vissue_recall(
         &self,
         Parameters(args): Parameters<RecallArgs>,
     ) -> Result<CallToolResult, McpError> {
-        text(
-            self.layout_for_id(&args.issue_id).and_then(|layout| {
-                report::recall(&layout, &args.issue_id, args.depth.unwrap_or(1))
-            }),
-        )
+        text(self.layout_for_id(&args.issue_id).and_then(|layout| {
+            report::recall(
+                &layout,
+                &args.issue_id,
+                args.depth.unwrap_or(1),
+                args.excerpts.unwrap_or(false),
+            )
+        }))
     }
 
     #[tool(
@@ -840,6 +843,7 @@ mod tests {
             .vissue_recall(Parameters(RecallArgs {
                 issue_id: second.clone(),
                 depth: None,
+                excerpts: None,
             }))
             .await
             .unwrap();

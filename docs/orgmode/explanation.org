@@ -215,7 +215,10 @@ than a context one. That coupling is available only because the tracker is the
 plan: a memory layer bolted beside an agent has no scheduler to agree with.
 
 The first two rows answer for anything that was ever said: one by searching an
-index built over it, the other by carrying a compacted view of it forward. This one answers only for
+index built over it, the other by carrying a compacted view of it forward. That
+is the right shape for a question with no structure behind it, and a seat
+running this tracker will usually run such a store too; what is wrong is using
+it for a question the plan already answers. This one answers only for
 what somebody wrote down as a dependency, which is a much smaller claim and the
 reason it can be exact. A tracker whose edges are careless gets a working set to
 match, and no retrieval quality would have rescued it: the failure has moved
@@ -307,6 +310,39 @@ can be traced three ways at once: the tracker node it was for, from the issue
 that cites it; the run that made it, from the deed's =producedBy=; and the
 inputs it was built on, from the deed's =sources=. Three tools, one id each, no
 shared store between them.
+
+* What a seat remembers, and what a node stands on
+
+This is not the only memory a seat runs, and the distinction between them is the
+useful part rather than a rivalry.
+
+[[https://github.com/HaoZeke/packset][packset]] is a pack of typed atoms with one
+writer, a card or two of standing prose, and a search projection over the atoms.
+Every harness on the seat is a client of the same store, so what one of them
+learns is not private to it. It is addressed by retrieval, through an inverted
+index and optionally embeddings.
+
+=recall= is addressed by the plan. The two are answering different questions:
+
+| Question                                  | Addressed by | Why that way                                              |
+|-------------------------------------------+--------------+-----------------------------------------------------------|
+| What do I know, standing, across sessions? | retrieval    | Nothing in the corpus says which fact this moment needs   |
+| What does this node stand on?              | a walk       | Something does: whoever split the work wrote the edges    |
+
+So the rule is not that retrieval is the wrong tool. It is that you walk
+structure where structure exists, and retrieve where it does not. A seat wants
+both, and running one of them for the other's question is where the cost shows
+up: retrieving over a plan gives a ranked guess at an answer the plan states
+exactly, and walking edges for standing knowledge finds nothing, because nobody
+declared an edge to a preference.
+
+The property the two share is the one that matters for [[*Why there is nothing
+to poison][poisoning]]. Neither extracts. A packset atom is written by somebody
+saying *Remember:*, an edge here is written by a tracker mutation, and a deed is
+minted by the unit that made the product. Across the whole seat, memory is
+something a named actor decided to write, and that is what keeps the surface
+small: there is no path from "an agent read this" to "an agent now believes
+this".
 
 * Why a tally is not a consensus
 

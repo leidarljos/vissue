@@ -888,7 +888,7 @@ fn recall_gathers_the_plan_and_the_products_of_the_blockers() {
         ),
     ];
 
-    let set = recall_from(&issues, "keys-toml", 1).unwrap();
+    let set = recall_from(&issues, "keys-toml", 1, false).unwrap();
     assert_eq!(set.id, "keys-toml");
     assert_eq!(
         set.plan.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
@@ -920,7 +920,7 @@ fn the_plan_reads_from_the_outermost_parent_down() {
         ),
     ];
 
-    let set = recall_from(&issues, "keys-leaf", 1).unwrap();
+    let set = recall_from(&issues, "keys-leaf", 1, false).unwrap();
     assert_eq!(
         set.plan.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
         vec!["keys-root", "keys-mid"]
@@ -937,7 +937,7 @@ fn a_parent_cycle_stops_the_plan_walk() {
         with_property(issue("p", "p-b", "TODO", "b"), "PARENT", "p-a"),
     ];
 
-    let set = recall_from(&issues, "p-a", 1).unwrap();
+    let set = recall_from(&issues, "p-a", 1, false).unwrap();
     assert_eq!(
         set.plan.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
         vec!["p-b"],
@@ -962,7 +962,7 @@ fn the_origin_of_a_bounce_is_an_input() {
         ),
     ];
 
-    let set = recall_from(&issues, "p-new", 1).unwrap();
+    let set = recall_from(&issues, "p-new", 1, false).unwrap();
     assert_eq!(set.inputs.len(), 1);
     assert_eq!(set.inputs[0].relation, "discovered-from");
     assert_eq!(set.inputs[0].deeds, vec!["deed-patch-attempt".to_string()]);
@@ -985,7 +985,7 @@ fn an_origin_that_also_blocks_is_reported_once() {
         ),
     ];
 
-    let set = recall_from(&issues, "p-new", 1).unwrap();
+    let set = recall_from(&issues, "p-new", 1, false).unwrap();
     assert_eq!(set.inputs.len(), 1, "{:?}", set.inputs);
     assert_eq!(set.inputs[0].relation, "blocked-by");
 }
@@ -1013,13 +1013,13 @@ fn depth_widens_the_blocker_walk() {
         with_property(issue("p", "p-last", "TODO", "last"), "BLOCKED_BY", "p-mid"),
     ];
 
-    let one = recall_from(&issues, "p-last", 1).unwrap();
+    let one = recall_from(&issues, "p-last", 1, false).unwrap();
     assert_eq!(
         one.inputs.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(),
         vec!["p-mid"]
     );
 
-    let two = recall_from(&issues, "p-last", 2).unwrap();
+    let two = recall_from(&issues, "p-last", 2, false).unwrap();
     assert_eq!(
         two.inputs.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(),
         vec!["p-first", "p-mid"],
@@ -1034,7 +1034,7 @@ fn depth_widens_the_blocker_walk() {
 #[test]
 fn recall_of_an_unknown_id_is_an_error() {
     let issues = vec![issue("p", "p-a", "TODO", "a")];
-    let err = recall_from(&issues, "p-nope", 1).unwrap_err();
+    let err = recall_from(&issues, "p-nope", 1, false).unwrap_err();
     assert!(matches!(err, Error::IssueNotFound { .. }), "{err:?}");
 }
 
@@ -1068,7 +1068,7 @@ fn an_input_carries_the_last_thing_said_about_it() {
         ),
     ];
 
-    let set = recall_from(&issues, "p-next", 1).unwrap();
+    let set = recall_from(&issues, "p-next", 1, false).unwrap();
     assert_eq!(
         set.inputs[0].last_note.as_deref(),
         Some("landed without the fast path"),
@@ -1107,7 +1107,7 @@ fn the_last_word_is_not_the_tracker_talking_to_itself() {
         ),
     ];
 
-    let set = recall_from(&issues, "p-next", 1).unwrap();
+    let set = recall_from(&issues, "p-next", 1, false).unwrap();
     assert_eq!(
         set.inputs[0].last_note.as_deref(),
         Some("landed without the fast path")
@@ -1162,7 +1162,7 @@ fn a_plan_headed_by_a_document_is_named_not_dropped() {
         "spec-design-20260615",
     )];
 
-    let set = recall_from(&issues, "spec-9k2m", 1).unwrap();
+    let set = recall_from(&issues, "spec-9k2m", 1, false).unwrap();
     assert_eq!(
         set.plan.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
         vec!["spec-design-20260615"]

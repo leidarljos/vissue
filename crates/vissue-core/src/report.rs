@@ -299,8 +299,8 @@ pub fn plan_consensus(layout: &Layout, id: &str) -> Result<String> {
 ///
 /// Returns an error if the corpus cannot be read, `id` is not in it, or the
 /// blocker graph cannot be built.
-pub fn recall(layout: &Layout, id: &str, depth: usize) -> Result<String> {
-    let set = CatalogService::from_recs(&load_recs(layout)?).recall(id, depth)?;
+pub fn recall(layout: &Layout, id: &str, depth: usize, excerpts: bool) -> Result<String> {
+    let set = CatalogService::from_recs(&load_recs(layout)?).recall(id, depth, excerpts)?;
     let mut out = String::new();
     writeln!(
         out,
@@ -336,6 +336,13 @@ pub fn recall(layout: &Layout, id: &str, depth: usize) -> Result<String> {
         }
         for deed in &input.deeds {
             writeln!(out, "    {deed}")?;
+        }
+        if let Some(excerpt) = &input.excerpt {
+            // Indented under its input, so a working set carrying several
+            // stays readable as a list rather than running together.
+            for line in excerpt.lines() {
+                writeln!(out, "      {line}")?;
+            }
         }
         if let Some(note) = &input.last_note {
             // The last thing said about an input is what a reader falls back on
@@ -376,7 +383,7 @@ pub fn recall(layout: &Layout, id: &str, depth: usize) -> Result<String> {
 ///
 /// Same as [`recall`].
 pub fn recall_deeds(layout: &Layout, id: &str, depth: usize) -> Result<String> {
-    let set = CatalogService::from_recs(&load_recs(layout)?).recall(id, depth)?;
+    let set = CatalogService::from_recs(&load_recs(layout)?).recall(id, depth, false)?;
     let mut out = String::new();
     // One line per deed even when two nodes cite the same one, which happens
     // whenever work continues on the product it was handed. The consumer is a

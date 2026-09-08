@@ -151,7 +151,9 @@ impl BoardBackend for CoreBackend {
     }
 
     fn recall(&self, id: &str, depth: usize) -> Result<Recall, Error> {
-        self.with_service(|svc| svc.recall(id, depth))
+        // The board paints the detail pane beside this, so it does not need the
+        // inputs' prose spliced into the working set as well.
+        self.with_service(|svc| svc.recall(id, depth, false))
     }
 
     fn projects(&self) -> Result<Vec<String>, Error> {

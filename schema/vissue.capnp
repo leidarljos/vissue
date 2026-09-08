@@ -234,7 +234,8 @@ const operations :List(Operation) = [
       ( cli = "", tool = "issue_id", socket = "id", note = "no flag: the command line takes it as a positional argument", toolType = "String", socketType = "String" ),
       ( cli = "depth", tool = "depth", socket = "depth", note = "", toolType = "Option<usize>", socketType = "Option<usize>" ),
       ( cli = "json", tool = "", socket = "", note = "the remote surfaces answer in structure already, so they need no flag to ask for it", toolType = "", socketType = "" ),
-      ( cli = "deeds-only", tool = "", socket = "", note = "a shell-substitutable list of accessions, which the remote surfaces already carry as a field of the structure they answer with", toolType = "", socketType = "" )
+      ( cli = "deeds-only", tool = "", socket = "", note = "a shell-substitutable list of accessions, which the remote surfaces already carry as a field of the structure they answer with", toolType = "", socketType = "" ),
+      ( cli = "excerpts", tool = "excerpts", socket = "excerpts", note = "splice in what each input concluded, which lives in its body rather than in the deed it named", toolType = "Option<bool>", socketType = "bool", omittable = true )
     ] ),
   ( cli = "consensus", socket = "issue/consensus", mcp = "vissue_consensus", mutates = false, local = false,
     note = "",

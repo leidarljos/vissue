@@ -393,7 +393,11 @@ fn dispatch_recall(state: &OwnerState, params: Option<&Value>) -> Result<Value, 
     let params: RecallParams = decode(params)?;
     let depth = params.depth.unwrap_or(1);
     with_service(state, |svc, _, _| {
-        serde_json::to_value(svc.recall(&params.id, depth).map_err(map_core)?).map_err(map_json)
+        serde_json::to_value(
+            svc.recall(&params.id, depth, params.excerpts)
+                .map_err(map_core)?,
+        )
+        .map_err(map_json)
     })
 }
 

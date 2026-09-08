@@ -350,6 +350,17 @@ pub struct RecallInput {
     pub relation: String,
     /// Deed accessions cited on that heading.
     pub deeds: Vec<String>,
+    /// A capped excerpt of that input's heading, when one was asked for.
+    ///
+    /// What the input concluded lives in its body: `append` writes the report
+    /// there, and the deed names the product rather than the reasoning. Off
+    /// unless asked, because the common case wants the accessions and a working
+    /// set that pastes four screens of prose is one nobody reads.
+    ///
+    /// Screened and capped by the same path `body-excerpt` uses, so an input
+    /// whose body looks like credential material is suppressed here too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub excerpt: Option<String>,
     /// The most recent note in that input's logbook, when it has one.
     ///
     /// What happened to the input, for the case where it produced no deed. A

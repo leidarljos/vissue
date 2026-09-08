@@ -395,6 +395,7 @@ impl BoardBackend for ControlBackend {
         let value = self.call(&Request::IssueRecall(RecallParams {
             id: id.to_string(),
             depth: Some(depth),
+            excerpts: false,
         }))?;
         decode(value)
     }

@@ -182,6 +182,9 @@ pub struct RecallArgs {
     pub issue_id: String,
     /// Hops of the blocker walk (default 1).
     pub depth: Option<usize>,
+    /// Include a capped excerpt of each input's heading, which is where the
+    /// report of what that input concluded lives.
+    pub excerpts: Option<bool>,
 }
 
 #[derive(Deserialize, JsonSchema)]
