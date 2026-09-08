@@ -122,6 +122,8 @@ pub enum PromptKind {
     Search,
     /// Logbook note on the selected issue.
     Note,
+    /// Deed accession to cite on the selected issue.
+    Deed,
     /// Project filter. Empty clears it.
     Project,
 }

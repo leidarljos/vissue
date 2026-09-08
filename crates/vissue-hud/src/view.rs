@@ -52,6 +52,9 @@ pub fn view(palette: &Palette) -> Element<'_, Message> {
     if palette.note_draft().is_some() {
         pane = pane.push(note_bar(palette, tea));
     }
+    if palette.deed_draft().is_some() {
+        pane = pane.push(deed_bar(palette, tea));
+    }
     if let Some(kind) = palette.confirm() {
         pane = pane.push(widget::info_bar(
             ToastKind::Warning,
@@ -664,6 +667,20 @@ fn note_bar(palette: &Palette, tea: Tokens) -> Element<'_, Message> {
         widget::FieldOpts::NONE,
         tea,
         A11y::new("note", Role::TextBox),
+        None,
+    )
+}
+
+fn deed_bar(palette: &Palette, tea: Tokens) -> Element<'_, Message> {
+    let draft = palette.deed_draft().unwrap_or("");
+    widget::themed_text_input(
+        "Cite a deed: deed-<kind>-<slug>, or sha256:...",
+        draft,
+        Message::DeedChanged,
+        Some(Message::DeedSubmit),
+        widget::FieldOpts::NONE,
+        tea,
+        A11y::new("deed", Role::TextBox),
         None,
     )
 }

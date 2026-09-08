@@ -415,6 +415,7 @@ what the node stands on and what those inputs produced. Keys (also on =?=):
 | =/= | Search |
 | =c= | Claim |
 | =n= | Note |
+| =d= | Cite a deed |
 | =s= | Cycle TODO / STARTED / BLOCKED |
 | =D= | DONE (confirm) |
 | =X= | CANCELLED (confirm) |
@@ -442,7 +443,9 @@ has room for three tab labels, so recall sits past the edge of the strip;
 Enter cycles to it.
 Escape on the project list unmaps the overlay; =vissue hud --toggle=
 shows it again. Closing the mapped window quits.
-=n= shows the logbook and writes a note. Keys are a catalog;
+=n= shows the logbook and writes a note; =d= opens the recall tab and cites a
+deed on the selected issue, refusing a value that is not an accession where you
+can see it. Keys are a catalog;
 =~/.config/vissue/keys.toml= remaps them; reserved =Esc=/=Enter=/=Tab=/=?=.
 =s= cycles TODO/STARTED/BLOCKED, =c= claims, =p= project, =D=/=X= close,
 =o= opens, =?= help, =a= adds. =Tab= or =1=--=4= switch panes.

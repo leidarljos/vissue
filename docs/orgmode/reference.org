@@ -14,7 +14,7 @@
 | =claims=                                                                  | Every live claim, oldest first: who holds what, for how long             |
 | =vote=                                                                    | Cast this agent's ballot (=--for=), or read the tally; one ballot per identity |
 | =consensus=                                                               | Weigh the same ballots by who the group listens to; social power and the two ways there is none |
-| =deed=                                                                    | Cite (=--add=), drop (=--remove=), or list the deeds this issue's work produced |
+| =deed=                                                                    | Cite (=--add=), drop (=--remove=), or list the deeds this issue's work produced; =d= on either board |
 | =recall=                                                                  | The working set for an issue: plan, inputs and their deeds, and its own |
 | =--json= on a read                                                        | =list=, =show=, =ready=, =claims=, =digest=, =search=, =children=, =ancestors=, =impact=, =backlinks=, =agenda=, =tree=, =body-excerpt=, =projects=, =recall=, =consensus= |
 | =fold=                                                                    | Turn an inbox file's unstamped =* TODO= headings into issues             |

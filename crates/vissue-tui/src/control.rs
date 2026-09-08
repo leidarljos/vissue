@@ -8,8 +8,8 @@ use std::time::Duration;
 use serde_json::Value;
 use vissue_control::client::Client;
 use vissue_control::rpc::{
-    CONFLICT, CYCLE, ClaimParams, CreateParams, Error as RpcError, INVALID_STATE, IdParams,
-    InitializeResult, IssueListParams, IssueListResult, MutResult as WireMut, NOT_FOUND,
+    CONFLICT, CYCLE, ClaimParams, CreateParams, DeedParams, Error as RpcError, INVALID_STATE,
+    IdParams, InitializeResult, IssueListParams, IssueListResult, MutResult as WireMut, NOT_FOUND,
     NoteParams, Notification, RecallParams, RelatedParams, Request, SearchParams, TreeParams,
     UpdateParams,
 };
@@ -397,6 +397,15 @@ impl BoardBackend for ControlBackend {
             depth: Some(depth),
         }))?;
         decode(value)
+    }
+
+    fn deed(&self, id: &str, add: &[String]) -> Result<MutResult, Error> {
+        let value = self.call(&Request::IssueDeed(DeedParams {
+            id: id.to_string(),
+            add: add.to_vec(),
+            remove: Vec::new(),
+        }))?;
+        Ok(self.apply_mut(decode(value)?))
     }
 
     fn projects(&self) -> Result<Vec<String>, Error> {

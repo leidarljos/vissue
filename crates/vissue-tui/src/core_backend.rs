@@ -154,6 +154,11 @@ impl BoardBackend for CoreBackend {
         self.with_service(|svc| svc.recall(id, depth))
     }
 
+    fn deed(&self, id: &str, add: &[String]) -> Result<MutResult, Error> {
+        let report = ops::deed(&self.layout, id, add, &[])?;
+        self.mut_result(report, id)
+    }
+
     fn projects(&self) -> Result<Vec<String>, Error> {
         store::list_projects(&self.layout)
     }

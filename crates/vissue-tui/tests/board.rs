@@ -449,6 +449,13 @@ impl BoardBackend for UnchangedAfterFirst {
     ) -> Result<vissue_core::views::Recall, vissue_core::error::Error> {
         self.inner.recall(id, depth)
     }
+    fn deed(
+        &self,
+        id: &str,
+        add: &[String],
+    ) -> Result<vissue_tui::MutResult, vissue_core::error::Error> {
+        self.inner.deed(id, add)
+    }
     fn projects(&self) -> Result<Vec<String>, vissue_core::error::Error> {
         self.inner.projects()
     }
@@ -614,6 +621,13 @@ impl BoardBackend for SinceOnRepeat {
     ) -> Result<vissue_core::views::Recall, vissue_core::error::Error> {
         self.inner.recall(id, depth)
     }
+    fn deed(
+        &self,
+        id: &str,
+        add: &[String],
+    ) -> Result<vissue_tui::MutResult, vissue_core::error::Error> {
+        self.inner.deed(id, add)
+    }
     fn projects(&self) -> Result<Vec<String>, vissue_core::error::Error> {
         self.inner.projects()
     }
@@ -715,4 +729,51 @@ fn claims_and_search_draw_extra() {
     assert!(!snippet.is_empty(), "search extra empty");
     let text = render_plain(&app, 120, 24).unwrap();
     assert!(text.contains(snippet.trim()), "{text}");
+}
+
+/// The board can cite a deed, and a value that is not an accession is refused
+/// where the person typing it can see it.
+///
+/// The refusal is the half worth driving. A citation that resolves to nothing
+/// fails in whatever opens it later, in another process on another day, so a
+/// board that swallowed the message would be handing the failure forward.
+#[test]
+fn the_board_cites_a_deed_and_shows_the_refusal() {
+    let (_dir, layout) = writable();
+    let backend = CoreBackend::open(layout.clone(), "deeder").unwrap();
+    let mut app =
+        App::with_backend(Box::new(backend), "deeder".into(), ServeStatus::Offline).unwrap();
+    let id = app.selected_id().expect("a ready row").to_string();
+
+    app.handle_key(ch('d'));
+    assert!(app.prompt.is_some(), "d opens the deed field");
+    type_text(&mut app, "deed-file-thing");
+    app.handle_key(key(KeyCode::Enter));
+    assert!(
+        app.status_line().contains("deeds += deed-file-thing"),
+        "{}",
+        app.status_line()
+    );
+    let cited = |layout: &Layout, id: &str| {
+        vissue_core::store::find_by_id(layout, id)
+            .unwrap()
+            .expect("issue")
+            .0
+            .deeds()
+    };
+    assert_eq!(cited(&layout, &id), vec!["deed-file-thing".to_string()]);
+
+    app.handle_key(ch('d'));
+    type_text(&mut app, "/tmp/note.md");
+    app.handle_key(key(KeyCode::Enter));
+    assert!(
+        app.status_line().contains("not a deed accession"),
+        "the refusal has to reach the board: {}",
+        app.status_line()
+    );
+    assert_eq!(
+        cited(&layout, &id).len(),
+        1,
+        "a refused citation must not land"
+    );
 }

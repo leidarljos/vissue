@@ -185,6 +185,9 @@ impl BoardBackend for RecordingBackend {
     ) -> Result<vissue_core::views::Recall, vissue_core::error::Error> {
         panic!("RecordingBackend::recall is unused in this test")
     }
+    fn deed(&self, _id: &str, _add: &[String]) -> Result<MutResult, vissue_core::error::Error> {
+        panic!("RecordingBackend::deed is unused in this test")
+    }
     fn projects(&self) -> Result<Vec<String>, vissue_core::error::Error> {
         Ok(vec![])
     }

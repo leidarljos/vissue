@@ -355,6 +355,12 @@ impl App {
                 }
                 Action::Continue
             }
+            KeyCode::Char('d') => {
+                if self.selected_id().is_some() {
+                    self.prompt = Some((PromptKind::Deed, String::new()));
+                }
+                Action::Continue
+            }
             KeyCode::Char('s') => {
                 self.cycle_state();
                 Action::Continue
@@ -437,6 +443,26 @@ impl App {
                                 let _ = self.reload();
                             }
                             Err(err) => self.message = err.to_string(),
+                        }
+                    }
+                }
+                PromptKind::Deed => {
+                    // The refusal has to reach the board. A citation that
+                    // resolves to nothing fails in whatever opens it later, in
+                    // another process on another day, so the message belongs on
+                    // the screen of whoever typed it.
+                    if let Some(id) = self.selected_id().map(str::to_string) {
+                        let accession = text.trim().to_string();
+                        if accession.is_empty() {
+                            self.message = "no deed cited".to_string();
+                        } else {
+                            match self.backend.deed(&id, &[accession]) {
+                                Ok(result) => {
+                                    self.message = result.report.trim().to_string();
+                                    let _ = self.reload();
+                                }
+                                Err(err) => self.message = err.to_string(),
+                            }
                         }
                     }
                 }
@@ -599,6 +625,7 @@ impl App {
             let label = match kind {
                 PromptKind::Search => "search",
                 PromptKind::Note => "note",
+                PromptKind::Deed => "deed",
                 PromptKind::Project => "project",
             };
             format!("{label}: {text}")

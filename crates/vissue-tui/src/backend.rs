@@ -176,6 +176,13 @@ pub trait BoardBackend: Send + Sync + std::fmt::Debug {
     /// Returns an error if the issue does not exist or the blocker graph cannot
     /// be built.
     fn recall(&self, id: &str, depth: usize) -> Result<Recall, Error>;
+    /// Cite deed accessions on `id`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the issue does not exist, a value is not a deed
+    /// accession, or the file cannot be rewritten.
+    fn deed(&self, id: &str, add: &[String]) -> Result<MutResult, Error>;
     /// Project names under the layout prefix.
     ///
     /// # Errors

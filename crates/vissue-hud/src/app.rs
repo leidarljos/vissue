@@ -60,8 +60,12 @@ pub enum Message {
     AddSubmit,
     /// Replace the logbook note draft.
     NoteChanged(String),
+    /// The deed accession field changed.
+    DeedChanged(String),
     /// Submit the logbook note draft.
     NoteSubmit,
+    /// Cite the deed accession in the field.
+    DeedSubmit,
     /// Focus the add-task field.
     FocusAdd,
     /// Return typing to the row list.
@@ -203,6 +207,14 @@ impl HudApp {
             }
             Message::NoteSubmit => {
                 self.palette.submit_note();
+                Task::none()
+            }
+            Message::DeedChanged(text) => {
+                self.palette.set_deed_draft(text);
+                Task::none()
+            }
+            Message::DeedSubmit => {
+                self.palette.submit_deed();
                 Task::none()
             }
             Message::FocusAdd => {

@@ -41,6 +41,8 @@ pub enum ActionId {
     Claim,
     /// Append a note to the selected issue.
     Note,
+    /// Cite a deed on the selected issue.
+    Deed,
     /// Cycle the selected issue's state.
     StateCycle,
     /// Confirm marking the selected issue done.
@@ -77,6 +79,7 @@ impl ActionId {
             Self::Add => "issue.add",
             Self::Claim => "issue.claim",
             Self::Note => "issue.note",
+            Self::Deed => "issue.deed",
             Self::StateCycle => "issue.state",
             Self::ConfirmDone => "issue.done",
             Self::ConfirmCancel => "issue.cancel",
@@ -129,6 +132,7 @@ const ALL: &[ActionId] = &[
     ActionId::Add,
     ActionId::Claim,
     ActionId::Note,
+    ActionId::Deed,
     ActionId::StateCycle,
     ActionId::ConfirmDone,
     ActionId::ConfirmCancel,
@@ -240,6 +244,12 @@ const CATALOG: &[ActionRow] = &[
         id: ActionId::Claim,
         scope: Scope::Board,
         default: "c",
+        remappable: true,
+    },
+    ActionRow {
+        id: ActionId::Deed,
+        scope: Scope::Board,
+        default: "d",
         remappable: true,
     },
     ActionRow {

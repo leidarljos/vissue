@@ -154,6 +154,8 @@ pub enum Focus {
     Add,
     /// Logbook note field.
     Note,
+    /// Deed accession field.
+    Deed,
     /// Home project list.
     Project,
     /// Help overlay.
@@ -370,6 +372,7 @@ pub struct Palette {
     excerpt: Option<Excerpt>,
     detail: Option<IssueDetail>,
     note_draft: Option<String>,
+    deed_draft: Option<String>,
     add_draft: String,
     filter: BoardFilter,
     focus: Focus,
@@ -489,6 +492,7 @@ impl Palette {
             excerpt: None,
             detail: None,
             note_draft: None,
+            deed_draft: None,
             add_draft: String::new(),
             filter: BoardFilter::Ready,
             focus: Focus::List,
@@ -579,6 +583,11 @@ impl Palette {
     /// Logbook note draft while the note field is open.
     pub fn note_draft(&self) -> Option<&str> {
         self.note_draft.as_deref()
+    }
+
+    /// The deed accession being typed, when the field is open.
+    pub fn deed_draft(&self) -> Option<&str> {
+        self.deed_draft.as_deref()
     }
 
     /// Add-task draft text.
@@ -1197,6 +1206,7 @@ impl Palette {
     /// Unmap the overlay and drop drafts.
     pub fn hide(&mut self) {
         self.note_draft = None;
+        self.deed_draft = None;
         self.add_draft.clear();
         self.confirm = None;
         self.focus = Focus::List;
@@ -1237,6 +1247,10 @@ impl Palette {
         }
         if self.confirm.is_some() {
             self.handle_confirm_key(key);
+            return;
+        }
+        if self.focus == Focus::Deed || self.deed_draft.is_some() {
+            self.handle_deed_key(key);
             return;
         }
         if self.focus == Focus::Note || self.note_draft.is_some() {
@@ -1356,6 +1370,16 @@ impl Palette {
                 self.focus_add();
             }
             ActionId::Claim => self.claim_selected(),
+            ActionId::Deed => {
+                if self.painted_id().is_some() {
+                    // Onto the tab the citation will show up on, so the person
+                    // typing sees it land.
+                    self.detail_tab = DetailTab::Recall;
+                    self.refresh_detail();
+                    self.deed_draft = Some(String::new());
+                    self.focus = Focus::Deed;
+                }
+            }
             ActionId::Note => {
                 if self.painted_id().is_some() {
                     self.detail_tab = DetailTab::Notes;
@@ -1414,6 +1438,74 @@ impl Palette {
                 self.note_draft = Some(text);
             }
         }
+    }
+
+    fn handle_deed_key(&mut self, key: PaletteKey) {
+        let Some(mut text) = self.deed_draft.take() else {
+            return;
+        };
+        match key {
+            PaletteKey::Esc => {
+                self.message.clear();
+                self.focus = Focus::List;
+            }
+            PaletteKey::Enter => {
+                if let Some(id) = self.painted_id().map(str::to_string) {
+                    let accession = text.trim().to_string();
+                    if accession.is_empty() {
+                        self.message = "no deed cited".to_string();
+                        self.focus = Focus::List;
+                    } else {
+                        match self.backend.deed(&id, &[accession]) {
+                            Ok(result) => {
+                                self.message = result.report.trim().to_string();
+                                self.focus = Focus::List;
+                                let _ = self.reload();
+                            }
+                            // The field stays open holding what was typed. A
+                            // refused accession is usually a typo in a long
+                            // hash, and clearing it would cost the whole line.
+                            Err(err) => {
+                                self.message = err.to_string();
+                                self.deed_draft = Some(text);
+                                self.focus = Focus::Deed;
+                            }
+                        }
+                    }
+                }
+            }
+            PaletteKey::Backspace => {
+                text.pop();
+                self.deed_draft = Some(text);
+            }
+            PaletteKey::Char(c) => {
+                text.push(c);
+                self.deed_draft = Some(text);
+            }
+            PaletteKey::Up | PaletteKey::Down | PaletteKey::Space | PaletteKey::Tab => {
+                self.deed_draft = Some(text);
+            }
+        }
+    }
+
+    /// Open the deed field on the selected issue.
+    pub fn focus_deed(&mut self) {
+        if self.painted_id().is_some() {
+            self.detail_tab = DetailTab::Recall;
+            self.refresh_detail();
+            self.deed_draft = Some(String::new());
+            self.focus = Focus::Deed;
+        }
+    }
+
+    /// Cite the deed draft on the selected issue.
+    pub fn submit_deed(&mut self) {
+        self.handle_deed_key(PaletteKey::Enter);
+    }
+
+    /// Replace the deed draft, for a text field that owns its own buffer.
+    pub fn set_deed_draft(&mut self, text: impl Into<String>) {
+        self.deed_draft = Some(text.into());
     }
 
     fn handle_add_key(&mut self, key: PaletteKey) {
@@ -2659,6 +2751,13 @@ mod tests {
         ) -> Result<vissue_core::views::Recall, vissue_core::error::Error> {
             self.inner.recall(id, depth)
         }
+        fn deed(
+            &self,
+            id: &str,
+            add: &[String],
+        ) -> Result<vissue_tui::MutResult, vissue_core::error::Error> {
+            self.inner.deed(id, add)
+        }
         fn projects(&self) -> Result<Vec<String>, vissue_core::error::Error> {
             self.inner.projects()
         }
@@ -3681,6 +3780,54 @@ mod tests {
         palette.show_excerpt();
         palette.handle_key(PaletteKey::Char('n'));
         assert!(palette.note_draft().is_none());
+    }
+
+    /// The overlay can cite a deed, and a value that is not an accession is
+    /// refused where the person typing it can see it, with the field left
+    /// holding what was typed.
+    ///
+    /// A refused accession is usually a typo in a long hash, and clearing the
+    /// field would cost the whole line.
+    #[test]
+    fn the_overlay_cites_a_deed_and_keeps_a_refused_one_in_the_field() {
+        let (_dir, layout) = writable();
+        let mut palette = open_atlas(layout, "hud-test");
+        let id = palette.painted_id().expect("a painted row").to_string();
+
+        palette.handle_key(PaletteKey::Char('d'));
+        assert!(palette.deed_draft().is_some(), "d opens the deed field");
+        assert_eq!(
+            palette.detail_tab(),
+            DetailTab::Recall,
+            "onto the tab the citation lands on"
+        );
+        for c in "deed-file-thing".chars() {
+            palette.handle_key(PaletteKey::Char(c));
+        }
+        palette.handle_key(PaletteKey::Enter);
+        assert!(
+            palette.message().contains("deeds += deed-file-thing"),
+            "{}",
+            palette.message()
+        );
+        assert!(palette.deed_draft().is_none(), "the field closed");
+
+        palette.handle_key(PaletteKey::Char('d'));
+        for c in "not-an-accession".chars() {
+            palette.handle_key(PaletteKey::Char(c));
+        }
+        palette.handle_key(PaletteKey::Enter);
+        assert!(
+            palette.message().contains("not a deed accession"),
+            "the refusal has to reach the overlay: {}",
+            palette.message()
+        );
+        assert_eq!(
+            palette.deed_draft(),
+            Some("not-an-accession"),
+            "the field keeps what was typed"
+        );
+        let _ = id;
     }
 
     #[test]
