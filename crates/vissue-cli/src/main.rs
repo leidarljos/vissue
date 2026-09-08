@@ -1947,15 +1947,10 @@ fn hygiene_routed(router: &Router, stale_days: Option<i64>) -> Result<String> {
 /// A known id routes to its own layout and the walk answers there, the way
 /// every other walk does. An accession names a product rather than a heading,
 /// so it has no layout of its own and any tracker in reach can cite it: those
-/// are scanned in full.
+/// are scanned in full. Only a missing id falls through; a duplicate or I/O
+/// error stays an error.
 fn backlinks_layouts(router: &Router, id: &str) -> Result<Vec<Layout>> {
-    match layout_for_id(router, id) {
-        Ok(found) => Ok(vec![found]),
-        Err(_) if ops::is_deed_accession(id) => {
-            Ok(router.unique_layouts().into_iter().cloned().collect())
-        }
-        Err(err) => Err(err),
-    }
+    Ok(router.layouts_for_backlinks(id)?)
 }
 
 fn backlinks_rows(router: &Router, id: &str) -> Result<Vec<vissue_core::views::WalkHit>> {

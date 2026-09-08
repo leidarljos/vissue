@@ -2563,3 +2563,63 @@ fn a_known_issue_id_wins_over_the_accession_shape() {
         "a known id is an issue whatever it looks like: {links}"
     );
 }
+
+/// Two headings sharing an accession-shaped id are a duplicate known issue.
+/// Swallowing `DuplicateId` into the deed walk would answer with a cites
+/// list from any other tracker that named the accession.
+#[test]
+fn an_accession_shaped_duplicate_id_answers_duplicate_not_cites() {
+    let tmp = tempfile::tempdir().unwrap();
+    let vault = tmp.path().join("vault");
+    let work = tmp.path().join("work");
+    let extra = tmp.path().join("extra");
+    fs::create_dir_all(vault.join("Software/deed")).unwrap();
+    fs::create_dir_all(work.join("Issues/deed")).unwrap();
+    fs::create_dir_all(extra.join("Software/atlas")).unwrap();
+    let heading = |title: &str| {
+        format!("* TODO {title}\n:PROPERTIES:\n:ID:         deed-patch-overlay\n:END:\n")
+    };
+    fs::write(
+        vault.join("Software/deed/issues.org"),
+        heading("vault copy"),
+    )
+    .unwrap();
+    fs::write(work.join("Issues/deed/issues.org"), heading("work copy")).unwrap();
+    fs::write(
+        extra.join("Software/atlas/issues.org"),
+        "* TODO cites it\n:PROPERTIES:\n:ID:         atlas-cite1\n:DEEDS:      deed-patch-overlay\n:END:\n",
+    )
+    .unwrap();
+    let cfg = tmp.path().join("config.toml");
+    fs::write(
+        &cfg,
+        format!(
+            "[layouts.work]\nroot = \"{}\"\nprefix = \"Issues\"\n\n[layouts.extra]\nroot = \"{}\"\nprefix = \"Software\"\n",
+            work.display(),
+            extra.display()
+        ),
+    )
+    .unwrap();
+
+    let out = Command::new(env!("CARGO_BIN_EXE_vissue"))
+        .env_remove("VISSUE_NO_ROUTE")
+        .env("VISSUE_CONFIG", &cfg)
+        .args(["--root", vault.to_str().unwrap()])
+        .args(["backlinks", "deed-patch-overlay"])
+        .output()
+        .unwrap();
+    let stdout_text = stdout(&out);
+    let stderr_text = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !out.status.success(),
+        "a duplicate known id is an error, not a walk: {stdout_text}{stderr_text}"
+    );
+    assert!(
+        stderr_text.contains("deed-patch-overlay") && stderr_text.contains("more than one tracker"),
+        "DuplicateId, not a cites list: {stderr_text}"
+    );
+    assert!(
+        !stdout_text.contains("(cites)"),
+        "must not walk the clash as a deed: {stdout_text}"
+    );
+}

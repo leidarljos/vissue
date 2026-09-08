@@ -348,6 +348,29 @@ impl Router {
         }
     }
 
+    /// Layouts a `backlinks` walk should scan for `id`.
+    ///
+    /// A known unique id answers on its own layout. An accession names a
+    /// product rather than a heading, so it has no layout of its own and
+    /// every tracker in reach is scanned. Only [`Error::IssueNotFound`]
+    /// falls through to that walk: [`Error::DuplicateId`] and I/O stay
+    /// errors, because an accession-shaped id that exists twice is a
+    /// duplicate known issue, not a deed.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::DuplicateId`] when two distinct layouts define the id.
+    /// Any I/O error from [`Self::find_by_id`].
+    pub fn layouts_for_backlinks(&self, id: &str) -> Result<Vec<Layout>> {
+        match self.find_by_id(id) {
+            Ok(hit) => Ok(vec![hit.layout]),
+            Err(Error::IssueNotFound { .. }) if crate::ops::is_deed_accession(id) => {
+                Ok(self.unique_layouts().into_iter().cloned().collect())
+            }
+            Err(err) => Err(err),
+        }
+    }
+
     fn hint_project(&self, id: &str) -> Option<String> {
         let mut names: Vec<String> = self.routes.keys().cloned().collect();
         for (_, dir) in self.routes.values() {
@@ -685,6 +708,77 @@ mod tests {
             }
             other => panic!("expected DuplicateId, got {other}"),
         }
+    }
+
+    /// An accession-shaped heading that exists twice is a duplicate known
+    /// issue. Swallowing that error would scan every layout as a deed and
+    /// answer with a cites list.
+    #[test]
+    fn an_accession_shaped_duplicate_id_is_not_walked_as_a_deed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let vault = tmp.path().join("vault");
+        let work = tmp.path().join("work");
+        let extra = tmp.path().join("extra");
+        fs::create_dir_all(&vault).unwrap();
+        fs::create_dir_all(&work).unwrap();
+        fs::create_dir_all(&extra).unwrap();
+        seed(
+            &Layout::new(&work, "Issues"),
+            "deed",
+            "deed-patch-overlay",
+            "work copy",
+        );
+        seed(
+            &Layout::new(&vault, "Software"),
+            "deed",
+            "deed-patch-overlay",
+            "vault copy",
+        );
+        let cite = Layout::new(&extra, "Software").project_issues_path("atlas");
+        fs::create_dir_all(cite.parent().unwrap()).unwrap();
+        fs::write(
+            &cite,
+            "* TODO cites it\n:PROPERTIES:\n:ID:         atlas-cite1\n:DEEDS:      deed-patch-overlay\n:END:\n",
+        )
+        .unwrap();
+        let cfg = write_cfg(
+            tmp.path(),
+            &format!(
+                "[layouts.work]\nroot = \"{}\"\nprefix = \"Issues\"\n\n[layouts.extra]\nroot = \"{}\"\nprefix = \"Software\"\n",
+                work.display(),
+                extra.display()
+            ),
+        );
+        let router = Router::from_file(Layout::new(&vault, "Software"), &cfg).unwrap();
+        let err = router
+            .layouts_for_backlinks("deed-patch-overlay")
+            .unwrap_err();
+        match err {
+            Error::DuplicateId { id, paths } => {
+                assert_eq!(id, "deed-patch-overlay");
+                assert_eq!(paths.len(), 2);
+            }
+            other => panic!("expected DuplicateId, not a cites walk, got {other}"),
+        }
+    }
+
+    #[test]
+    fn an_unused_accession_still_scans_every_layout() {
+        let tmp = tempfile::tempdir().unwrap();
+        let vault = tmp.path().join("vault");
+        let work = tmp.path().join("work");
+        fs::create_dir_all(&vault).unwrap();
+        fs::create_dir_all(&work).unwrap();
+        let cfg = write_cfg(
+            tmp.path(),
+            &format!(
+                "[layouts.work]\nroot = \"{}\"\nprefix = \"Issues\"\n",
+                work.display()
+            ),
+        );
+        let router = Router::from_file(Layout::new(&vault, "Software"), &cfg).unwrap();
+        let layouts = router.layouts_for_backlinks("deed-quote-unused").unwrap();
+        assert_eq!(layouts.len(), 2, "missing accession scans every tracker");
     }
 
     #[test]

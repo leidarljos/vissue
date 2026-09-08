@@ -66,25 +66,25 @@ impl VissueServer {
         }
     }
 
+    #[cfg(test)]
+    fn with_router(layout: Layout, router: Router) -> Self {
+        Self { layout, router }
+    }
+
     fn layout_for_id(&self, id: &str) -> vissue_core::Result<Layout> {
         Ok(self.router.find_by_id(id)?.layout)
     }
 
     /// A known id routes to its own layout. An accession names a product
     /// rather than a heading, so it has no layout of its own and every tracker
-    /// in reach can cite it.
+    /// in reach can cite it. Only a missing id falls through; a duplicate or
+    /// I/O error stays an error.
     fn backlinks_text(&self, id: &str) -> vissue_core::Result<String> {
-        match self.layout_for_id(id) {
-            Ok(layout) => report::backlinks(&layout, id),
-            Err(_) if ops::is_deed_accession(id) => {
-                let mut out = String::new();
-                for layout in self.router.unique_layouts() {
-                    out.push_str(&report::backlinks(layout, id)?);
-                }
-                Ok(out)
-            }
-            Err(err) => Err(err),
+        let mut out = String::new();
+        for layout in self.router.layouts_for_backlinks(id)? {
+            out.push_str(&report::backlinks(&layout, id)?);
         }
+        Ok(out)
     }
 
     /// `to` names an existing heading, so its own layout wins. Otherwise the
@@ -1049,6 +1049,71 @@ mod tests {
         let done = std::fs::read_to_string(layout.project_issues_path("atlas")).unwrap();
         assert!(done.contains("DONE"), "{done}");
         assert!(done.contains("[#C]"), "{done}");
+    }
+
+    /// Two headings sharing an accession-shaped id are a duplicate known
+    /// issue. The tool must not swallow that into a cites list.
+    #[tokio::test]
+    async fn an_accession_shaped_duplicate_id_is_an_error_not_a_cites_list() {
+        let tmp = tempfile::tempdir().unwrap();
+        let vault = tmp.path().join("vault");
+        let work = tmp.path().join("work");
+        let extra = tmp.path().join("extra");
+        std::fs::create_dir_all(&vault).unwrap();
+        std::fs::create_dir_all(&work).unwrap();
+        std::fs::create_dir_all(&extra).unwrap();
+        let seed = |layout: &Layout, project: &str, id: &str, title: &str| {
+            let path = layout.project_issues_path(project);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(
+                &path,
+                format!("* TODO {title}\n:PROPERTIES:\n:ID:         {id}\n:END:\n"),
+            )
+            .unwrap();
+        };
+        seed(
+            &Layout::new(&vault, DEFAULT_PREFIX),
+            "deed",
+            "deed-patch-overlay",
+            "vault copy",
+        );
+        seed(
+            &Layout::new(&work, "Issues"),
+            "deed",
+            "deed-patch-overlay",
+            "work copy",
+        );
+        let cite = Layout::new(&extra, DEFAULT_PREFIX).project_issues_path("atlas");
+        std::fs::create_dir_all(cite.parent().unwrap()).unwrap();
+        std::fs::write(
+            &cite,
+            "* TODO cites it\n:PROPERTIES:\n:ID:         atlas-cite1\n:DEEDS:      deed-patch-overlay\n:END:\n",
+        )
+        .unwrap();
+        let cfg = tmp.path().join("config.toml");
+        std::fs::write(
+            &cfg,
+            format!(
+                "[layouts.work]\nroot = \"{}\"\nprefix = \"Issues\"\n\n[layouts.extra]\nroot = \"{}\"\nprefix = \"Software\"\n",
+                work.display(),
+                extra.display()
+            ),
+        )
+        .unwrap();
+        let layout = Layout::new(&vault, DEFAULT_PREFIX);
+        let router = Router::from_file(layout.clone(), &cfg).unwrap();
+        let server = VissueServer::with_router(layout, router);
+        let err = server
+            .vissue_backlinks(Parameters(IdArgs {
+                issue_id: "deed-patch-overlay".into(),
+            }))
+            .await
+            .unwrap_err();
+        let rendered = format!("{err:?}");
+        assert!(
+            rendered.contains("deed-patch-overlay") && rendered.contains("more than one tracker"),
+            "DuplicateId, not a cites list: {rendered}"
+        );
     }
 
     #[tokio::test]
