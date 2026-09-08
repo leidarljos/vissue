@@ -355,7 +355,27 @@ That is the trade in one line. A pack buys recall across sessions and pays for i
 with a forgetting policy. A walk buys exactness and pays for it by answering only
 about the work somebody drew edges around.
 
-The property the two share is the one that matters for [[*Why there is nothing
+One identifier crosses all three, and it is the deed accession. This tracker
+holds them in =:DEEDS:= and refuses a value that is not one; a deed holds the
+node's id back in =producedBy.activityId=; and a pack atom can carry one in the
+=entities= field its own similarity already runs over. Nothing else crosses. A
+workspace name belongs to the pack and an issue id to the tracker, so the
+accession is the one string all three can hold without any of them reading
+another's store.
+
+That is what makes two commands enough to check a citation wherever it is kept:
+
+#+begin_src console
+$ vissue recall <id> --deeds-only | deedar evidence -   # the bytes are intact
+$ vissue recall <id> --deeds-only | deedar current -    # and still the tip
+#+end_src
+
+Both take a list on standard input, so neither knows which store handed it one,
+and both exit non-zero on a bad set so either can gate a hook. The second is the
+one worth having: a citation is written once and the deed it names can be
+superseded afterwards, which nothing holding a citation can notice on its own.
+
+The property the three share is the one that matters for [[*Why there is nothing
 to poison][poisoning]]. Neither extracts. A packset atom is written by somebody
 saying *Remember:*, an edge here is written by a tracker mutation, and a deed is
 minted by the unit that made the product. Across the whole seat, memory is
