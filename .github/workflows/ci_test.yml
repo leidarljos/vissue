@@ -228,6 +228,18 @@ jobs:
           "$BIN" --root tests/fixture_vault consensus atlas-3e4f --json |
             python3 -c 'import json,sys; json.load(sys.stdin)'
 
+      - name: The join walks backwards from a product
+        run: |
+          set -euo pipefail
+          BIN=./target/release/vissue
+          "$BIN" --root tests/fixture_vault backlinks deed-patch-config-key |
+            grep -q 'atlas-4g5h .*(cites)'
+          "$BIN" --root tests/fixture_vault backlinks deed-patch-config-key --json |
+            python3 -c 'import json,sys; d=json.load(sys.stdin); assert [r["relation"] for r in d] == ["cites"], d'
+          # A product nobody cited is an empty answer; an unknown id is not.
+          test -z "$("$BIN" --root tests/fixture_vault backlinks deed-quote-unused)"
+          ! "$BIN" --root tests/fixture_vault backlinks atlas-zzzz
+
       - name: Mirror is regenerable and unchanged on a second run
         run: |
           set -euo pipefail
