@@ -144,6 +144,19 @@ impl Outcome {
     }
 }
 
+impl Outcome {
+    /// Whether a gate over this issue should pass.
+    ///
+    /// True only when the group agreed and one choice leads. A plurality, a
+    /// tie, a split and an oscillation are all cases where acting on the number
+    /// would be acting on agreement that is not there, which is what the verb
+    /// exists to make visible.
+    #[must_use]
+    pub fn settled(&self) -> bool {
+        self.settling == Settling::Agreed && self.leader().is_some()
+    }
+}
+
 /// Two shares this close are a tie rather than a lead.
 ///
 /// Coarser than the settling tolerance on purpose: the question is whether a

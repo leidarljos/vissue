@@ -242,6 +242,7 @@ const operations :List(Operation) = [
     fields = [
       ( cli = "", tool = "issue_id", socket = "id", note = "no flag: the command line takes it as a positional argument", toolType = "String", socketType = "String" ),
       ( cli = "children", tool = "children", socket = "children", note = "roll up over the issue's children instead of its own ballots", toolType = "Option<bool>", socketType = "bool", omittable = true ),
+      ( cli = "gate", tool = "", socket = "", note = "an exit status for a shell hook; the remote surfaces answer with the settling in the structure and a caller there decides for itself", toolType = "", socketType = "" ),
       ( cli = "json", tool = "", socket = "", note = "the socket answers in structure already and the tool answers the prose a reader needs, so neither takes a flag to ask", toolType = "", socketType = "" )
     ] ),
   ( cli = "fold", socket = "issue/fold", mcp = "vissue_fold", mutates = true, local = false,

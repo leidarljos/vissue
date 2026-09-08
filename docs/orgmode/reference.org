@@ -257,7 +257,7 @@ changes the picker list.
 | Status | Meaning                                                        |
 |--------+----------------------------------------------------------------|
 |      0 | Success, including a reader that closed the pipe               |
-|      1 | Failure, a stale =mirror --check=, a failing =check=, or =serve status= when not live |
+|      1 | Failure, a stale =mirror --check=, a failing =check=, =consensus --gate= with nothing settled, or =serve status= when not live |
 |      2 | =wait= timed out without the generation advancing, or =wait --until-terminal= timed out |
 
 * MCP server
@@ -710,6 +710,15 @@ numbers stopped moving: DeGroot's iteration converges exactly when the graph
 has one closed group every agent can reach and that group is aperiodic. A
 group that mixes slowly stops moving long before its agents agree, so reading
 the arithmetic would report a division that is not there.
+
+=consensus --gate= adds an exit status for a shell hook, and prints the report
+either way, so a hook that fails leaves the reason on screen rather than sending
+a reader back to run it again without the flag. On one issue it exits non-zero
+unless the group agreed and one choice leads, since a plurality, a tie, a split
+and an oscillation are all cases where acting on the number is acting on
+agreement that is not there. Over =--children= it exits non-zero when any child
+settled split or carries no ballots, which are the two rows a parent cannot
+decide on a child's behalf.
 
 =consensus --json= gives the same result as structure: the choice set, each
 agent's limit and social power, the settling (=agreed=, =split=, =oscillating=),

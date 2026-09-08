@@ -269,6 +269,9 @@ enum Command {
         /// Roll up over this issue's children instead of reading its own ballots.
         #[arg(long)]
         children: bool,
+        /// Exit non-zero when there is nothing settled to act on.
+        #[arg(long)]
+        gate: bool,
         /// Emit a JSON object instead of text
         #[arg(long)]
         json: bool,
@@ -1218,20 +1221,35 @@ fn run() -> Result<()> {
                 )?;
             }
         }
-        Command::Consensus { id, children, json } => {
+        Command::Consensus {
+            id,
+            children,
+            gate,
+            json,
+        } => {
             let found = layout_for_id(&router, &id)?;
-            if children {
+            // The report prints either way. A gate that swallowed the reason it
+            // failed would send a reader back to run the command again without
+            // it, which is what `mirror --check` already avoids.
+            let settled = if children {
+                let roll = vissue_core::consensus::of_plan(&found, &id)?;
                 emit_shape(
                     json,
-                    || vissue_core::consensus::of_plan(&found, &id),
+                    || vissue_core::Result::Ok(roll.clone()),
                     || report::plan_consensus(&found, &id),
                 )?;
+                roll.settled()
             } else {
+                let outcome = vissue_core::consensus::of_issue(&found, &id)?;
                 emit_shape(
                     json,
-                    || vissue_core::consensus::of_issue(&found, &id),
+                    || vissue_core::Result::Ok(outcome.clone()),
                     || report::consensus(&found, &id),
                 )?;
+                outcome.settled()
+            };
+            if gate && !settled {
+                std::process::exit(1);
             }
         }
         Command::Vote { id, choice } => {

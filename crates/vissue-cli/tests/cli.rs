@@ -2380,3 +2380,98 @@ fn a_credential_shaped_input_is_suppressed_in_the_working_set() {
         "and the reader has to know something was withheld: {spliced}"
     );
 }
+
+/// The gate is an exit status a shell hook can act on, and it prints the report
+/// either way. A gate that swallowed the reason it failed would send a reader
+/// back to run the command again without it.
+#[test]
+fn the_consensus_gate_carries_the_verdict_in_the_exit_status() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let own = |agent: &str, args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd()
+            .env("VISSUE_AGENT", agent)
+            .args(argv)
+            .output()
+            .unwrap()
+    };
+    let id =
+        |agent: &str, args: &[&str]| -> String { stdout(&own(agent, args)).trim().to_string() };
+
+    let issue = id("a", &["create", "-p", "api", "Ship it?", "-q"]);
+
+    // No ballots at all is not something to act on.
+    let empty = own("a", &["consensus", &issue, "--gate"]);
+    assert!(
+        !empty.status.success(),
+        "no votes is not a settled question"
+    );
+
+    // A tie is agreement on nothing, and the gate has to say so.
+    own("a", &["vote", &issue, "--for", "ship"]);
+    own("b", &["vote", &issue, "--for", "hold"]);
+    let tied = own("a", &["consensus", &issue, "--gate"]);
+    assert!(!tied.status.success(), "{}", stdout(&tied));
+    assert!(
+        stdout(&tied).contains("no lead"),
+        "the report still prints, so the reason is on screen: {}",
+        stdout(&tied)
+    );
+
+    // A majority the group's weight agrees with passes.
+    own("c", &["vote", &issue, "--for", "ship"]);
+    let led = own("a", &["consensus", &issue, "--gate"]);
+    assert!(led.status.success(), "{}", stdout(&led));
+    assert!(stdout(&led).contains("holds: ship"), "{}", stdout(&led));
+}
+
+/// Over a plan the rule is different and the design note says why: a split
+/// child has no position to fold in and an unvoted child is absent rather than
+/// neutral, so either one is a row a person has to read.
+#[test]
+fn the_plan_gate_fails_on_an_unvoted_or_split_child() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let own = |agent: &str, args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd()
+            .env("VISSUE_AGENT", agent)
+            .args(argv)
+            .output()
+            .unwrap()
+    };
+    let id =
+        |agent: &str, args: &[&str]| -> String { stdout(&own(agent, args)).trim().to_string() };
+
+    let plan = id(
+        "a",
+        &["create", "-p", "api", "--type", "plan", "The release", "-q"],
+    );
+    let one = id(
+        "a",
+        &["create", "-p", "api", "--parent", &plan, "First", "-q"],
+    );
+    let two = id(
+        "a",
+        &["create", "-p", "api", "--parent", &plan, "Second", "-q"],
+    );
+
+    for agent in ["a", "b"] {
+        own(agent, &["vote", &one, "--for", "ship"]);
+    }
+    let unvoted = own("a", &["consensus", &plan, "--children", "--gate"]);
+    assert!(
+        !unvoted.status.success(),
+        "one child carries no ballots: {}",
+        stdout(&unvoted)
+    );
+
+    for agent in ["a", "b"] {
+        own(agent, &["vote", &two, "--for", "ship"]);
+    }
+    let settled = own("a", &["consensus", &plan, "--children", "--gate"]);
+    assert!(settled.status.success(), "{}", stdout(&settled));
+}

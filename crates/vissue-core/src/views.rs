@@ -316,6 +316,16 @@ impl PlanConsensus {
             .collect()
     }
 
+    /// Whether a gate over this plan should pass.
+    ///
+    /// False when any child settled split or carries no ballots. Both are rows
+    /// a person has to go read, and neither is something a parent can decide
+    /// on their behalf, which is the whole argument for this being a report.
+    #[must_use]
+    pub fn settled(&self) -> bool {
+        self.split().is_empty() && self.unvoted().is_empty()
+    }
+
     /// The distinct choices the settled children hold.
     ///
     /// One entry means the children that were voted on point the same way.
