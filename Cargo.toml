@@ -34,7 +34,7 @@ missing_errors_doc = "warn"
 missing_panics_doc = "warn"
 
 [workspace.package]
-version = "0.9.0"
+version = "0.9.1"
 edition = "2024"
 rust-version = "1.89"
 license = "MIT"
@@ -45,10 +45,10 @@ keywords = ["issue-tracker", "orgmode", "cli", "mcp", "plain-text"]
 categories = ["command-line-utilities", "development-tools"]
 
 [workspace.dependencies]
-vissue-core = { version = "0.9.0", path = "crates/vissue-core" }
-vissue-control = { version = "0.9.0", path = "crates/vissue-control" }
-vissue-serve = { version = "0.9.0", path = "crates/vissue-serve" }
-vissue-tui = { version = "0.9.0", path = "crates/vissue-tui" }
+vissue-core = { version = "0.9.1", path = "crates/vissue-core" }
+vissue-control = { version = "0.9.1", path = "crates/vissue-control" }
+vissue-serve = { version = "0.9.1", path = "crates/vissue-serve" }
+vissue-tui = { version = "0.9.1", path = "crates/vissue-tui" }
 anyhow = "1"
 chrono = "0.4"
 clap = { version = "4", features = ["derive"] }
