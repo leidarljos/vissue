@@ -6,6 +6,34 @@ All notable changes to vissue are recorded here. The format follows
 
 <!-- towncrier release notes start -->
 
+## [0.9.1](https://github.com/HaoZeke/vissue/releases/tag/v0.9.1) - 2026-09-09
+
+### Fixed
+
+- A directory that is not a tracker says so instead of answering "none". The root
+  falls back to the working directory, and a reading verb run from somewhere else
+  found no projects and printed `0` with a zero exit. A caller cannot tell that
+  from a tracker with nothing in it, and the two mean opposite things. A guessed
+  root now has to hold `vissue.toml` or the prefix directory. A root named with
+  `--root` or `VISSUE_ROOT` is trusted whether or not it holds anything, and `man`
+  and `completions` still work from anywhere because they describe the program
+  rather than a corpus.
+- `backlinks` reports a duplicated id instead of scanning it as a deed. The
+  accession walk exists because an accession has no heading of its own. An id
+  with a heading in two routed trackers is a corpus fault. Answering it with an
+  empty citation list reported that fault as "nothing cites this". Only "no such
+  heading" falls through to the walk now, and an unreadable file stays an error.
+
+### Developer
+
+- The schema comparison covers notes, and the committed constant was
+  regenerated. It compared surface names and a field count. A note-only edit to
+  `vissue.capnp` therefore left the constant carrying the previous prose, and
+  every check still passed. The reader now takes each operation's note and its
+  fields' notes. That is what makes the schema authoritative in fact rather than
+  in the documentation alone.
+
+
 ## [0.9.0](https://github.com/HaoZeke/vissue/releases/tag/v0.9.0) - 2026-09-09
 
 ### Added
