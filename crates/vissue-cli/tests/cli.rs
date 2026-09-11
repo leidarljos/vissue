@@ -407,6 +407,7 @@ fn every_machine_readable_surface_over_the_corpus_is_parseable() {
         (&["claims", "--json"], false),
         (&["digest", "--json"], false),
         (&["show", "atlas-2c3d", "--json"], false),
+        (&["vote", "atlas-2c3d", "--json"], false),
         (&["export"], true),
     ];
     for (args, by_line) in surfaces {
@@ -2060,6 +2061,16 @@ fn the_consensus_weighs_the_ballots_the_tally_counts() {
 
     let tally = stdout(&own("alice", &["vote", &id]));
     assert!(tally.contains("consensus: ship (2 of 3)"), "{tally}");
+
+    let dump: serde_json::Value =
+        serde_json::from_str(&stdout(&own("alice", &["vote", &id, "--json"]))).expect("vote json");
+    let rows = dump.as_array().expect("array of {agent, choice}");
+    assert_eq!(rows.len(), 3, "{dump}");
+    assert!(
+        rows.iter().all(|r| r.get("agent").and_then(|x| x.as_str()).is_some()
+            && r.get("choice").and_then(|x| x.as_str()).is_some()),
+        "{dump}"
+    );
 
     let weighed = stdout(&own("alice", &["consensus", &id]));
     assert!(weighed.contains("holds: hold"), "{weighed}");

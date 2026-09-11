@@ -974,6 +974,28 @@ pub fn ballots(layout: &Layout, id: &str) -> Result<Vec<Ballot>> {
     Ok(read_ballots(&h).0)
 }
 
+/// The same ballots as a JSON array of `{agent, choice}`.
+///
+/// This is the document `ljos-consensus settle --issue` reads. A tally
+/// paragraph is not that document. Stamps stay in the drawer; the model
+/// takes identities and choices only.
+///
+/// # Errors
+///
+/// Returns an error if `id` is not in the corpus or the file cannot be read.
+pub fn ballots_json(layout: &Layout, id: &str) -> Result<String> {
+    let rows: Vec<serde_json::Value> = ballots(layout, id)?
+        .into_iter()
+        .map(|b| {
+            serde_json::json!({
+                "agent": b.agent,
+                "choice": b.choice,
+            })
+        })
+        .collect();
+    Ok(serde_json::to_string_pretty(&rows)?)
+}
+
 /// Ballots on a heading, plus any line of the drawer this does not understand.
 ///
 /// The foreign lines are carried rather than dropped. The drawer is org a person

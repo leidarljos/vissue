@@ -227,6 +227,11 @@ enum Command {
         /// What to vote for. Omit to read the tally without casting.
         #[arg(long = "for", value_name = "CHOICE")]
         choice: Option<String>,
+        /// Emit the drawer as `[{agent, choice}, ...]`. This is the document
+        /// `ljos-consensus settle --issue` reads. The text tally stays the
+        /// default so a person still gets a count.
+        #[arg(long)]
+        json: bool,
     },
     /// Cite, drop, or list the deeds this issue's work produced.
     ///
@@ -1317,10 +1322,18 @@ fn run() -> Result<()> {
                 std::process::exit(1);
             }
         }
-        Command::Vote { id, choice } => {
+        Command::Vote { id, choice, json } => {
             let found = layout_for_id(&router, &id)?;
             let who = vissue_core::config::identity(&found);
-            emit!("{}", ops::vote(&found, &id, choice.as_deref(), &who)?)
+            match (choice.as_deref(), json) {
+                (Some(c), false) => emit!("{}", ops::vote(&found, &id, Some(c), &who)?),
+                (Some(c), true) => {
+                    ops::vote(&found, &id, Some(c), &who)?;
+                    emit!("{}", ops::ballots_json(&found, &id)?)
+                }
+                (None, true) => emit!("{}", ops::ballots_json(&found, &id)?),
+                (None, false) => emit!("{}", ops::vote(&found, &id, None, &who)?),
+            }
         }
         Command::Append { id, text, file } => {
             let body = match (text, file) {

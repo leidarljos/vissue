@@ -249,7 +249,9 @@ same ballots by how much the group listens to each agent.
 #+begin_src console
 $ VISSUE_AGENT=reviewer vissue vote parser-3xq7 --for hold
 $ vissue vote parser-3xq7
+$ vissue vote parser-3xq7 --json
 $ vissue consensus parser-3xq7
+$ ljos consensus parser-3xq7
 #+end_src
 
 With no =[consensus.trust]= configured the weighted answer is the count as a
