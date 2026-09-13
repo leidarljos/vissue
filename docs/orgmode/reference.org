@@ -848,7 +848,7 @@ A node that stands on nothing gets no such line. Read off the heading already
 in hand, so taking a node costs what it did.
 
 What an input *produced* is the point. =deed= cites the accessions
-[[https://github.com/indynull/deedar][deedar]] minted for the products of a
+[[https://leidarljos.github.io/deedar/][deedar]] minted for the products of a
 unit of work, and =recall= hands them to the next unit, which opens them with
 =deedar get= instead of rereading a transcript:
 

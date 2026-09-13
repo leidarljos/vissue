@@ -94,7 +94,7 @@ it. The hint goes to standard error, so a pipeline reading standard output is
 unaffected.
 
 The accession in the middle is the handoff.
-[[https://github.com/indynull/deedar][deedar]] mints one for the thing the work
+[[https://leidarljos.github.io/deedar/][deedar]] mints one for the thing the work
 produced and keeps the bytes; the tracker keeps the id, so whoever picks up the
 next issue can open the product instead of asking what happened. Nothing here
 requires deedar to be installed: the tracker only ever stores the id.

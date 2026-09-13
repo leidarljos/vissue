@@ -166,7 +166,7 @@ plan says the work needs. =related= is the verb for the other question.
 A claim says who is working and a note says what happened. Neither says what
 the work made, so the next unit had to reread a transcript to find out.
 
-[[https://github.com/indynull/deedar][deedar]] records a product as a *deed*
+[[https://leidarljos.github.io/deedar/][deedar]] records a product as a *deed*
 and freezes it. =deed= cites that accession on the heading, and the next
 issue's =recall= hands it on:
 
