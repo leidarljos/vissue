@@ -59,4 +59,5 @@ Wire a coding seat through =ljos-mcp= on the [[file:harness.org][Harness]] how-t
    emacs
    org-syntax
    ecosystem
+   seat
 #+end_export
