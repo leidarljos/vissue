@@ -292,7 +292,7 @@ next unit will need. It cannot be checked against what was actually made. A
 second summary of a summary loses more.
 
 So the tracker stores an accession and not a description.
-[[https://github.com/indynull/deedar][deedar]] mints a deed for the product,
+[[https://leidarljos.github.io/deedar/][deedar]] mints a deed for the product,
 freezes it, and issues evidence over its bytes; =:DEEDS:= holds that id. The
 next unit opens the deed itself, and =deedar trail= walks what it was built
 from, which is why =recall= only needs one blocker hop: the rest of the chain
@@ -305,7 +305,7 @@ there is nothing to keep in sync.
 
 That leaves one join worth naming. A deed records the agent that produced it and,
 optionally, the live assignment it was produced under, which for
-[[https://github.com/HaoZeke/claimdag][claimdag]] is a =WorkId=. So a product
+[[https://leidarljos.github.io/claimdag/][claimdag]] is a =WorkId=. So a product
 can be traced three ways at once: the tracker node it was for, from the issue
 that cites it; the run that made it, from the deed's =producedBy=; and the
 inputs it was built on, from the deed's =sources=. Three tools, one id each, no
@@ -316,7 +316,7 @@ shared store between them.
 This is not the only memory a seat runs, and the distinction between them is the
 useful part rather than a rivalry.
 
-[[https://github.com/HaoZeke/packset][packset]] is a pack of typed atoms with one
+[[https://leidarljos.github.io/packset/][packset]] is a pack of typed atoms with one
 writer, a card or two of standing prose, and a search projection over the atoms.
 Every harness on the seat is a client of the same store, so what one of them
 learns is not private to it. It is addressed by retrieval, through an inverted
@@ -433,7 +433,7 @@ because the room leaned the other way. What is reported is then each agent's
 position and the spread between them, because a single number would name a
 position none of them holds.
 
-Work on LLM deliberation [35] argues that both models capture only the pull of
+Work on language-model deliberation [35] argues that both models capture only the pull of
 the group and not an agent's own internal conviction, and recovers a hidden
 anchor from the deliberation itself. That is a step past what a tracker can do.
 This has the ballot an agent cast, not the belief behind it, and the
@@ -630,18 +630,18 @@ a relation in the audit table above.
     Interactive Memory," 2024, doi:
     [[https://doi.org/10.48550/arXiv.2410.10813][10.48550/arXiv.2410.10813]].
 34. A. Maharana, D.-H. Lee, S. Tulyakov, M. Bansal, F. Barbieri, and Y. Fang,
-    "Evaluating Very Long-Term Conversational Memory of LLM Agents," 2024, doi:
+    "Evaluating Very Long-Term Conversational Memory of Language-Model Agents," 2024, doi:
     [[https://doi.org/10.48550/arXiv.2402.17753][10.48550/arXiv.2402.17753]].
-35. A. Pokharel and R. Dantu, "Hidden Anchors in Multi-Agent LLM Deliberation,"
+35. A. Pokharel and R. Dantu, "Hidden Anchors in Multi-Agent Language-Model Deliberation,"
     2026, doi:
     [[https://doi.org/10.48550/arXiv.2606.19494][10.48550/arXiv.2606.19494]].
 36. Y. Hu et al., "Memory in the Age of AI Agents," 2025, doi:
     [[https://doi.org/10.48550/arXiv.2512.13564][10.48550/arXiv.2512.13564]].
 37. B. R. Sunil, I. Sinha, P. Maheshwari, S. Todmal, S. Malik, and S. M. Mishra,
-    "Memory Poisoning Attack and Defense on Memory Based LLM-Agents," 2026, doi:
+    "Memory Poisoning Attack and Defense on Memory Based Language-Model Agents," 2026, doi:
     [[https://doi.org/10.48550/arXiv.2601.05504][10.48550/arXiv.2601.05504]].
 38. Y. Wu et al., "ContextWeaver: Selective and Dependency-Structured Memory
-    Construction for LLM Agents," 2026, doi:
+    Construction for Language-Model Agents," 2026, doi:
     [[https://doi.org/10.48550/arXiv.2604.23069][10.48550/arXiv.2604.23069]].
 39. M. H. Wang et al., "LEDGER: Scaling Agentic Document Editing with
     Dependency-aware Graph Retrieval," 2026, doi:
