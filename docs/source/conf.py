@@ -50,6 +50,7 @@ html_theme_options = {
         {"title": "Control", "url": "control"},
         {"title": "Explanation", "url": "explanation"},
         {"title": "Emacs", "url": "emacs"},
+        {"title": "Search", "url": "search"},
     ],
 }
 
