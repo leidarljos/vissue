@@ -1,13 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="vissue">
-  <title>vissue</title>
-  <rect width="256" height="256" fill="#0B0B0A"/>
-  <g stroke="#141414" stroke-width="6" stroke-linejoin="miter">
-    <polygon points="64,68 96,100 64,132 32,100" fill="#f4f1ea"/>
-    <polygon points="128,68 160,100 128,132 96,100" fill="#f4f1ea"/>
-    <polygon points="192,68 224,100 192,132 160,100" fill="#f4f1ea"/>
-    <polygon points="96,100 128,132 96,164 64,132" fill="#f4f1ea"/>
-    <polygon points="160,100 192,132 160,164 128,132" fill="#f4f1ea"/>
-    <polygon points="128,132 160,164 128,196 96,164" fill="#0e7a76"/>
-  </g>
-  <circle cx="128" cy="164" r="7" fill="#E6A23C"/>
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 220" role="img" aria-label="vissue">
+  <rect width="820" height="220" fill="#0B0B0A"/>
+  <image href="mark.svg" x="18" y="10" width="200" height="200"/>
+  <text x="250" y="138" font-family="Iowan Old Style, Palatino Linotype, Palatino, Charter, serif" font-size="64" font-weight="600" fill="#F4F0E6" letter-spacing="-1.2">vissue</text>
 </svg>
