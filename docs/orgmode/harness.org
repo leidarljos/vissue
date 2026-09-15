@@ -65,5 +65,5 @@ $ ljos deed <id> --add deed-…
 $ ljos recall <id>
 #+end_src
 
-Citation is not a merge. Completing a session node does not close the
+Citing a deed names it; the bytes stay in deedar. The ticket stays open until the tracker closes the
 ticket.
