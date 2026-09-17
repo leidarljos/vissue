@@ -4,6 +4,7 @@ allow = [
     "vissue ",
     "vissue:",
     " vissue\n",
+    "discovered-from",
 ]
 
 # The harness how-to must name the public seat CLIs and their

@@ -259,6 +259,12 @@ pub struct Recall {
     pub state: String,
     /// Heading title.
     pub title: String,
+    /// Org deadline stamp, when the heading carries one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deadline: Option<String>,
+    /// Org scheduled stamp, when the heading carries one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheduled: Option<String>,
     /// Parent chain, outermost plan first, without this issue.
     pub plan: Vec<WalkHit>,
     /// What this issue waits on and where it came from, each with its products.

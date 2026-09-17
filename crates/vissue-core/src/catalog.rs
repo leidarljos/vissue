@@ -1011,6 +1011,8 @@ pub fn recall_from(issues: &[IssueRec], id: &str, depth: usize, excerpts: bool) 
         project: rec.project.clone(),
         state: rec.heading.state.clone(),
         title: rec.heading.title.clone(),
+        deadline: rec.heading.deadline().map(str::to_string),
+        scheduled: rec.heading.scheduled().map(str::to_string),
         plan,
         inputs,
         produced: rec.heading.deeds(),

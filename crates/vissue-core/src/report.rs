@@ -326,6 +326,12 @@ pub fn recall(layout: &Layout, id: &str, depth: usize, excerpts: bool) -> Result
         "{:<22} {:<9} {}  ({})",
         set.id, set.state, set.title, set.project
     )?;
+    if let Some(d) = &set.deadline {
+        writeln!(out, "DEADLINE                 {d}")?;
+    }
+    if let Some(s) = &set.scheduled {
+        writeln!(out, "SCHEDULED                {s}")?;
+    }
 
     if !set.plan.is_empty() {
         writeln!(out, "\nPlan")?;
