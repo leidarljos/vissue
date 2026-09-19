@@ -286,10 +286,12 @@ pub fn find_in_mirrors(repo: &Path, id: &str) -> Option<(Board, String)> {
             continue;
         };
         let lines: Vec<&str> = text.lines().collect();
-        let at = lines.iter().position(|l| {
+        let Some(at) = lines.iter().position(|l| {
             let t = l.trim();
             t.starts_with(":ID:") && t[4..].trim() == id
-        })?;
+        }) else {
+            continue;
+        };
         let start = lines[..at]
             .iter()
             .rposition(|l| l.starts_with("** "))
@@ -334,21 +336,28 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         fs::write(
             dir.join("vissue.toml"),
-            "prefix = \"Issues\"\n\n[[projection.board]]\nproject = \"ljos\"\nsource = \"vault\"\nmirror = \"Software/ljos/issues-mirror.org\"\ninbox = \"Software/ljos/inbox.org\"\n\n[[projection.board]]\nproject = \"surf\"\nmirror = \"Software/surf/issues-mirror.org\"\n",
+            "prefix = \"Issues\"\n\n[[projection.board]]\nproject = \"surf\"\nmirror = \"Software/surf/issues-mirror.org\"\n\n[[projection.board]]\nproject = \"ljos\"\nsource = \"vault\"\nmirror = \"Software/ljos/issues-mirror.org\"\ninbox = \"Software/ljos/inbox.org\"\n",
         )
         .unwrap();
         let boards = boards(&dir).unwrap();
         assert_eq!(boards.len(), 2);
-        assert_eq!(boards[0].source, "vault");
+        assert_eq!(boards[1].source, "vault");
         assert_eq!(
-            boards[0].inbox.as_deref(),
+            boards[1].inbox.as_deref(),
             Some(Path::new("Software/ljos/inbox.org"))
         );
         assert_eq!(
-            boards[1].source, "self",
+            boards[0].source, "self",
             "a board with no source is this tracker's"
         );
-        // A projected id answers from the mirror and names the inbox.
+        // A projected id answers from the mirror and names the inbox; the
+        // surf mirror, listed first and without the id, is passed over.
+        fs::create_dir_all(dir.join("Software/surf")).unwrap();
+        fs::write(
+            dir.join("Software/surf/issues-mirror.org"),
+            "#+TITLE: vissue mirror\n\n* surf\n** TODO [#B] Unrelated\n:PROPERTIES:\n:ID:         surf-aaaa\n:END:\n",
+        )
+        .unwrap();
         fs::create_dir_all(dir.join("Software/ljos")).unwrap();
         fs::write(
             dir.join("Software/ljos/issues-mirror.org"),
