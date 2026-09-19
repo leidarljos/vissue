@@ -89,7 +89,7 @@ pub fn resolve_source(router: &Router, source: &str) -> Option<Layout> {
     if source == "self" {
         return Some(router.default_layout().clone());
     }
-    if let Some(named) = router.layout_named(source) {
+    if let Some(named) = router.named_layout(source) {
         return Some(named.clone());
     }
     let expanded = if let Some(rest) = source.strip_prefix("~/") {

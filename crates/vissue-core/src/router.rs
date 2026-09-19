@@ -190,17 +190,17 @@ impl Router {
     }
 
     /// The process default, from `--root` / `VISSUE_ROOT` / cwd.
+    /// A `[layouts.*]` entry by name, or the default for `default`; `None`
+    /// when the user's config names no such layout.
     #[must_use]
-    /// A `[layouts.*]` entry by name, or the default when the name is
-    /// `default` or names a layout equal to it.
-    #[must_use]
-    pub fn layout_named(&self, name: &str) -> Option<&Layout> {
+    pub fn named_layout(&self, name: &str) -> Option<&Layout> {
         if name == "default" {
             return Some(&self.default);
         }
         self.named.get(name)
     }
 
+    #[must_use]
     pub fn default_layout(&self) -> &Layout {
         &self.default
     }
