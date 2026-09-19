@@ -66,7 +66,7 @@ toml = "1.1"
 walkdir = "2"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 # A satchel manifest is read by `sha256sum -c`, so it hashes the way that does.
-sha2 = "0.10"
+sha2 = "0.11"
 
 # cargo-dist builds with --profile=dist
 [profile.dist]
