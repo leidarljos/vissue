@@ -8,7 +8,7 @@ authors:
     email: rgoswami@ieee.org
     orcid: "https://orcid.org/0000-0002-2393-8056"
 license: MIT
-repository-code: "https://github.com/HaoZeke/vissue"
+repository-code: "https://github.com/leidarljos/vissue"
 version: 0.13.1
 keywords:
   - issue tracking
