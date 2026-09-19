@@ -97,13 +97,20 @@ pub fn resolve_source(router: &Router, source: &str) -> Option<Layout> {
     if let Some(named) = router.named_layout(source) {
         return Some(named.clone());
     }
+    // A path source is one on this machine that holds a tracker; a bare
+    // layout name the user's config does not know is not a directory here.
     let expanded = if let Some(rest) = source.strip_prefix("~/") {
         std::env::var_os("HOME").map(|h| PathBuf::from(h).join(rest))?
     } else {
         PathBuf::from(source)
     };
+    if !expanded.is_dir() {
+        return None;
+    }
     let layout = crate::config::layout_at(&expanded).ok()?;
-    layout.require_tracker().ok()?;
+    if !layout.root().join("vissue.toml").is_file() && !layout.projects_dir().is_dir() {
+        return None;
+    }
     Some(layout)
 }
 
