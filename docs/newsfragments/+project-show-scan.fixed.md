@@ -1,0 +1,1 @@
+`show` on a projected id answers from the mirror that carries it even when an earlier board in the list does not; a `source` naming no known layout and no directory on this seat counts as not reachable rather than as a tracker.
