@@ -223,10 +223,26 @@ fn apply_claims(source: &Layout, path: &Path, lines: &mut Vec<String>) -> Result
             match rest.rsplit_once(" as ") {
                 Some((issue, agent)) => {
                     let result = ops::update(source, issue.trim(), Some("TODO"), None, None, None)
-                        .map_or_else(|e| format!("FAILED {e}"), |ok| format!("{ok:?}"));
+                        .map_or_else(|e| format!("FAILED {e}"), |ok| ok.report);
                     lines.push(format!("release {issue} as {agent}: {result}"));
                     Some(format!(
                         "* DONE release {} as {} :: {result}",
+                        issue.trim(),
+                        agent.trim()
+                    ))
+                }
+                None => None,
+            }
+        } else if let Some(rest) = line.strip_prefix("* TODO done ") {
+            // A seat without the source closes its ticket through the file;
+            // the state moves and the claim releases as an update would.
+            match rest.rsplit_once(" as ") {
+                Some((issue, agent)) => {
+                    let result = ops::update(source, issue.trim(), Some("DONE"), None, None, None)
+                        .map_or_else(|e| format!("FAILED {e}"), |ok| ok.report);
+                    lines.push(format!("done {issue} as {agent}: {result}"));
+                    Some(format!(
+                        "* DONE done {} as {} :: {result}",
                         issue.trim(),
                         agent.trim()
                     ))

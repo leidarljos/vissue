@@ -420,9 +420,10 @@ $ vissue show ljos-kcd6
 read-only projection of ljos from vault; write discovered work to Software/ljos/inbox.org
 #+end_src
 
-A claims line is =* TODO claim ID as AGENT= or =* TODO release ID as
-AGENT=; the verb stamps each applied line to DONE with its result, so the
-file is its own receipt and applying twice does nothing.
+A claims line is =* TODO claim ID as AGENT=, =* TODO release ID as
+AGENT= or =* TODO done ID as AGENT=; the verb stamps each applied line to
+DONE with its result, so the file is its own receipt and applying twice
+does nothing.
 
 * Split a feature into a board two workers share
 

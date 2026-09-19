@@ -170,7 +170,7 @@ the repository projects from other trackers; =project= runs them.
 | =source=   | =self=   | This tracker, a =[layouts.*]= name from the user's config, or a path |
 | =mirror=   | required | The mirror file, relative to the root                                |
 | =inbox=    | unset    | An inbox whose unstamped =* TODO= headings =project= folds into the source |
-| =claims=   | unset    | A file of =* TODO claim ID as AGENT= and =release= lines =project= applies |
+| =claims=   | unset    | A file of =* TODO claim ID as AGENT=, =release= and =done= lines =project= applies |
 
 A source that is not on the running seat is reported and its board left as
 projected; =show= on an id found only in a mirror answers from the mirror.
