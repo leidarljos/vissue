@@ -6,6 +6,24 @@ All notable changes to vissue are recorded here. The format follows
 
 <!-- towncrier release notes start -->
 
+## [0.13.0](https://github.com/leidarljos/vissue/releases/tag/v0.13.0) - 2026-09-19
+
+### Added
+
+- `vissue project` runs the projection a repository declares as `[[projection.board]]` rows in its `vissue.toml`: fold each board's inbox into its source, apply its claims file, rewrite its mirror; `--check` exits 1 on a stale mirror, and a source not on this seat is reported and skipped. `show` on an id that lives only in a mirror answers from the mirror and names the inbox to write to.
+- A `* TODO done ID as AGENT` line in a claims file closes the ticket on the source, beside `claim` and `release`.
+
+### Changed
+
+- Dependencies: sha2 0.11, capnp 0.27.2, icedtea 0.17.2, rmcp 3.4, toml 1.1.6; the docs workflow actions move to their current majors.
+- The README is one screen: pitch, install, a minute of use and the page table; the plan board and the projection round trip are how-tos.
+
+### Fixed
+
+- A title whose first word is `Comment` in any case was dropped as an org `COMMENT` keyword; the keyword is the upper-case word alone.
+- `create` refuses a guessed root that holds no tracker, whichever layout the route picked, instead of minting an issue in a checkout no later read finds.
+
+
 ## [0.12.1](https://github.com/leidarljos/vissue/releases/tag/v0.12.1) - 2026-09-12
 
 ### Changed
