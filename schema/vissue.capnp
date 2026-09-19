@@ -274,6 +274,11 @@ const operations :List(Operation) = [
       ( cli = "", tool = "file", socket = "file", note = "the issue being acted on: positional on the command line, and the two remote surfaces spell it differently", toolType = "String", socketType = "String" ),
       ( cli = "project", tool = "project", socket = "project", note = "", toolType = "String", socketType = "Option<String>" )
     ] ),
+  ( cli = "project", socket = "", mcp = "", mutates = true, local = true,
+    note = "local only: it reads the [[projection.board]] rows of the vissue.toml under this process's root and writes the mirrors, inboxes and claims files there; a remote surface has no checkout to write into",
+    fields = [
+      ( cli = "check", tool = "", socket = "", note = "compare each reachable mirror's stamp against its source instead of writing; exits 1 when one is stale", toolType = "", socketType = "" )
+    ] ),
   ( cli = "normalize", socket = "issue/normalize", mcp = "vissue_normalize", mutates = true, local = false,
     note = "",
     fields = [

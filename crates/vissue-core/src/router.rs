@@ -189,7 +189,6 @@ impl Router {
         })
     }
 
-    /// The process default, from `--root` / `VISSUE_ROOT` / cwd.
     /// A `[layouts.*]` entry by name, or the default for `default`; `None`
     /// when the user's config names no such layout.
     #[must_use]
@@ -200,6 +199,7 @@ impl Router {
         self.named.get(name)
     }
 
+    /// The process default, from `--root` / `VISSUE_ROOT` / cwd.
     #[must_use]
     pub fn default_layout(&self) -> &Layout {
         &self.default
