@@ -6,6 +6,13 @@ All notable changes to vissue are recorded here. The format follows
 
 <!-- towncrier release notes start -->
 
+## Unreleased
+
+### Fixed
+
+- `layout_named` is one method. The projection landing left a second
+  definition that returned `&Layout`, so `cargo test` would not compile.
+
 ## [0.12.1](https://github.com/leidarljos/vissue/releases/tag/v0.12.1) - 2026-09-12
 
 ### Changed

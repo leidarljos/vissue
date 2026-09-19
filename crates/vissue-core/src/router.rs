@@ -191,8 +191,12 @@ impl Router {
 
     /// The process default, from `--root` / `VISSUE_ROOT` / cwd.
     #[must_use]
+    pub fn default_layout(&self) -> &Layout {
+        &self.default
+    }
+
     /// A `[layouts.*]` entry by name, or the default when the name is
-    /// `default` or names a layout equal to it.
+    /// `default`.
     #[must_use]
     pub fn layout_named(&self, name: &str) -> Option<&Layout> {
         if name == "default" {
@@ -201,8 +205,10 @@ impl Router {
         self.named.get(name)
     }
 
-    pub fn default_layout(&self) -> &Layout {
-        &self.default
+    fn layout_or_default(&self, name: &str) -> Layout {
+        self.layout_named(name)
+            .cloned()
+            .unwrap_or_else(|| self.default.clone())
     }
 
     /// Whether any route is configured.
@@ -216,7 +222,7 @@ impl Router {
     pub fn route(&self, project: &str) -> ProjectRef {
         let key = project.to_lowercase();
         if let Some((layout_name, dir)) = self.routes.get(&key) {
-            let layout = self.layout_named(layout_name).clone();
+            let layout = self.layout_or_default(layout_name);
             return ProjectRef {
                 layout,
                 dir: dir.clone(),
@@ -274,7 +280,7 @@ impl Router {
             });
         }
         for (key, (layout_name, dir)) in &self.routes {
-            let layout = self.layout_named(layout_name).clone();
+            let layout = self.layout_or_default(layout_name);
             out.push(ProjectRef {
                 layout,
                 dir: dir.clone(),
@@ -388,14 +394,6 @@ impl Router {
                 .map(|(head, _)| head.to_string())
                 .filter(|h| !h.is_empty())
         })
-    }
-
-    fn layout_named(&self, name: &str) -> &Layout {
-        if name == "default" {
-            &self.default
-        } else {
-            self.named.get(name).unwrap_or(&self.default)
-        }
     }
 
     /// Ids that appear under more than one distinct unique layout.
