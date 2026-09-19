@@ -92,7 +92,7 @@ text, LOGBOOK entries, and CLOCK entries. Tests must show that data outside
 the operation's ownership remains unchanged.
 
 The command output is a contract too, and it has a reader outside this
-repository. [vissue.el](https://github.com/HaoZeke/vissue.el) drives the
+repository. [vissue.el](https://github.com/leidarljos/vissue.el) drives the
 binary and parses `ready --json` plus the text of `claim`, `identity` and
 `projects`. Nothing here runs its tests, so a change to any of those four is
 checked by hand:

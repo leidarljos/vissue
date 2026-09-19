@@ -371,6 +371,103 @@ folded 2: parser-x1a2 parser-y3b4
 A =fold= that fails partway still stamps the issues it created, so a rerun
 does not create them twice.
 
+* Project the boards a shared repository shows
+
+A repository several seats share carries read-only mirrors of boards
+that live in other trackers, and inbox and claims files that carry work
+back. Declare them once in the repository's =vissue.toml=:
+
+#+begin_src toml
+[[projection.board]]
+project = "ljos"                          # the project's name on its source
+source  = "vault"                          # a [layouts.*] name, "self", or a path
+mirror  = "Software/ljos/issues-mirror.org"
+inbox   = "Software/ljos/inbox.org"        # optional: * TODO headings become issues
+claims  = "Software/ljos/claims.org"       # optional: * TODO claim ID as AGENT lines
+#+end_src
+
+Then one verb does the round trip: fold each inbox into its source, apply
+each claims file, rewrite each mirror, and name the files to commit.
+
+#+begin_src console
+$ vissue project
+ljos: folded 2: ljos-x1a2 ljos-y3b4
+ljos: wrote Software/ljos/issues-mirror.org
+surf: wrote Software/surf/issues-mirror.org
+commit and push: Software/ljos/inbox.org Software/ljos/issues-mirror.org Software/surf/issues-mirror.org
+#+end_src
+
+A board whose source is not on the seat running the verb is reported and
+left as projected, so a delegate runs the same command and learns which
+boards it can move here. =--check= compares each reachable mirror's stamp
+against its source and exits 1 when one is stale, which is the pre-commit
+check for the repository.
+
+#+begin_src console
+$ vissue project --check
+ljos: source vault is not on this seat; Software/ljos/issues-mirror.org stays as projected
+surf: fresh: Software/surf/issues-mirror.org
+1 board(s) have no source on this seat; run `vissue project` where they do
+#+end_src
+
+=show= on an id that lives only in a mirror answers from the mirror and
+names the inbox, instead of reporting the issue missing:
+
+#+begin_src console
+$ vissue show ljos-kcd6
+* TODO [#A] The seat under a herd :task:
+...
+read-only projection of ljos from vault; write discovered work to Software/ljos/inbox.org
+#+end_src
+
+A claims line is =* TODO claim ID as AGENT= or =* TODO release ID as
+AGENT=; the verb stamps each applied line to DONE with its result, so the
+file is its own receipt and applying twice does nothing.
+
+* Split a feature into a board two workers share
+
+A feature becomes one parent issue and tagged children, each blocked on
+the node it cannot start without. Only the frontier is workable, so two
+agents cannot start the terminal UI and the example file at once.
+
+#+begin_src console
+$ vissue create --project keys --type plan "Epic: Colemak leader sequence"
+keys-e0pl  TODO  [#C]  Epic: Colemak leader sequence
+$ vissue create --project keys --type task --parent keys-e0pl --tags catalog \
+    "Catalog of bindable actions"
+keys-cata  TODO  [#C]  Catalog of bindable actions
+$ vissue create --project keys --type task --parent keys-e0pl --tags config \
+    "keys.toml schema and key names"
+keys-toml  TODO  [#C]  keys.toml schema and key names
+$ vissue update keys-toml --block keys-cata
+keys-toml: state TODO -> BLOCKED (auto on block), blocked_by += keys-cata
+$ vissue ready --project keys
+keys-cata              TODO      [#C]  Catalog of bindable actions
+$ vissue tree keys-e0pl
+keys-e0pl TODO      [#C]  Epic: Colemak leader sequence
+  keys-cata TODO      [#C]  Catalog of bindable actions
+  keys-toml BLOCKED   [#C]  keys.toml schema and key names
+    * blocked-by keys-cata
+#+end_src
+
+Parent edges are containment; the =blocks= edges are =:BLOCKED_BY:= and
+are what =ready= reads. A blocker that would close a cycle is rejected.
+Two workers share the frontier by claiming, not by editing a checklist.
+A common pairing is one implementer and one reviewer per node: the
+reviewer is a child issue blocked on the implementation issue, so it
+becomes ready only when the implementer closes. An identity is an opaque
+string; set =VISSUE_AGENT= to something stable enough to recognise later.
+
+#+begin_src console
+$ VISSUE_AGENT=impl vissue claim keys-cata
+claimed keys-cata by impl (TODO -> STARTED)
+$ vissue create --project keys --type task --parent keys-cata --tags review \
+    "Review the bindable-action catalog"
+$ vissue update keys-revw --block keys-cata
+$ VISSUE_AGENT=review vissue ready --project keys
+# empty: the only open work is claimed or blocked
+#+end_src
+
 * See what is due
 
 =agenda= lists open and blocked issues whose deadline or scheduled date falls

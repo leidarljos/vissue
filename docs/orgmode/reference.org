@@ -25,6 +25,7 @@
 | =export=                                                                  | JSONL, one object per issue                                              |
 | =tree=, =graph=, =cycles=, =waiting-on=                                   | Relationships                                                            |
 | =roadmap=, =mirror=                                                       | Markdown roadmap; read-only Org or markdown projection                   |
+| =project=                                                                 | The projection the repository's =vissue.toml= declares: fold each board's inbox, apply its claims, rewrite its mirror; =--check= exits 1 on a stale mirror |
 | =digest=, =mirror --check=                                                | Corpus digest; whether a mirror is still current                         |
 | =satchel=                                                                 | Pack a slice of the tracker for somebody else: =--out= with =--project= or =--issue=, then =--seal= once the deeds are in, then =--verify= on arrival |
 | =check=, =hygiene=, =normalize=                                           | Validation; rewrite a tracker onto the house Org shape                    |
@@ -159,6 +160,20 @@ overriding the compiled defaults key by key.
 
 A short =id_length= is a small space: 2 characters is 1296 ids, and =create=
 reports an exhausted space rather than failing obscurely.
+
+=[[projection.board]]= rows in =<root>/vissue.toml= declare the boards
+the repository projects from other trackers; =project= runs them.
+
+| Key        | Default  | Meaning                                                              |
+|------------+----------+----------------------------------------------------------------------|
+| =project=  | required | The project's name on its source                                     |
+| =source=   | =self=   | This tracker, a =[layouts.*]= name from the user's config, or a path |
+| =mirror=   | required | The mirror file, relative to the root                                |
+| =inbox=    | unset    | An inbox whose unstamped =* TODO= headings =project= folds into the source |
+| =claims=   | unset    | A file of =* TODO claim ID as AGENT= and =release= lines =project= applies |
+
+A source that is not on the running seat is reported and its board left as
+projected; =show= on an id found only in a mirror answers from the mirror.
 
 A second file, =$XDG_CONFIG_HOME/vissue/config.toml= (or =$VISSUE_CONFIG=),
 maps project names onto other checkouts. It is not part of a tracker
