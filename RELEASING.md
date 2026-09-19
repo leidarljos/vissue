@@ -61,14 +61,14 @@ publishes.
 
 ## First public version
 
-The seven workspace crates exist on crates.io from 0.3.0, and each has
-trusted publishers for repository `HaoZeke/vissue`, environment
+The workspace crates exist on crates.io from 0.3.0. Trusted publishing
+pins repository `leidarljos/vissue` (not the HaoZeke fork), environment
 `crates-io`, and both workflow filenames `release.yml` and
 `publish-crates.yml`. Later `v*` tags publish through OIDC. The GitHub
 environment already exists; recreate it with
 
 ```console
-$ gh api --method PUT repos/HaoZeke/vissue/environments/crates-io
+$ gh api --method PUT repos/leidarljos/vissue/environments/crates-io
 ```
 
 Trusted publishing cannot create a crate that does not exist. If the
@@ -98,7 +98,7 @@ Then add trusted publishers to the new crate, at
 `https://crates.io/crates/<name>/settings`, or via
 
 `POST /api/v1/trusted_publishing/github_configs` with
-`crate`, `repository_owner=HaoZeke`, `repository_name=vissue`,
+`crate`, `repository_owner=leidarljos`, `repository_name=vissue`,
 `environment=crates-io`, once for `workflow_filename=release.yml` and
 once for `workflow_filename=publish-crates.yml`.
 
