@@ -40,12 +40,17 @@ use crate::store;
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Board {
+    /// The project's name on its source tracker.
     pub project: String,
+    /// `self`, a `[layouts.*]` name from the user's config, or a path.
     #[serde(default = "self_source")]
     pub source: String,
+    /// The mirror file, relative to the repository root.
     pub mirror: PathBuf,
+    /// An inbox whose unstamped `* TODO` headings fold into the source.
     #[serde(default)]
     pub inbox: Option<PathBuf>,
+    /// A file of `* TODO claim ID as AGENT` and `release` lines to apply.
     #[serde(default)]
     pub claims: Option<PathBuf>,
 }
