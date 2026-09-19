@@ -1375,7 +1375,7 @@ pub fn parse_headline_bits<'a>(after_stars: &'a str, keywords: &[String]) -> Hea
     }
     let mut commented = false;
     if let Some((word, after)) = first_word(rest)
-        && word.eq_ignore_ascii_case("COMMENT")
+        && word == "COMMENT"
     {
         commented = true;
         rest = after.trim_start();
@@ -1668,6 +1668,10 @@ mod tests {
         assert!(is_issue_headline("* DONE [#A] Ship it", &keys));
         assert!(!is_issue_headline("* COMMENT Archive", &keys));
         assert!(!is_issue_headline("* TODO COMMENT hidden", &keys));
+        // Org's keyword is the upper-case word alone; a title that opens
+        // with the word "comment" is a title.
+        assert!(is_issue_headline("* TODO [#A] Comment :bug:", &keys));
+        assert!(is_issue_headline("* TODO comment on the draft", &keys));
         assert!(!is_issue_headline("* Notes", &keys));
         assert!(!is_issue_headline("** TODO child", &keys));
     }

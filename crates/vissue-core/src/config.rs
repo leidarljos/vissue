@@ -190,6 +190,19 @@ fn home() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+/// The tracker at `root` as its own `vissue.toml` describes it: the prefix
+/// it names, else the default. Named, not guessed.
+///
+/// # Errors
+///
+/// A `vissue.toml` that cannot be read or parsed.
+pub fn layout_at(root: &Path) -> Result<Layout> {
+    let prefix = RootConfig::load(root)?
+        .prefix
+        .unwrap_or_else(|| DEFAULT_PREFIX.to_string());
+    Ok(Layout::new(root.to_path_buf(), prefix))
+}
+
 /// `<root>/vissue.toml`, the product-level configuration file.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]

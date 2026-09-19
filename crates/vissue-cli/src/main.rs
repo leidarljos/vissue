@@ -17,6 +17,7 @@ use vissue_core::config::Layout;
 use vissue_core::error::Error;
 use vissue_core::mirror::{self, Format};
 use vissue_core::ops::{self, CreateOpts, RejectOpts, UpdatePred};
+use vissue_core::projection;
 use vissue_core::router::Router;
 use vissue_core::satchel;
 use vissue_core::store;
@@ -537,6 +538,16 @@ enum Command {
         #[arg(short, long)]
         quiet: bool,
     },
+    /// Run the projection this repository's vissue.toml declares: fold each
+    /// board's inbox into its source, apply its claims file, rewrite its
+    /// mirror. A source not on this machine is reported and skipped.
+    Project {
+        /// Compare each mirror's stamp against its source instead of
+        /// writing. Exits 0 when every reachable mirror is fresh, 1 when
+        /// one is stale.
+        #[arg(long)]
+        check: bool,
+    },
     /// Write a read-only projection of one or more projects to a file.
     Mirror {
         /// Project to include; repeat for several. Omit for every project.
@@ -759,6 +770,9 @@ fn create_routed(
     opts: CreateOpts<'_>,
 ) -> Result<String> {
     let pref = router.route(project);
+    // A create mints an id into a file; a guessed root without a tracker is
+    // a checkout, and a ticket written there is lost to every other seat.
+    pref.layout.require_tracker()?;
     // Paths rather than ids: the mint reads them under the lock it writes
     // under, so a twin create in another root cannot slip between.
     let twins = router.extra_id_paths_for(&pref.dir);
@@ -1023,7 +1037,44 @@ fn run_digest(layout: &Layout, projects: &[String], json: bool, quiet: bool) -> 
 /// Three shapes rather than the usual two, because the org form is the file's own text
 /// and is what a person pastes back into a vault.
 fn run_show(router: &Router, id: &str, json: bool, org: bool) -> Result<()> {
-    let found = layout_for_id(router, id)?;
+    let found = match layout_for_id(router, id) {
+        Ok(found) => found,
+        Err(err) => {
+            // Not in any tracker here: a mirror this repository projects may
+            // still carry it, and the reader is told where to write.
+            let missing = matches!(
+                err.downcast_ref::<Error>(),
+                Some(Error::IssueNotFound { .. })
+            );
+            let root = router.default_layout().root().to_path_buf();
+            let projected = if missing {
+                projection::find_in_mirrors(&root, id)
+            } else {
+                None
+            };
+            let Some((board, text)) = projected else {
+                return Err(err);
+            };
+            if json {
+                emitln!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "id": id,
+                        "projected": true,
+                        "project": board.project,
+                        "source": board.source,
+                        "mirror": board.mirror,
+                        "inbox": board.inbox,
+                        "org": text,
+                    }))?
+                );
+            } else {
+                emit!("{text}");
+                emitln!("{}", projection::projected_note(&board));
+            }
+            return Ok(());
+        }
+    };
     if json {
         emitln!(
             "{}",
@@ -1035,6 +1086,47 @@ fn run_show(router: &Router, id: &str, json: bool, org: bool) -> Result<()> {
         emit!("{}", report::show(&found, id)?);
     }
     Ok(())
+}
+
+/// The projection the repository at the default layout's root declares.
+/// Under `--check` a stale mirror exits 1 without writing anything.
+fn run_project(router: &Router, layout: &Layout, check: bool) -> Result<()> {
+    let outcome = projection::project(router, layout.root(), check)?;
+    for line in &outcome.lines {
+        emitln!("{line}");
+    }
+    if outcome.skipped > 0 {
+        emitln!(
+            "{} board(s) have no source on this seat; run `vissue project` where they do",
+            outcome.skipped
+        );
+    }
+    if check {
+        if outcome.stale > 0 {
+            std::process::exit(1);
+        }
+    } else if !outcome.touched.is_empty() {
+        emitln!(
+            "commit and push: {}",
+            paths_line(&outcome.touched, layout.root())
+        );
+    }
+    Ok(())
+}
+
+/// Paths as one space-separated line, relative to `root` where they are
+/// under it.
+fn paths_line(paths: &[PathBuf], root: &std::path::Path) -> String {
+    paths
+        .iter()
+        .map(|p| {
+            p.strip_prefix(root)
+                .unwrap_or(p)
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Every project this process can see, one per line or as a JSON array.
@@ -1527,6 +1619,9 @@ fn run() -> Result<()> {
             state,
         } => {
             run_mirror(&layout, &projects, out, check, &format, state)?;
+        }
+        Command::Project { check } => {
+            run_project(&router, &layout, check)?;
         }
         Command::Events { since, limit } => {
             emit!("{}", events::since_report(&layout, since, limit)?)
