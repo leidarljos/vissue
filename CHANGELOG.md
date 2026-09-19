@@ -6,6 +6,13 @@ All notable changes to vissue are recorded here. The format follows
 
 <!-- towncrier release notes start -->
 
+## [0.13.1](https://github.com/leidarljos/vissue/releases/tag/v0.13.1) - 2026-09-19
+
+### Fixed
+
+- `show` on a projected id answers from the mirror that carries it even when an earlier board in the list does not; a `source` naming no known layout and no directory on this seat counts as not reachable rather than as a tracker.
+
+
 ## [0.13.0](https://github.com/leidarljos/vissue/releases/tag/v0.13.0) - 2026-09-19
 
 ### Added

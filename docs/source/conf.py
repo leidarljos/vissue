@@ -10,7 +10,7 @@ _ROOT = _DOCS.parent.parent
 project = "vissue"
 copyright = "2026, Rohit Goswami"
 author = "Rohit Goswami"
-release = "0.13.0"
+release = "0.13.1"
 version = "0.13"
 
 extensions = [
