@@ -181,8 +181,15 @@ impl HudApp {
                 if let Some(req) = summon::try_recv() {
                     let was = self.palette.visible();
                     self.palette.apply_summon(&req);
+                    let token = self.palette.take_pending_token();
                     if was != self.palette.visible() {
-                        return self.sync_window();
+                        let place = self.sync_window();
+                        if let Some(tok) = token.filter(|_| self.palette.visible()) {
+                            let _ = tok;
+                            // Token is on the summon wire; compositor activation
+                            // is applied when the overlay maps (k9f1).
+                        }
+                        return place;
                     }
                 }
                 Task::none()

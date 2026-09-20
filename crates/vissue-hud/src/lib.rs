@@ -9,6 +9,7 @@ pub mod cli;
 pub(crate) mod dates;
 pub mod desktop;
 pub mod detach;
+pub mod install_desktop;
 pub mod fuzzy;
 pub mod keys;
 pub mod log;

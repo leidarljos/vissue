@@ -39,6 +39,9 @@ pub struct HudCli {
     /// Hide a running HUD.
     #[arg(long, group = "summon")]
     pub hide: bool,
+    /// Write a user-local .desktop launcher and Sway overlay include.
+    #[arg(long)]
+    pub install_desktop: bool,
 }
 
 impl HudCli {
@@ -81,6 +84,10 @@ pub fn run_cli() -> anyhow::Result<i32> {
 /// cannot be resolved, the summon socket cannot be bound, or the iced loop
 /// cannot start.
 pub fn run_with(cli: HudCli) -> anyhow::Result<i32> {
+    if cli.install_desktop {
+        crate::install_desktop::run_cli()?;
+        return Ok(0);
+    }
     if summon::already_running() {
         if let Some(action) = cli.summon_action() {
             summon::send_command(action)?;
