@@ -3627,17 +3627,17 @@ mod tests {
     fn help_sheet_follows_the_loaded_keymap() {
         let mut palette =
             Palette::open_core(Layout::new(fixture_root(), DEFAULT_PREFIX), "snap".into()).unwrap();
-        assert!(!palette.help_md().source.contains("- `n` — Move down"));
-        palette.set_keymap(KeyMap::from_overlay("[board]\n\"list.down\" = \"n\"\n").unwrap());
+        assert!(!palette.help_md().source.contains("- `e` — Move down"));
+        palette.set_keymap(KeyMap::from_overlay("[board]\n\"list.down\" = \"e\"\n").unwrap());
         assert!(
             palette
                 .help_md()
                 .source
-                .contains("- `n` — Move down (`list.down`)"),
+                .contains("- `e` — Move down (`list.down`)"),
             "{}",
             palette.help_md().source
         );
-        assert_eq!(palette.keymap.chord_for(ActionId::ListDown), "n");
+        assert_eq!(palette.keymap.chord_for(ActionId::ListDown), "e");
     }
 
     #[test]

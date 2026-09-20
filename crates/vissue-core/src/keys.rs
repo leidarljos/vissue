@@ -610,14 +610,14 @@ mod tests {
 
     #[test]
     fn help_follows_an_overlay_remap() {
-        let map = KeyMap::from_overlay("[board]\n\"list.down\" = \"n\"\n").unwrap();
-        assert_eq!(map.chord_for(ActionId::ListDown), "n");
+        let map = KeyMap::from_overlay("[board]\n\"list.down\" = \"e\"\n").unwrap();
+        assert_eq!(map.chord_for(ActionId::ListDown), "e");
         let help = map.help_markdown();
-        assert!(help.contains("- `n` — Move down (`list.down`)"), "{help}");
+        assert!(help.contains("- `e` — Move down (`list.down`)"), "{help}");
         assert!(
             !KeyMap::from_defaults()
                 .help_markdown()
-                .contains("- `n` — Move down")
+                .contains("- `e` — Move down")
         );
     }
 
@@ -823,7 +823,7 @@ mod tests {
         let path = dir.path().join("keys.toml");
         std::fs::write(
             &path,
-            "leader = \";\"\n[board]\n\"list.down\" = \"n\"\n\"issue.note\" = \"leader+n\"\n",
+            "leader = \";\"\n[board]\n\"list.down\" = \"e\"\n\"issue.note\" = \"leader+n\"\n",
         )
         .unwrap();
         let map = load_overlay(&path).unwrap();
