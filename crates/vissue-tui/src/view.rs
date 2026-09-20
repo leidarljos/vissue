@@ -62,7 +62,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     draw_status(frame, status, app);
 
     if app.help {
-        draw_overlay(frame, area, app.help_text());
+        draw_overlay(frame, area, &app.help_text());
     } else if let Some(line) = app.prompt_line() {
         draw_prompt(frame, area, &line);
     } else if let Some(line) = app.confirm_line() {

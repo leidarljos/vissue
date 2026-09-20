@@ -823,7 +823,7 @@ mod tests {
         let path = dir.path().join("keys.toml");
         std::fs::write(
             &path,
-            "leader = \";\"\n[board]\n\"list.down\" = \"e\"\n\"issue.note\" = \"leader+n\"\n",
+            "leader = \";\"\n[board]\n\"list.down\" = \"n\"\n\"issue.note\" = \"leader+n\"\n",
         )
         .unwrap();
         let map = load_overlay(&path).unwrap();

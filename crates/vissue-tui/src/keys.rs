@@ -1,6 +1,7 @@
 //! Key dispatch. Bindings are listed on `?`.
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use vissue_core::keys::{ActionId, KeyMap};
 
 /// What the event loop does after a key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -162,26 +163,71 @@ pub fn char_of(key: KeyEvent) -> Option<char> {
     }
 }
 
-/// Overlay text shown on `?`.
-pub const HELP: &str = "\
-vissue tui
+/// The chord token a key press stands for, in the shared catalog's
+/// spelling: a printable character as itself, the named keys as
+/// `enter`, `esc`, `tab`, `space`. Arrows and modifiers are the board's
+/// own and yield nothing.
+pub fn chord_of(key: KeyEvent) -> Option<String> {
+    match key.code {
+        KeyCode::Char(' ') => Some("space".to_string()),
+        KeyCode::Char(_) => char_of(key).map(vissue_core::keys::chord_from_char),
+        KeyCode::Enter => Some("enter".to_string()),
+        KeyCode::Esc => Some("esc".to_string()),
+        KeyCode::Tab => Some("tab".to_string()),
+        _ => None,
+    }
+}
 
-j/k, arrows   move
-Tab, 1-5      pane (Ready List Claims Agenda Search)
-Enter         focus detail / cycle detail tab
-p             project filter
-/             search
-c             claim
-n             note
-s             cycle TODO / STARTED / BLOCKED
-D             DONE (confirm)
-X             CANCELLED (confirm)
-o             open (shared selection)
-y             copy id
-R             reload
-?             this help
-q / Esc       quit / back
+/// The catalog actions this board performs; the rest are the HUD's.
+pub const TUI_ACTIONS: &[ActionId] = &[
+    ActionId::ListDown,
+    ActionId::ListUp,
+    ActionId::ListSelect,
+    ActionId::ListDone,
+    ActionId::PaneReady,
+    ActionId::PaneList,
+    ActionId::PaneClaims,
+    ActionId::PaneAgenda,
+    ActionId::PaneSearch,
+    ActionId::PaneNext,
+    ActionId::DetailCycle,
+    ActionId::ProjectCycle,
+    ActionId::Search,
+    ActionId::Claim,
+    ActionId::Note,
+    ActionId::Deed,
+    ActionId::StateCycle,
+    ActionId::ConfirmDone,
+    ActionId::ConfirmCancel,
+    ActionId::Open,
+    ActionId::CopyId,
+    ActionId::Reload,
+    ActionId::Help,
+];
 
-Body edits stay in the file.
-body lives in file; open the range above
-";
+/// Overlay text shown on `?`, from the shared catalog as the keymap binds
+/// it, then the board's own keys, then the chords only the HUD answers.
+pub fn help_text(keymap: &KeyMap) -> String {
+    let mut out = String::from("vissue tui\n\n");
+    for row in KeyMap::catalog() {
+        if !TUI_ACTIONS.contains(&row.id) {
+            continue;
+        }
+        out.push_str(&format!(
+            "{:<13} {}\n",
+            keymap.chord_for(row.id),
+            row.id.title()
+        ));
+    }
+    out.push_str("arrows        move\nq / Esc       quit / back\n");
+    let hud_only: Vec<String> = KeyMap::catalog()
+        .iter()
+        .filter(|row| !TUI_ACTIONS.contains(&row.id))
+        .map(|row| format!("{} {}", keymap.chord_for(row.id), row.id.title()))
+        .collect();
+    if !hud_only.is_empty() {
+        out.push_str(&format!("\nHUD only: {}\n", hud_only.join(", ")));
+    }
+    out.push_str("\nBody edits stay in the file.\nbody lives in file; open the range above\n");
+    out
+}

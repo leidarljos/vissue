@@ -5,13 +5,14 @@ use std::path::PathBuf;
 use ratatui::crossterm::event::KeyCode;
 use ratatui::crossterm::event::KeyEvent;
 use vissue_core::config::Layout;
+use vissue_core::keys::{ActionId, KeyMap};
 use vissue_core::views::{IssueDetail, ListQuery};
 
 use crate::attach::{AttachHooks, AttachOutcome, ServeStatus, try_attach};
 use crate::backend::{BoardBackend, ListPage, UpdateReq};
 use crate::core_backend::CoreBackend;
 use crate::keys::{
-    Action, ConfirmKind, DetailTab, Focus, HELP, Pane, PromptKind, char_of, is_press,
+    Action, ConfirmKind, DetailTab, Focus, Pane, PromptKind, char_of, chord_of, help_text, is_press,
 };
 
 /// One displayed row. Every pane maps onto this shape so keys share a path.
@@ -65,6 +66,8 @@ pub struct App {
     /// Last id copied with `y`.
     pub clipboard: String,
     search_query: String,
+    /// The shared key catalog as bound on this machine.
+    keymap: KeyMap,
 }
 
 impl App {
@@ -109,9 +112,27 @@ impl App {
             help: false,
             clipboard: String::new(),
             search_query: String::new(),
+            keymap: KeyMap::from_defaults(),
         };
+        #[cfg(not(test))]
+        {
+            app.keymap = KeyMap::load();
+            if let Some(err) = app.keymap.overlay_error.clone() {
+                app.message = err;
+            }
+        }
         app.reload()?;
         Ok(app)
+    }
+
+    /// Bind the shared catalog as `keymap` has it; `?` follows.
+    pub fn set_keymap(&mut self, keymap: KeyMap) {
+        self.keymap = keymap;
+    }
+
+    /// The shared catalog as this board binds it.
+    pub fn keymap(&self) -> &KeyMap {
+        &self.keymap
     }
 
     /// How the status line labels the current store.
@@ -296,6 +317,11 @@ impl App {
         if self.prompt.is_some() {
             return self.handle_prompt(key);
         }
+        // The shared catalog answers first, as bound: a remap in
+        // keys.toml moves the action, and the old chord does nothing.
+        if let Some(id) = chord_of(key).and_then(|chord| self.keymap.get(&chord)) {
+            return self.handle_action(id);
+        }
         match key.code {
             KeyCode::Char('q') => Action::Quit,
             KeyCode::Esc => {
@@ -306,101 +332,94 @@ impl App {
                     Action::Quit
                 }
             }
-            KeyCode::Char('j') | KeyCode::Down => {
+            KeyCode::Down => {
                 self.move_sel(1);
                 Action::Continue
             }
-            KeyCode::Char('k') | KeyCode::Up => {
+            KeyCode::Up => {
                 self.move_sel(-1);
                 Action::Continue
             }
-            KeyCode::Tab => self.goto_pane(self.pane.next()),
-            KeyCode::Char('1') => self.goto_pane(Pane::Ready),
-            KeyCode::Char('2') => self.goto_pane(Pane::List),
-            KeyCode::Char('3') => self.goto_pane(Pane::Claims),
-            KeyCode::Char('4') => self.goto_pane(Pane::Agenda),
-            KeyCode::Char('5') => self.goto_pane(Pane::Search),
-            KeyCode::Enter => {
+            _ => Action::Continue,
+        }
+    }
+
+    /// One catalog action, as the board performs it. Actions the HUD alone
+    /// answers do nothing here.
+    fn handle_action(&mut self, id: ActionId) -> Action {
+        match id {
+            ActionId::ListDown => self.move_sel(1),
+            ActionId::ListUp => self.move_sel(-1),
+            ActionId::PaneNext => return self.goto_pane(self.pane.next()),
+            ActionId::PaneReady => return self.goto_pane(Pane::Ready),
+            ActionId::PaneList => return self.goto_pane(Pane::List),
+            ActionId::PaneClaims => return self.goto_pane(Pane::Claims),
+            ActionId::PaneAgenda => return self.goto_pane(Pane::Agenda),
+            ActionId::PaneSearch => return self.goto_pane(Pane::Search),
+            ActionId::ListSelect | ActionId::DetailCycle => {
                 if self.focus == Focus::Detail {
                     self.detail_tab = self.detail_tab.next();
-                    self.refresh_detail();
                 } else {
                     self.focus = Focus::Detail;
-                    self.refresh_detail();
                 }
-                Action::Continue
+                self.refresh_detail();
             }
-            KeyCode::Char('p') => {
+            ActionId::ProjectCycle => {
                 self.prompt = Some((
                     PromptKind::Project,
                     self.project.clone().unwrap_or_default(),
                 ));
-                Action::Continue
             }
-            KeyCode::Char('/') => {
+            ActionId::Search => {
                 if self.pane != Pane::Search {
                     self.backend.invalidate_since();
                     self.pane = Pane::Search;
                 }
                 self.prompt = Some((PromptKind::Search, self.search_query.clone()));
-                Action::Continue
             }
-            KeyCode::Char('c') => {
-                self.claim_selected();
-                Action::Continue
-            }
-            KeyCode::Char('n') => {
+            ActionId::Claim => self.claim_selected(),
+            ActionId::Note => {
                 if self.selected_id().is_some() {
                     self.prompt = Some((PromptKind::Note, String::new()));
                 }
-                Action::Continue
             }
-            KeyCode::Char('d') => {
+            ActionId::Deed => {
                 if self.selected_id().is_some() {
                     self.prompt = Some((PromptKind::Deed, String::new()));
                 }
-                Action::Continue
             }
-            KeyCode::Char('s') => {
-                self.cycle_state();
-                Action::Continue
-            }
-            KeyCode::Char('D') => {
+            ActionId::StateCycle => self.cycle_state(),
+            ActionId::ConfirmDone | ActionId::ListDone => {
                 if self.selected_id().is_some() {
                     self.confirm = Some(ConfirmKind::Done);
                     self.message = "confirm DONE? y/n".into();
                 }
-                Action::Continue
             }
-            KeyCode::Char('X') => {
+            ActionId::ConfirmCancel => {
                 if self.selected_id().is_some() {
                     self.confirm = Some(ConfirmKind::Cancelled);
                     self.message = "confirm CANCELLED? y/n".into();
                 }
-                Action::Continue
             }
-            KeyCode::Char('o') => {
-                self.open_selected();
-                Action::Continue
-            }
-            KeyCode::Char('y') => {
+            ActionId::Open => self.open_selected(),
+            ActionId::CopyId => {
                 if let Some(id) = self.selected_id().map(str::to_string) {
                     self.clipboard = id.clone();
                     self.message = format!("copied {id}");
                 }
-                Action::Continue
             }
-            KeyCode::Char('R') => {
+            ActionId::Reload => {
                 let _ = self.reload();
                 self.message = "reloaded".into();
-                Action::Continue
             }
-            KeyCode::Char('?') => {
-                self.help = true;
-                Action::Continue
-            }
-            _ => Action::Continue,
+            ActionId::Help => self.help = true,
+            ActionId::Add
+            | ActionId::Palette
+            | ActionId::PreviewToggle
+            | ActionId::PreviewDown
+            | ActionId::PreviewUp => {}
         }
+        Action::Continue
     }
 
     fn handle_confirm(&mut self, key: KeyEvent) -> Action {
@@ -638,9 +657,9 @@ impl App {
             .map(|kind| format!("confirm {}? y/n", kind.state()))
     }
 
-    /// Text drawn on `?`.
-    pub fn help_text(&self) -> &'static str {
-        HELP
+    /// Text drawn on `?`: the shared catalog as bound, then the board's own.
+    pub fn help_text(&self) -> String {
+        help_text(&self.keymap)
     }
 }
 

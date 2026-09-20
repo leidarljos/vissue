@@ -777,3 +777,36 @@ fn the_board_cites_a_deed_and_shows_the_refusal() {
         "a refused citation must not land"
     );
 }
+
+#[test]
+fn the_shared_catalog_binds_the_board_and_its_help() {
+    use vissue_core::keys::KeyMap;
+    let (_dir, layout) = writable();
+    let backend = CoreBackend::open(layout, "tui-test").unwrap();
+    let mut app =
+        App::with_backend(Box::new(backend), "tui-test".into(), ServeStatus::Offline).unwrap();
+    // Every catalog chord is on the help sheet, as bound.
+    let help = app.help_text();
+    for row in KeyMap::catalog() {
+        let chord = app.keymap().chord_for(row.id).to_string();
+        assert!(help.contains(&chord), "{chord} missing from\n{help}");
+    }
+    assert!(help.contains("HUD only:"), "{help}");
+    // A remap moves the action and frees the old chord, on the board and
+    // on the sheet alike.
+    app.set_keymap(KeyMap::from_overlay("[board]\n\"list.down\" = \"e\"\n").unwrap());
+    assert_eq!(app.selected_id(), Some("atlas-1a2b"));
+    app.handle_key(ch('j'));
+    assert_eq!(
+        app.selected_id(),
+        Some("atlas-1a2b"),
+        "the old chord is free"
+    );
+    app.handle_key(ch('e'));
+    assert_eq!(app.selected_id(), Some("atlas-2c3d"));
+    assert!(
+        app.help_text().contains("e             Move down"),
+        "{}",
+        app.help_text()
+    );
+}
