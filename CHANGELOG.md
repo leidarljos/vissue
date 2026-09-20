@@ -6,7 +6,7 @@ All notable changes to vissue are recorded here. The format follows
 
 <!-- towncrier release notes start -->
 
-## Unreleased
+## [0.16.1](https://github.com/leidarljos/vissue/releases/tag/v0.16.1) - 2026-09-20
 
 ### Added
 
