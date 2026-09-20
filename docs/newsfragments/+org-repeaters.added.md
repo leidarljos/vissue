@@ -1,1 +1,0 @@
-Closing an issue whose `SCHEDULED:` or `DEADLINE:` carries a repeater moves the date one interval on (`+`, `++`, `.+` as Org shifts them), writes `:LAST_REPEAT:`, and returns the state to `:REPEAT_TO_STATE:` or the first open keyword instead of closing.

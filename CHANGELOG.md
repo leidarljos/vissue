@@ -6,6 +6,19 @@ All notable changes to vissue are recorded here. The format follows
 
 <!-- towncrier release notes start -->
 
+## [0.16.0](https://github.com/leidarljos/vissue/releases/tag/v0.16.0) - 2026-09-20
+
+### Added
+
+- A statistics cookie on a heading (`[/]`, `[2/5]`, `[%]`) is filled on every write from its `:PARENT:` children in the file, from the checkboxes in its body under `:COOKIE_DATA: checkbox`, or from every descendant under `recursive`; the empty cookies `[/]` and `[%]` are recognised.
+- Closing an issue stamps `CLOSED:` on its planning line and reopening clears it, as Org does with `org-log-done`.
+- Closing an issue whose `SCHEDULED:` or `DEADLINE:` carries a repeater moves the date one interval on (`+`, `++`, `.+` as Org shifts them), writes `:LAST_REPEAT:`, and returns the state to `:REPEAT_TO_STATE:` or the first open keyword instead of closing.
+
+### Changed
+
+- A keyword the file's `#+TODO:` (or `#+SEQ_TODO:`, `#+TYP_TODO:`) line declares is legal in `update -s`; the bar decides whether it closes the issue. Before, writes accepted only the house five.
+
+
 ## [0.15.0](https://github.com/leidarljos/vissue/releases/tag/v0.15.0) - 2026-09-20
 
 ### Added

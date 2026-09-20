@@ -1,1 +1,0 @@
-A statistics cookie on a heading (`[/]`, `[2/5]`, `[%]`) is filled on every write from its `:PARENT:` children in the file, from the checkboxes in its body under `:COOKIE_DATA: checkbox`, or from every descendant under `recursive`; the empty cookies `[/]` and `[%]` are recognised.
