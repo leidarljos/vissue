@@ -552,7 +552,7 @@ impl Palette {
         };
         #[cfg(not(test))]
         {
-            palette.keymap = KeyMap::load();
+            palette.set_keymap(KeyMap::load());
             if let Some(err) = palette.keymap.overlay_error.clone() {
                 palette.message = err;
             }
@@ -691,6 +691,13 @@ impl Palette {
     /// Help overlay body, generated from the key catalog.
     pub fn help_text(&self) -> String {
         self.keymap.help_markdown()
+    }
+
+    /// Take a keymap and re-render the help sheet from it, so `?` shows the
+    /// chords that are bound, remaps included.
+    pub fn set_keymap(&mut self, keymap: KeyMap) {
+        self.help_md = icedtea::widget::parse(&keymap.help_markdown());
+        self.keymap = keymap;
     }
 
     /// Parsed help markdown. Same source as [`Self::help_text`].
@@ -3614,6 +3621,23 @@ mod tests {
             palette.detail_split().ratio < before,
             "dragging the sash up should shrink the list share"
         );
+    }
+
+    #[test]
+    fn help_sheet_follows_the_loaded_keymap() {
+        let mut palette =
+            Palette::open_core(Layout::new(fixture_root(), DEFAULT_PREFIX), "snap".into()).unwrap();
+        assert!(!palette.help_md().source.contains("- `n` — Move down"));
+        palette.set_keymap(KeyMap::from_overlay("[board]\n\"list.down\" = \"n\"\n").unwrap());
+        assert!(
+            palette
+                .help_md()
+                .source
+                .contains("- `n` — Move down (`list.down`)"),
+            "{}",
+            palette.help_md().source
+        );
+        assert_eq!(palette.keymap.chord_for(ActionId::ListDown), "n");
     }
 
     #[test]
