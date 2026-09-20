@@ -14,9 +14,9 @@ export PATH="$HOME/.cargo/bin:$PATH"
 cd "$HOME/Git/Github/vissue" || exit 1
 git pull -q --ff-only 2>&1 | tail -1
 echo "== vissue $(git log --oneline -1 | cut -c1-70)"
-cargo build --release --locked -p vissue-cli -p vissue-mcp 2>&1 | tail -1
+cargo build --release --locked -p vissue-cli -p vissue-mcp -p vissue-hud 2>&1 | tail -1
 mkdir -p "$HOME/stackbin"
-for b in vissue vissue-mcp; do
+for b in vissue vissue-mcp vissue-hud; do
   cp -f "target/release/$b" "$HOME/stackbin/" && echo "copied $b $("$HOME/stackbin/$b" --version 2>/dev/null | head -1)"
 done
 echo BUILD-DONE
