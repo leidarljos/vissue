@@ -143,6 +143,11 @@ pub struct HudApp {
 
 impl HudApp {
     fn from_palette(palette: Palette) -> Self {
+        let activate_tries = if palette.pending_token().is_some() {
+            ACTIVATE_TRIES
+        } else {
+            0
+        };
         Self {
             palette,
             window_id: None,
@@ -151,7 +156,7 @@ impl HudApp {
             opening_popout: None,
             tray_quit: None,
             place_tries: 0,
-            activate_tries: 0,
+            activate_tries,
             activating: false,
         }
     }
@@ -547,12 +552,22 @@ pub fn run(opts: BootOpts) -> anyhow::Result<()> {
     } else {
         palette.hide();
     }
+    apply_boot_token(&mut palette, opts.visible);
     crate::log::info(&format!(
         "hud start log={} status={}",
         crate::log::path().display(),
         palette.status_line()
     ));
     run_iced(palette).map_err(|err| anyhow::anyhow!("{err}"))
+}
+
+/// Take compositor env tokens at owner boot. Stash a legal token when the
+/// first window will map; always unset both vars.
+fn apply_boot_token(palette: &mut Palette, visible: bool) {
+    let tok = summon::take_env_token();
+    if visible {
+        palette.stash_token(tok);
+    }
 }
 
 fn run_iced(palette: Palette) -> iced::Result {
@@ -714,8 +729,38 @@ mod tests {
         let prod = src.split("#[cfg(test)]").next().unwrap();
         assert!(prod.contains("wlactivate::activate"));
         assert!(prod.contains("Message::ActivationApplied"));
+        assert!(prod.contains("take_env_token"));
+        assert!(prod.contains("apply_boot_token"));
         assert!(!prod.contains("let _ = tok"));
         assert!(!prod.contains("gain_focus"));
+    }
+
+    #[test]
+    fn boot_token_stashes_when_visible() {
+        let _guard = crate::env_lock();
+        crate::wlactivate::set_activation_vars("boot-tok", "startup");
+        let (_dir, mut app) = empty_app();
+        apply_boot_token(&mut app.palette, true);
+        assert_eq!(app.palette.pending_token(), Some("boot-tok"));
+        assert!(std::env::var("XDG_ACTIVATION_TOKEN").is_err());
+        assert!(std::env::var("DESKTOP_STARTUP_ID").is_err());
+        let app = HudApp::from_palette(app.palette);
+        assert_eq!(app.activate_tries, ACTIVATE_TRIES);
+        assert_eq!(app.palette.pending_token(), Some("boot-tok"));
+    }
+
+    #[test]
+    fn boot_token_unsets_when_hidden() {
+        let _guard = crate::env_lock();
+        crate::wlactivate::set_activation_vars("boot-tok", "startup");
+        let (_dir, mut app) = empty_app();
+        app.palette.hide();
+        apply_boot_token(&mut app.palette, false);
+        assert_eq!(app.palette.pending_token(), None);
+        assert!(std::env::var("XDG_ACTIVATION_TOKEN").is_err());
+        assert!(std::env::var("DESKTOP_STARTUP_ID").is_err());
+        let app = HudApp::from_palette(app.palette);
+        assert_eq!(app.activate_tries, 0);
     }
 
     #[test]

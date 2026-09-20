@@ -42,6 +42,29 @@ pub fn activate_raw(display: *mut c_void, surface: *mut c_void, token: &str) -> 
     activate_guest(display, surface, &token)
 }
 
+/// Drop `XDG_ACTIVATION_TOKEN` and `DESKTOP_STARTUP_ID` from the process env.
+///
+/// Compositor tokens are single-use. Hide still unsets so a later spawn
+/// cannot reuse them.
+pub(crate) fn unset_activation_vars() {
+    // SAFETY: compositor tokens are single-use. Edition 2024 marks
+    // `remove_var` unsafe; the HUD process must drop both names.
+    unsafe {
+        std::env::remove_var("XDG_ACTIVATION_TOKEN");
+        std::env::remove_var("DESKTOP_STARTUP_ID");
+    }
+}
+
+/// Set compositor activation env vars. Tests must hold [`crate::env_lock`].
+#[cfg(test)]
+pub(crate) fn set_activation_vars(token: &str, startup_id: &str) {
+    // SAFETY: test-only process env; callers hold `env_lock`.
+    unsafe {
+        std::env::set_var("XDG_ACTIVATION_TOKEN", token);
+        std::env::set_var("DESKTOP_STARTUP_ID", startup_id);
+    }
+}
+
 #[cfg(target_os = "linux")]
 fn activate_guest(display: *mut c_void, surface: *mut c_void, token: &str) -> bool {
     use wayland_client::backend::{Backend, ObjectId};

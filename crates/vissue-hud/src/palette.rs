@@ -1350,6 +1350,11 @@ impl Palette {
         self.pending_token.as_deref()
     }
 
+    /// Stash a compositor token taken at owner boot.
+    pub fn stash_token(&mut self, token: Option<String>) {
+        self.pending_token = token;
+    }
+
     /// Consume the token from the last show/toggle, if any.
     pub fn take_pending_token(&mut self) -> Option<String> {
         self.pending_token.take()
