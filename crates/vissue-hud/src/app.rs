@@ -688,12 +688,39 @@ mod tests {
         assert!(app.mapped());
         app.palette.hide();
         assert!(!app.close_exits());
-        let _ = app.update(Message::Closed);
+        let _ = app.update(Message::Closed(id));
         assert!(!app.mapped());
         app.palette.show();
         assert_eq!(
             overlay_action(app.palette.visible(), app.mapped()),
             OverlayAction::Open
         );
+    }
+
+    #[test]
+    fn pop_out_takes_the_overlay_down_and_its_close_hides_the_hud() {
+        let (_dir, mut app) = empty_app();
+        let id = window::Id::unique();
+        app.opening = Some(id);
+        let _ = app.update(Message::WindowId(Some(id)));
+        app.palette.show();
+        assert!(app.mapped());
+        let _ = app.pop_out();
+        assert!(!app.mapped(), "the overlay goes down");
+        let pop = app.popout_id.expect("a pop-out window");
+        assert!(app.palette.visible());
+        // A second request while one is open opens nothing new.
+        let _ = app.pop_out();
+        assert_eq!(app.popout_id, Some(pop));
+        // The compositor closes the pop-out: the HUD hides and stays.
+        let _ = app.update(Message::Close(pop));
+        assert!(app.popout_id.is_none());
+        assert!(!app.palette.visible());
+        assert!(
+            !app.close_exits(),
+            "closing the pop-out does not leave the process"
+        );
+        let _ = app.update(Message::Closed(pop));
+        assert!(!app.mapped());
     }
 }
