@@ -10,6 +10,7 @@ use vissue_tui::backend::{BoardBackend, UpdateReq};
 
 use crate::attach;
 use crate::dates::format_org_stamps;
+use crate::desktop::{self, Notice, Snapshot};
 use crate::fuzzy::rank_indices;
 use crate::keys::{ActionId, KeyMap};
 use crate::summon::{SummonAction, SummonRequest};
@@ -411,6 +412,11 @@ pub struct Palette {
     search_count: usize,
     visible: bool,
     keymap: KeyMap,
+    /// The board as the desktop notices last saw it; `None` before the
+    /// first look.
+    notice_snapshot: Option<std::collections::BTreeMap<String, Snapshot>>,
+    /// Every notice posted since the board opened, newest last.
+    notices: Vec<Notice>,
     leader_armed: bool,
     leader_at: Option<std::time::Instant>,
     collapsed: std::collections::BTreeSet<String>,
@@ -535,6 +541,8 @@ impl Palette {
             search_count: 0,
             visible: true,
             keymap: KeyMap::from_defaults(),
+            notice_snapshot: None,
+            notices: Vec::new(),
             leader_armed: false,
             leader_at: None,
             collapsed: std::collections::BTreeSet::new(),
@@ -558,6 +566,7 @@ impl Palette {
             }
         }
         palette.reload()?;
+        palette.observe_transitions();
         Ok(palette)
     }
 
@@ -2269,9 +2278,6 @@ impl Palette {
     ///
     /// Peek only: a positive wait would sleep on the frame thread.
     pub fn poll_updates(&mut self) {
-        if !self.visible {
-            return;
-        }
         let last = match self.backend.live() {
             vissue_tui::BackendKind::Control => self.backend.revision(),
             vissue_tui::BackendKind::Core => self.backend.generation(),
@@ -2279,8 +2285,39 @@ impl Palette {
         if let Ok(next) = self.backend.wait(last, 0)
             && next > last
         {
-            let _ = self.reload();
+            // The notices go out whether or not the board is in view; that
+            // is what they are for.
+            self.observe_transitions();
+            if self.visible {
+                let _ = self.reload();
+            }
         }
+    }
+
+    /// Look at the whole board and post a desktop notice for each transition
+    /// since the last look: a claim, an unblock, a move into BLOCKED, FAILED
+    /// or CANCELLED. The first look only remembers.
+    pub fn observe_transitions(&mut self) {
+        let Ok(page) = self.backend.list(ListQuery::default()) else {
+            return;
+        };
+        if page.unchanged {
+            return;
+        }
+        let now = desktop::snapshot(&page.issues);
+        if let Some(prev) = self.notice_snapshot.take() {
+            for notice in desktop::transitions(&prev, &now) {
+                desktop::post(&notice);
+                self.notices.push(notice);
+            }
+        }
+        self.notice_snapshot = Some(now);
+    }
+
+    /// The notices posted since the board opened.
+    #[must_use]
+    pub fn notices(&self) -> &[Notice] {
+        &self.notices
     }
 
     /// Fetch the current filter from the backend and refresh detail.
@@ -4140,6 +4177,37 @@ mod tests {
         assert!(palette.visible());
         palette.poll_updates();
         let _ = palette.status_line();
+    }
+
+    #[test]
+    fn a_claim_posts_a_desktop_notice_on_the_next_look() {
+        let (_dir, layout) = writable();
+        let mut palette = open_atlas(layout, "hud-test");
+        assert!(palette.notices().is_empty(), "the first look posts nothing");
+        palette.claim_selected();
+        let id = palette.selected_id().expect("a row").to_string();
+        palette.observe_transitions();
+        let summaries: Vec<&str> = palette
+            .notices()
+            .iter()
+            .map(|n| n.summary.as_str())
+            .collect();
+        assert_eq!(
+            summaries,
+            [format!("{id} claimed").as_str()],
+            "{summaries:?}"
+        );
+        assert!(
+            palette.notices()[0].body.ends_with("by hud-test"),
+            "{:?}",
+            palette.notices()[0]
+        );
+        palette.observe_transitions();
+        assert_eq!(
+            palette.notices().len(),
+            1,
+            "the same look twice posts nothing"
+        );
     }
 
     #[test]

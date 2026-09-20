@@ -47,6 +47,9 @@ iced = { version = "0.14", default-features = true, features = [
 # compiled, but crates.io current is 0.17 and the 0.16 signatures
 # are gone.
 icedtea = "0.17.0"
+# Desktop notices on the Freedesktop bus; the board posts a claim, an
+# unblock and a stop while it is out of view.
+notify-rust = "4"
 serde.workspace = true
 serde_json.workspace = true
 vissue-control.workspace = true
