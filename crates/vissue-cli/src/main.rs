@@ -658,6 +658,9 @@ enum Command {
         /// Hide a running board, or dismiss a live rofi picker.
         #[arg(long, group = "summon")]
         hide: bool,
+        /// Write a user-local .desktop launcher and Sway overlay include.
+        #[arg(long)]
+        install_desktop: bool,
         /// Use the iced board. Default when `--rofi` is absent.
         #[arg(long)]
         iced: bool,
@@ -945,6 +948,7 @@ struct HudRequest {
     toggle: bool,
     show: bool,
     hide: bool,
+    install_desktop: bool,
     iced: bool,
     rofi: bool,
     socket: Option<PathBuf>,
@@ -958,6 +962,7 @@ fn run_hud(layout: Layout, request: HudRequest) -> Result<()> {
         toggle,
         show,
         hide,
+        install_desktop,
         iced,
         rofi,
         socket,
@@ -974,6 +979,7 @@ fn run_hud(layout: Layout, request: HudRequest) -> Result<()> {
         exec_hud(ExecHud {
             layout,
             socket,
+            install_desktop,
             offline,
             foreground,
             toggle,
@@ -1760,6 +1766,7 @@ fn run() -> Result<()> {
             toggle,
             show,
             hide,
+            install_desktop,
             iced,
             rofi,
             socket,
@@ -1773,6 +1780,7 @@ fn run() -> Result<()> {
                     toggle,
                     show,
                     hide,
+                    install_desktop,
                     iced,
                     rofi,
                     socket,
@@ -1848,6 +1856,7 @@ struct ExecHud {
     toggle: bool,
     show: bool,
     hide: bool,
+    install_desktop: bool,
 }
 
 const HUD_BIN_ENV: &str = "VISSUE_HUD_BIN";
@@ -1916,6 +1925,9 @@ fn exec_hud(opts: ExecHud) -> Result<()> {
         cmd.arg("--show");
     } else if opts.hide {
         cmd.arg("--hide");
+    }
+    if opts.install_desktop {
+        cmd.arg("--install-desktop");
     }
     #[cfg(unix)]
     {

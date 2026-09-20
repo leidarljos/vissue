@@ -6,6 +6,13 @@ All notable changes to vissue are recorded here. The format follows
 
 <!-- towncrier release notes start -->
 
+## Unreleased
+
+### Added
+
+- `vissue hud --install-desktop` writes a user-local `.desktop` launcher
+  and `~/.config/vissue/sway-hud.conf` for the overlay.
+
 ## [0.16.0](https://github.com/leidarljos/vissue/releases/tag/v0.16.0) - 2026-09-20
 
 ### Added

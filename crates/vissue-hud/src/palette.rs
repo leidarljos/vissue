@@ -411,6 +411,8 @@ pub struct Palette {
     agenda_count: usize,
     search_count: usize,
     visible: bool,
+    /// xdg-activation token from the last show/toggle summon.
+    pending_token: Option<String>,
     keymap: KeyMap,
     /// The board as the desktop notices last saw it; `None` before the
     /// first look.
@@ -542,6 +544,7 @@ impl Palette {
             agenda_count: 0,
             search_count: 0,
             visible: true,
+            pending_token: None,
             keymap: KeyMap::from_defaults(),
             notice_snapshot: None,
             notices: Vec::new(),
@@ -1322,13 +1325,22 @@ impl Palette {
         }
     }
 
-    /// Apply a compositor summon verb.
+    /// Apply a compositor summon verb. Show and toggle keep the
+    /// xdg-activation token for the surface to consume.
     pub fn apply_summon(&mut self, req: &SummonRequest) {
+        if req.action != SummonAction::Hide {
+            self.pending_token = req.token.clone();
+        }
         match req.action {
             SummonAction::Show => self.show(),
             SummonAction::Hide => self.hide(),
             SummonAction::Toggle => self.toggle(),
         }
+    }
+
+    /// Consume the token from the last show/toggle, if any.
+    pub fn take_pending_token(&mut self) -> Option<String> {
+        self.pending_token.take()
     }
 
     /// Dispatch one overlay key. Ignored while hidden.
