@@ -41,3 +41,6 @@ docs/build/
 docs/source/*.rst
 !docs/source/conf.py
 .fastembed_cache/
+
+# A runner's local workflow tree; it names live ticket ids and hosts.
+.grok/
