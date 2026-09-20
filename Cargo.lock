@@ -6092,7 +6092,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vissue-cli"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -6110,7 +6110,7 @@ dependencies = [
 
 [[package]]
 name = "vissue-control"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "nix 0.31.3",
  "serde",
@@ -6121,7 +6121,7 @@ dependencies = [
 
 [[package]]
 name = "vissue-core"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "capnp",
@@ -6142,7 +6142,7 @@ dependencies = [
 
 [[package]]
 name = "vissue-hud"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -6162,7 +6162,7 @@ dependencies = [
 
 [[package]]
 name = "vissue-mcp"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "rmcp",
@@ -6176,7 +6176,7 @@ dependencies = [
 
 [[package]]
 name = "vissue-serve"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "fs2",
@@ -6192,7 +6192,7 @@ dependencies = [
 
 [[package]]
 name = "vissue-tui"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "ratatui",
@@ -7335,7 +7335,7 @@ checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
 
 [[package]]
 name = "xtask"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "serde_json",
 ]

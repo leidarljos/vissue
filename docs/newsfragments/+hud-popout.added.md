@@ -1,1 +1,0 @@
-`P` (`window.popout`, remappable) opens the HUD board in a decorated window of its own and takes the overlay down; closing that window hides the HUD and leaves it running for the next summon, and Esc hides the overlay as before.

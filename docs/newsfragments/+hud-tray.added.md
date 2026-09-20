@@ -1,1 +1,0 @@
-On Linux the HUD sits in the StatusNotifier tray: left click toggles the overlay, the menu offers the same and Quit, and Quit leaves the HUD alone while `vissue serve` stays up. `VISSUE_HUD_TRAY=0` leaves the tray out.

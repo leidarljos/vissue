@@ -6,6 +6,15 @@ All notable changes to vissue are recorded here. The format follows
 
 <!-- towncrier release notes start -->
 
+## [0.15.0](https://github.com/leidarljos/vissue/releases/tag/v0.15.0) - 2026-09-20
+
+### Added
+
+- On Linux the HUD sits in the StatusNotifier tray: left click toggles the overlay, the menu offers the same and Quit, and Quit leaves the HUD alone while `vissue serve` stays up. `VISSUE_HUD_TRAY=0` leaves the tray out.
+- The HUD posts a desktop notice when an issue is claimed, comes unblocked, or moves into BLOCKED, FAILED or CANCELLED, with the board in view or not; `VISSUE_HUD_NOTIFY=0` turns the notices off.
+- `P` (`window.popout`, remappable) opens the HUD board in a decorated window of its own and takes the overlay down; closing that window hides the HUD and leaves it running for the next summon, and Esc hides the overlay as before.
+
+
 ## [0.14.0](https://github.com/leidarljos/vissue/releases/tag/v0.14.0) - 2026-09-20
 
 ### Added
