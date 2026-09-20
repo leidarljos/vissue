@@ -238,6 +238,7 @@ mod tests {
             toggle: true,
             show: false,
             hide: false,
+            install_desktop: false,
         })
         .unwrap();
         assert_eq!(code, 0);
@@ -271,6 +272,7 @@ mod tests {
             toggle: false,
             show: false,
             hide: false,
+            install_desktop: false,
         })
         .unwrap();
         assert_eq!(code, 0);
