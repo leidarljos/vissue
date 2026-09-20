@@ -136,12 +136,60 @@ pub fn sanitize_token(raw: &str) -> Option<String> {
     Some(t.to_string())
 }
 
-/// Read `XDG_ACTIVATION_TOKEN` if it is a legal token.
+/// Read `XDG_ACTIVATION_TOKEN` and unset it and `DESKTOP_STARTUP_ID`.
 pub fn take_env_token() -> Option<String> {
-    std::env::var("XDG_ACTIVATION_TOKEN")
-        .ok()
-        .as_deref()
-        .and_then(sanitize_token)
+    let raw = std::env::var("XDG_ACTIVATION_TOKEN").ok();
+    unset_activation_vars();
+    raw.as_deref().and_then(sanitize_token)
+}
+
+#[allow(unsafe_code)]
+fn unset_activation_vars() {
+    // SAFETY: compositor tokens are single-use. Edition 2024 marks
+    // `remove_var` unsafe; the HUD process must drop both names so a
+    // later spawn cannot reuse them. Hide still unsets.
+    unsafe {
+        std::env::remove_var("XDG_ACTIVATION_TOKEN");
+        std::env::remove_var("DESKTOP_STARTUP_ID");
+    }
+}
+
+/// True when the socket is absent so a compositor bind cannot talk to a HUD.
+pub fn is_summon_miss(err: &SummonError) -> bool {
+    matches!(
+        err,
+        SummonError::NotRunning(_) | SummonError::NoPath | SummonError::Unsupported
+    )
+}
+
+/// What `--show` / `--hide` / `--toggle` should do after talking to the socket.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SummonCli {
+    /// Command delivered, or hide with nothing running.
+    Done,
+    /// Start a new HUD and show the overlay.
+    StartShown,
+}
+
+/// Plan the binary's next step after [`send_command`].
+///
+/// Hide with no listener exits successfully. Show and toggle start a HUD.
+///
+/// # Errors
+///
+/// Returns the send error when it is not a miss (socket absent / unsupported).
+pub fn plan_summon_cli(
+    action: SummonAction,
+    result: Result<(), SummonError>,
+) -> Result<SummonCli, SummonError> {
+    match result {
+        Ok(()) => Ok(SummonCli::Done),
+        Err(err) if is_summon_miss(&err) && matches!(action, SummonAction::Hide) => {
+            Ok(SummonCli::Done)
+        }
+        Err(err) if is_summon_miss(&err) => Ok(SummonCli::StartShown),
+        Err(err) => Err(err),
+    }
 }
 
 /// Wire form for `action` (one word, no newline).
@@ -437,6 +485,52 @@ mod tests {
             parse_request("hide leftover"),
             Some(SummonRequest::new(SummonAction::Hide))
         );
+    }
+
+    #[test]
+    fn hide_miss_is_done() {
+        let err = SummonError::NotRunning("/tmp/missing.sock".into());
+        assert_eq!(
+            plan_summon_cli(SummonAction::Hide, Err(err)).unwrap(),
+            SummonCli::Done
+        );
+    }
+
+    #[test]
+    fn plan_summon_cli_starts_when_show_misses() {
+        let miss = SummonError::NotRunning("gone".into());
+        assert_eq!(
+            plan_summon_cli(SummonAction::Show, Err(miss)).unwrap(),
+            SummonCli::StartShown
+        );
+        assert_eq!(
+            plan_summon_cli(SummonAction::Toggle, Err(SummonError::NoPath)).unwrap(),
+            SummonCli::StartShown
+        );
+        assert_eq!(
+            plan_summon_cli(SummonAction::Hide, Err(SummonError::Unsupported)).unwrap(),
+            SummonCli::Done
+        );
+        assert_eq!(
+            plan_summon_cli(SummonAction::Show, Ok(())).unwrap(),
+            SummonCli::Done
+        );
+        assert!(plan_summon_cli(SummonAction::Show, Err(SummonError::Other("x".into()))).is_err());
+    }
+
+    #[test]
+    #[allow(unsafe_code)]
+    fn take_env_token_unsets_activation_vars() {
+        let _guard = crate::env_lock();
+        // SAFETY: test-only process env, serialized by env_lock.
+        unsafe {
+            std::env::set_var("XDG_ACTIVATION_TOKEN", "tok-xyz");
+            std::env::set_var("DESKTOP_STARTUP_ID", "startup");
+        }
+        let tok = take_env_token();
+        assert_eq!(tok.as_deref(), Some("tok-xyz"));
+        assert!(std::env::var("XDG_ACTIVATION_TOKEN").is_err());
+        assert!(std::env::var("DESKTOP_STARTUP_ID").is_err());
     }
 
     #[test]

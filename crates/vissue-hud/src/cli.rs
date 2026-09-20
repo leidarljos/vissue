@@ -88,10 +88,13 @@ pub fn run_with(cli: HudCli) -> anyhow::Result<i32> {
         crate::install_desktop::run_cli()?;
         return Ok(0);
     }
-    if summon::already_running() {
-        if let Some(action) = cli.summon_action() {
-            summon::send_command(action)?;
+    if let Some(action) = cli.summon_action() {
+        match summon::plan_summon_cli(action, summon::send_command(action)) {
+            Ok(summon::SummonCli::Done) => return Ok(0),
+            Ok(summon::SummonCli::StartShown) => {}
+            Err(err) => return Err(err.into()),
         }
+    } else if summon::already_running() {
         return Ok(0);
     }
     if !cli.foreground {
@@ -191,6 +194,28 @@ mod tests {
     }
 
     #[test]
+    fn hide_without_socket_is_zero() {
+        let _guard = crate::env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("hud.sock");
+        vissue_core::process_env::override_var(crate::summon::SOCKET_ENV, path.to_str());
+        let code = run_with(HudCli {
+            root: Some(dir.path().join("no-such-vault")),
+            prefix: Some("Software".into()),
+            socket: None,
+            offline: true,
+            foreground: true,
+            toggle: false,
+            show: false,
+            hide: true,
+            install_desktop: false,
+        })
+        .unwrap();
+        assert_eq!(code, 0);
+        vissue_core::process_env::clear_override(crate::summon::SOCKET_ENV);
+    }
+
+    #[test]
     fn resolve_hud_bin_honors_override() {
         let _guard = crate::env_lock();
         let path = PathBuf::from("/tmp/custom-vissue-hud");
@@ -238,6 +263,7 @@ mod tests {
             toggle: true,
             show: false,
             hide: false,
+            install_desktop: false,
         })
         .unwrap();
         assert_eq!(code, 0);
@@ -271,6 +297,7 @@ mod tests {
             toggle: false,
             show: false,
             hide: false,
+            install_desktop: false,
         })
         .unwrap();
         assert_eq!(code, 0);

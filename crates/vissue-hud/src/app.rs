@@ -18,6 +18,9 @@ use crate::theme;
 
 const HUD_W: f32 = 960.0;
 const HUD_H: f32 = 760.0;
+/// Guest-activate attempts after a show. Attempt 0 often runs before
+/// iced has Wayland handles.
+const ACTIVATE_TRIES: u8 = 6;
 
 /// First-paint inputs for the board.
 #[derive(Clone, Debug)]
@@ -109,6 +112,8 @@ pub enum Message {
     CommandRun(ActionId),
     /// Pixel offset of the issue-body preview scroller.
     PreviewScrolled(f32),
+    /// Guest xdg-activation finished. `true` consumed the token.
+    ActivationApplied(bool),
 }
 
 /// iced application state.
@@ -130,6 +135,10 @@ pub struct HudApp {
     /// Remaining Sway IPC attempts after a show. Zero when placed or
     /// Sway is absent.
     place_tries: u8,
+    /// Remaining guest-activate attempts while a token is pending.
+    activate_tries: u8,
+    /// True while `window::run` for activation is in flight.
+    activating: bool,
 }
 
 impl HudApp {
@@ -142,6 +151,8 @@ impl HudApp {
             opening_popout: None,
             tray_quit: None,
             place_tries: 0,
+            activate_tries: 0,
+            activating: false,
         }
     }
 
@@ -165,6 +176,7 @@ impl HudApp {
                 if self.palette.visible() {
                     self.place_tries = 20;
                     self.try_place();
+                    return self.activate_if_ready();
                 }
                 Task::none()
             }
@@ -181,16 +193,25 @@ impl HudApp {
                 if let Some(req) = summon::try_recv() {
                     let was = self.palette.visible();
                     self.palette.apply_summon(&req);
-                    let token = self.palette.take_pending_token();
+                    if self.palette.pending_token().is_some() {
+                        self.activate_tries = ACTIVATE_TRIES;
+                    } else {
+                        self.activate_tries = 0;
+                    }
                     if was != self.palette.visible() {
                         let place = self.sync_window();
-                        if let Some(tok) = token.filter(|_| self.palette.visible()) {
-                            let _ = tok;
-                            // Token is on the summon wire; compositor activation
-                            // is applied when the overlay maps (k9f1).
-                        }
-                        return place;
+                        return Task::batch([place, self.activate_if_ready()]);
                     }
+                    return self.activate_if_ready();
+                }
+                self.activate_if_ready()
+            }
+            Message::ActivationApplied(ok) => {
+                self.activating = false;
+                if ok {
+                    self.palette.take_pending_token();
+                    self.activate_tries = 0;
+                    return Task::none();
                 }
                 Task::none()
             }
@@ -467,6 +488,26 @@ impl HudApp {
             self.place_tries = self.place_tries.saturating_sub(1);
         }
     }
+
+    fn activate_if_ready(&mut self) -> Task<Message> {
+        if self.activating
+            || self.activate_tries == 0
+            || self.opening.is_some()
+            || self.popout_id.is_some()
+        {
+            return Task::none();
+        }
+        let Some(tok) = self.palette.pending_token().map(str::to_string) else {
+            return Task::none();
+        };
+        let Some(id) = self.window_id else {
+            return Task::none();
+        };
+        self.activating = true;
+        self.activate_tries = self.activate_tries.saturating_sub(1);
+        window::run(id, move |win| crate::wlactivate::activate(win, &tok))
+            .map(Message::ActivationApplied)
+    }
 }
 
 /// The app id of the pop-out, so a compositor rule on the overlay's id
@@ -660,8 +701,37 @@ mod tests {
         assert!(prod.contains("iced::daemon"));
         assert!(prod.contains("window::Event::Closed"));
         assert!(prod.contains("Message::Closed(id)"));
+        assert!(prod.contains("wlactivate::activate"));
+        assert!(!prod.contains("let _ = tok"));
+        assert!(!prod.contains("gain_focus"));
         assert!(!prod.contains("Mode::Hidden"));
         assert!(!prod.contains("set_mode"));
+    }
+
+    #[test]
+    fn production_app_applies_xdg_activation() {
+        let src = include_str!("app.rs");
+        let prod = src.split("#[cfg(test)]").next().unwrap();
+        assert!(prod.contains("wlactivate::activate"));
+        assert!(prod.contains("Message::ActivationApplied"));
+        assert!(!prod.contains("let _ = tok"));
+        assert!(!prod.contains("gain_focus"));
+    }
+
+    #[test]
+    fn activation_applied_true_clears_token() {
+        let (_dir, mut app) = empty_app();
+        app.palette.apply_summon(&crate::summon::SummonRequest {
+            action: crate::summon::SummonAction::Show,
+            token: Some("tok".into()),
+        });
+        app.activate_tries = ACTIVATE_TRIES;
+        assert_eq!(app.palette.pending_token(), Some("tok"));
+        let _ = app.update(Message::ActivationApplied(false));
+        assert_eq!(app.palette.pending_token(), Some("tok"));
+        let _ = app.update(Message::ActivationApplied(true));
+        assert_eq!(app.palette.pending_token(), None);
+        assert_eq!(app.activate_tries, 0);
     }
 
     #[test]
