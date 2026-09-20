@@ -44,9 +44,9 @@ pub enum Message {
     /// Latest iced window id, once the shell reports one.
     WindowId(Option<window::Id>),
     /// Window close request: leave the process while mapped.
-    Close,
+    Close(window::Id),
     /// Compositor deleted the surface: exit if mapped, clear if hidden.
-    Closed,
+    Closed(window::Id),
     /// Switch the list filter chip.
     Filter(BoardFilter),
     /// Select the row with this issue id.
@@ -120,6 +120,13 @@ pub struct HudApp {
     /// Reserved id for an in-flight `window::open`. Late completions
     /// after hide must not restore a closed surface.
     opening: Option<window::Id>,
+    /// The decorated pop-out window, while one is open. The overlay stays
+    /// down until it closes.
+    popout_id: Option<window::Id>,
+    /// Reserved id for an in-flight pop-out open.
+    opening_popout: Option<window::Id>,
+    /// Set by the tray's Quit; read on the tick.
+    tray_quit: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     /// Remaining Sway IPC attempts after a show. Zero when placed or
     /// Sway is absent.
     place_tries: u8,
@@ -131,6 +138,9 @@ impl HudApp {
             palette,
             window_id: None,
             opening: None,
+            popout_id: None,
+            opening_popout: None,
+            tray_quit: None,
             place_tries: 0,
         }
     }
@@ -143,6 +153,10 @@ impl HudApp {
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::WindowId(id) => {
+                if id.is_some() && id == self.opening_popout {
+                    self.opening_popout = None;
+                    return Task::none();
+                }
                 if id != self.opening {
                     return Task::none();
                 }
@@ -155,6 +169,13 @@ impl HudApp {
                 Task::none()
             }
             Message::Tick => {
+                if self
+                    .tray_quit
+                    .as_ref()
+                    .is_some_and(|q| q.load(std::sync::atomic::Ordering::Relaxed))
+                {
+                    return iced::exit();
+                }
                 self.palette.poll_updates();
                 self.try_place();
                 if let Some(req) = summon::try_recv() {
@@ -166,14 +187,26 @@ impl HudApp {
                 }
                 Task::none()
             }
-            Message::Close => {
+            Message::Close(id) => {
+                if Some(id) == self.popout_id {
+                    // The pop-out closes; the HUD stays, hidden, for the next
+                    // summon.
+                    self.popout_id = None;
+                    self.opening_popout = None;
+                    self.palette.hide();
+                    return window::close(id);
+                }
                 if self.close_exits() {
                     iced::exit()
                 } else {
                     Task::none()
                 }
             }
-            Message::Closed => {
+            Message::Closed(id) => {
+                if Some(id) == self.popout_id {
+                    self.popout_id = None;
+                    return Task::none();
+                }
                 self.opening = None;
                 if self.close_exits() {
                     iced::exit()
@@ -312,7 +345,11 @@ impl HudApp {
                         .position(|hit| hit.id == id)
                         .unwrap_or(0),
                 );
-                self.sync_preview_scroll(before)
+                let mut tasks = vec![self.sync_preview_scroll(before)];
+                if self.palette.take_popout_request() {
+                    tasks.push(self.pop_out());
+                }
+                Task::batch(tasks)
             }
             Message::PreviewScrolled(y) => {
                 self.palette.set_preview_offset(y);
@@ -330,6 +367,9 @@ impl HudApp {
                 }
                 if was != self.palette.visible() {
                     tasks.push(self.sync_window());
+                }
+                if self.palette.take_popout_request() {
+                    tasks.push(self.pop_out());
                 }
                 tasks.push(self.sync_preview_scroll(offset_before));
                 Task::batch(tasks)
@@ -349,6 +389,16 @@ impl HudApp {
     }
 
     fn sync_window(&mut self) -> Task<Message> {
+        // While the board is popped out, that window is the surface: hiding
+        // closes it, and nothing maps the overlay.
+        if let Some(pop) = self.popout_id {
+            if self.palette.visible() {
+                return Task::none();
+            }
+            self.popout_id = None;
+            self.opening_popout = None;
+            return window::close(pop);
+        }
         match overlay_action(self.palette.visible(), self.mapped()) {
             OverlayAction::Open => self.open_window(),
             OverlayAction::Close => {
@@ -380,6 +430,26 @@ impl HudApp {
         self.window_id.is_some()
     }
 
+    /// Open the board in a decorated window and take the overlay down. A
+    /// second request while one is open does nothing.
+    fn pop_out(&mut self) -> Task<Message> {
+        if self.popout_id.is_some() {
+            return Task::none();
+        }
+        let mut tasks = Vec::new();
+        self.place_tries = 0;
+        self.opening = None;
+        if let Some(id) = self.window_id.take() {
+            tasks.push(window::close(id));
+        }
+        self.palette.show();
+        let (id, open) = window::open(popout_window());
+        self.popout_id = Some(id);
+        self.opening_popout = Some(id);
+        tasks.push(open.map(|id| Message::WindowId(Some(id))));
+        Task::batch(tasks)
+    }
+
     fn try_place(&mut self) {
         if self.place_tries == 0 {
             return;
@@ -390,6 +460,20 @@ impl HudApp {
             self.place_tries = self.place_tries.saturating_sub(1);
         }
     }
+}
+
+/// The app id of the pop-out, so a compositor rule on the overlay's id
+/// leaves it a normal window.
+pub const POPOUT_APP_ID: &str = "me.rgoswami.vissue-hud.window";
+
+/// The pop-out: a decorated window at the compositor's own level, the size
+/// of the overlay, that the window manager places and stacks like any other.
+pub fn popout_window() -> window::Settings {
+    let boot = icedtea::app::Boot::new("vissue", POPOUT_APP_ID)
+        .decorations(true)
+        .size(HUD_W, HUD_H)
+        .min_size(360.0, 420.0);
+    icedtea::app::bootstrap(&boot).window
 }
 
 /// Undecorated always-on-top overlay. Sway is told to float it over IPC.
@@ -449,6 +533,7 @@ fn run_iced(palette: Palette) -> iced::Result {
 fn boot(palette: Palette) -> (HudApp, Task<Message>) {
     let visible = palette.visible();
     let mut app = HudApp::from_palette(palette);
+    app.tray_quit = crate::tray::start();
     let task = if visible {
         app.open_window()
     } else {
@@ -485,15 +570,15 @@ fn overlay_action(visible: bool, mapped: bool) -> OverlayAction {
 
 fn subscription(_app: &HudApp) -> Subscription<Message> {
     Subscription::batch([
-        event::listen_with(|event, status, _id| match event {
+        event::listen_with(|event, status, id| match event {
             Event::Keyboard(keyboard::Event::KeyPressed { key, .. }) => {
                 if status == event::Status::Captured && !is_nav_key(&key) {
                     return None;
                 }
                 map_key(key)
             }
-            Event::Window(window::Event::CloseRequested) => Some(Message::Close),
-            Event::Window(window::Event::Closed) => Some(Message::Closed),
+            Event::Window(window::Event::CloseRequested) => Some(Message::Close(id)),
+            Event::Window(window::Event::Closed) => Some(Message::Closed(id)),
             _ => None,
         }),
         time::every(Duration::from_millis(50)).map(|_| Message::Tick),
@@ -567,6 +652,7 @@ mod tests {
         assert!(prod.contains("window::close"));
         assert!(prod.contains("iced::daemon"));
         assert!(prod.contains("window::Event::Closed"));
+        assert!(prod.contains("Message::Closed(id)"));
         assert!(!prod.contains("Mode::Hidden"));
         assert!(!prod.contains("set_mode"));
     }

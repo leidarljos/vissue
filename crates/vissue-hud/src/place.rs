@@ -254,6 +254,13 @@ mod tests {
         let s = crate::app::board_window();
         assert!(!s.decorations);
         assert_eq!(s.level, iced::window::Level::AlwaysOnTop);
+        let pop = crate::app::popout_window();
+        assert!(pop.decorations, "the pop-out is a managed window");
+        assert_eq!(pop.level, iced::window::Level::Normal);
+        assert_ne!(
+            pop.platform_specific.application_id, s.platform_specific.application_id,
+            "a compositor rule on the overlay's id leaves the pop-out alone"
+        );
         assert!(!s.exit_on_close_request);
         #[cfg(target_os = "linux")]
         {

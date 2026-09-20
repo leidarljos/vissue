@@ -417,7 +417,8 @@ impl App {
             | ActionId::Palette
             | ActionId::PreviewToggle
             | ActionId::PreviewDown
-            | ActionId::PreviewUp => {}
+            | ActionId::PreviewUp
+            | ActionId::WindowPopOut => {}
         }
         Action::Continue
     }

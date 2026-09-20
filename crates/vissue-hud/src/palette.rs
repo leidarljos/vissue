@@ -417,6 +417,8 @@ pub struct Palette {
     notice_snapshot: Option<std::collections::BTreeMap<String, Snapshot>>,
     /// Every notice posted since the board opened, newest last.
     notices: Vec<Notice>,
+    /// Set by the pop-out action, read once by the app.
+    popout_requested: bool,
     leader_armed: bool,
     leader_at: Option<std::time::Instant>,
     collapsed: std::collections::BTreeSet<String>,
@@ -543,6 +545,7 @@ impl Palette {
             keymap: KeyMap::from_defaults(),
             notice_snapshot: None,
             notices: Vec::new(),
+            popout_requested: false,
             leader_armed: false,
             leader_at: None,
             collapsed: std::collections::BTreeSet::new(),
@@ -1510,7 +1513,14 @@ impl Palette {
             ActionId::PreviewUp => {
                 self.preview_offset = (self.preview_offset - 24.0).max(0.0);
             }
+            // Windows are the app's; the palette only asks.
+            ActionId::WindowPopOut => self.popout_requested = true,
         }
+    }
+
+    /// Whether the last action asked for the pop-out window; asking clears it.
+    pub fn take_popout_request(&mut self) -> bool {
+        std::mem::take(&mut self.popout_requested)
     }
 
     fn open_command_palette(&mut self) {
@@ -4180,10 +4190,21 @@ mod tests {
     }
 
     #[test]
+    fn the_popout_key_asks_the_app_once() {
+        let mut palette = open_atlas(Layout::new(fixture_root(), DEFAULT_PREFIX), "snap");
+        assert!(!palette.take_popout_request());
+        palette.handle_key(PaletteKey::Char('P'));
+        assert!(palette.take_popout_request(), "P asks for the window");
+        assert!(!palette.take_popout_request(), "asking clears it");
+    }
+
+    #[test]
     fn a_claim_posts_a_desktop_notice_on_the_next_look() {
         let (_dir, layout) = writable();
         let mut palette = open_atlas(layout, "hud-test");
         assert!(palette.notices().is_empty(), "the first look posts nothing");
+        // The first fixture row is held by another agent; the second is free.
+        palette.set_query("atlas-2c3d");
         palette.claim_selected();
         let id = palette.selected_id().expect("a row").to_string();
         palette.observe_transitions();

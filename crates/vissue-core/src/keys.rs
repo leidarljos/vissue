@@ -65,6 +65,8 @@ pub enum ActionId {
     PreviewDown,
     /// Scroll the detail preview up.
     PreviewUp,
+    /// Open the board in a decorated window of its own; the overlay hides.
+    WindowPopOut,
 }
 
 impl ActionId {
@@ -99,6 +101,7 @@ impl ActionId {
             Self::PreviewToggle => "preview.toggle",
             Self::PreviewDown => "preview.down",
             Self::PreviewUp => "preview.up",
+            Self::WindowPopOut => "window.popout",
         }
     }
 
@@ -138,6 +141,7 @@ impl ActionId {
             Self::PreviewToggle => "Hide or show the preview",
             Self::PreviewDown => "Scroll the preview down",
             Self::PreviewUp => "Scroll the preview up",
+            Self::WindowPopOut => "Pop out into a window",
         }
     }
 }
@@ -190,6 +194,7 @@ const ALL: &[ActionId] = &[
     ActionId::PreviewToggle,
     ActionId::PreviewDown,
     ActionId::PreviewUp,
+    ActionId::WindowPopOut,
 ];
 
 /// One catalog row. Defaults stay in this table.
@@ -372,6 +377,12 @@ const CATALOG: &[ActionRow] = &[
         id: ActionId::PreviewUp,
         scope: Scope::Board,
         default: "K",
+        remappable: true,
+    },
+    ActionRow {
+        id: ActionId::WindowPopOut,
+        scope: Scope::Global,
+        default: "P",
         remappable: true,
     },
 ];

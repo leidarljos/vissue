@@ -52,6 +52,8 @@ icedtea = "0.17.0"
 notify-rust = "4"
 serde.workspace = true
 serde_json.workspace = true
+# The tray's own runtime, on its own thread.
+tokio = { version = "1", features = ["rt"] }
 vissue-control.workspace = true
 vissue-core.workspace = true
 vissue-serve.workspace = true
@@ -60,3 +62,8 @@ vissue-tui.workspace = true
 [dev-dependencies]
 tempfile.workspace = true
 serde_json.workspace = true
+
+# A StatusNotifier tray on Linux: left click toggles the overlay, Quit
+# leaves the HUD and nothing else.
+[target.'cfg(target_os = "linux")'.dependencies]
+ksni = "0.3"
