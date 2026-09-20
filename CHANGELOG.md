@@ -6,6 +6,17 @@ All notable changes to vissue are recorded here. The format follows
 
 <!-- towncrier release notes start -->
 
+## [0.14.0](https://github.com/leidarljos/vissue/releases/tag/v0.14.0) - 2026-09-20
+
+### Added
+
+- The TUI dispatches through the shared key catalog: a `keys.toml` remap moves the action on the TUI as on the HUD, and `?` lists every catalog chord as bound, the HUD-only ones under their own line.
+
+### Fixed
+
+- The HUD help sheet (`?`) is rendered from the loaded keymap, so a `keys.toml` remap shows on the overlay; before, it was parsed once from the defaults.
+
+
 ## [0.13.1](https://github.com/leidarljos/vissue/releases/tag/v0.13.1) - 2026-09-19
 
 ### Fixed
