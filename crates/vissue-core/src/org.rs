@@ -631,10 +631,8 @@ fn parse_repeater(tok: &str) -> Option<(&str, u32, char)> {
         (".+", r)
     } else if let Some(r) = tok.strip_prefix("++") {
         ("++", r)
-    } else if let Some(r) = tok.strip_prefix('+') {
-        ("+", r)
     } else {
-        return None;
+        ("+", tok.strip_prefix('+')?)
     };
     let unit = rest.chars().last()?;
     if !"hdwmy".contains(unit) {

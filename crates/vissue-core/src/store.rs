@@ -422,11 +422,7 @@ impl IssueDoc {
                 (wanted.len(), wanted.iter().filter(|j| done[**j]).count())
             };
             let filled = if cookie.contains('%') {
-                let pct = if total == 0 {
-                    0
-                } else {
-                    finished * 100 / total
-                };
+                let pct = (finished * 100).checked_div(total).unwrap_or(0);
                 format!("[{pct}%]")
             } else {
                 format!("[{finished}/{total}]")
@@ -1408,6 +1404,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("Software/sample/issues.org");
         IssueDoc {
+            keywords: crate::org::TodoSequence::house(),
             project: "sample".into(),
             path: path.clone(),
             preamble: default_preamble("sample"),
