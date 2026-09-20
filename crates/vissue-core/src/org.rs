@@ -535,6 +535,188 @@ pub fn todo_keywords_from_preamble(preamble: &str) -> Vec<String> {
     todo_keywords_from_lines(&preamble.lines().collect::<Vec<_>>())
 }
 
+/// The file's TODO sequence as Org reads it: the keywords before the `|`
+/// are open, the ones after it are done; a line with no `|` makes its last
+/// keyword the done one (Org manual 5.2.1). The house five are always in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TodoSequence {
+    /// Keywords an issue can still be worked under.
+    pub open: Vec<String>,
+    /// Keywords that close an issue.
+    pub done: Vec<String>,
+}
+
+impl Default for TodoSequence {
+    fn default() -> Self {
+        Self::house()
+    }
+}
+
+impl TodoSequence {
+    /// The house five alone.
+    #[must_use]
+    pub fn house() -> Self {
+        Self {
+            open: ["TODO", "STARTED", "BLOCKED"].map(str::to_string).to_vec(),
+            done: ["DONE", "CANCELLED"].map(str::to_string).to_vec(),
+        }
+    }
+
+    /// Whether `state` is a keyword this file declares, either side.
+    #[must_use]
+    pub fn knows(&self, state: &str) -> bool {
+        self.open.iter().any(|k| k == state) || self.done.iter().any(|k| k == state)
+    }
+
+    /// Whether `state` closes an issue in this file.
+    #[must_use]
+    pub fn is_done(&self, state: &str) -> bool {
+        self.done.iter().any(|k| k == state)
+    }
+
+    /// Every keyword, open ones first, for a message.
+    #[must_use]
+    pub fn all(&self) -> Vec<String> {
+        self.open.iter().chain(self.done.iter()).cloned().collect()
+    }
+}
+
+/// The TODO sequence of a file from its `#+TODO:`, `#+SEQ_TODO:` and
+/// `#+TYP_TODO:` lines (Org manual 5.2.4), over the house five.
+#[must_use]
+pub fn todo_sequence_from_lines(lines: &[&str]) -> TodoSequence {
+    let mut seq = TodoSequence::house();
+    for line in lines {
+        let trimmed = line.trim();
+        let Some(rest) = ["TODO", "SEQ_TODO", "TYP_TODO"]
+            .iter()
+            .find_map(|name| strip_file_keyword(trimmed, name))
+        else {
+            continue;
+        };
+        let names: Vec<&str> = rest
+            .split_whitespace()
+            .map(|token| token.split('(').next().unwrap_or(token))
+            .filter(|name| !name.is_empty())
+            .collect();
+        let bar = names.iter().position(|n| *n == "|");
+        // No bar: Org takes the last keyword as the done one.
+        let done_from = bar.map_or(names.len().saturating_sub(1), |b| b + 1);
+        for (i, name) in names.iter().enumerate() {
+            if *name == "|" || seq.knows(name) {
+                continue;
+            }
+            if i >= done_from {
+                seq.done.push((*name).to_string());
+            } else {
+                seq.open.push((*name).to_string());
+            }
+        }
+    }
+    seq
+}
+
+/// Whether an Org timestamp carries a repeater: `+1w`, `++1w`, `.+1w`
+/// (Org manual 8.3.3).
+#[must_use]
+pub fn has_repeater(value: &str) -> bool {
+    value
+        .split_whitespace()
+        .any(|tok| parse_repeater(tok.trim_end_matches('>')).is_some())
+}
+
+/// `(kind, count, unit)` of a repeater token, kind being `+`, `++` or `.+`.
+fn parse_repeater(tok: &str) -> Option<(&str, u32, char)> {
+    let (kind, rest) = if let Some(r) = tok.strip_prefix(".+") {
+        (".+", r)
+    } else if let Some(r) = tok.strip_prefix("++") {
+        ("++", r)
+    } else if let Some(r) = tok.strip_prefix('+') {
+        ("+", r)
+    } else {
+        return None;
+    };
+    let unit = rest.chars().last()?;
+    if !"hdwmy".contains(unit) {
+        return None;
+    }
+    let count: u32 = rest[..rest.len() - 1].parse().ok()?;
+    (count > 0).then_some((kind, count, unit))
+}
+
+fn add_interval(date: chrono::NaiveDate, count: u32, unit: char) -> Option<chrono::NaiveDate> {
+    use chrono::{Days, Months};
+    match unit {
+        'd' => date.checked_add_days(Days::new(u64::from(count))),
+        'w' => date.checked_add_days(Days::new(u64::from(count) * 7)),
+        'm' => date.checked_add_months(Months::new(count)),
+        'y' => date.checked_add_months(Months::new(count * 12)),
+        // An hourly repeater on a date without a time has nothing to move.
+        _ => Some(date),
+    }
+}
+
+/// The timestamp after one repeat, as Org shifts it when a repeating task
+/// is marked done (manual 8.3.3): `+` moves one interval on from the date
+/// it holds, `++` moves by intervals until the date is past `today`, `.+`
+/// moves one interval on from `today`. The day name follows the date;
+/// time, repeater and warning stay as written. A timestamp without a
+/// repeater, or a range, is `None`.
+#[must_use]
+pub fn shift_repeating_timestamp(value: &str, today: chrono::NaiveDate) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.contains("--") {
+        return None;
+    }
+    let (open, close) = if trimmed.starts_with('<') && trimmed.ends_with('>') {
+        ('<', '>')
+    } else if trimmed.starts_with('[') && trimmed.ends_with(']') {
+        ('[', ']')
+    } else {
+        return None;
+    };
+    let inner = &trimmed[1..trimmed.len() - 1];
+    let tokens: Vec<&str> = inner.split_whitespace().collect();
+    let date_tok = tokens.first()?;
+    let mut date = chrono::NaiveDate::parse_from_str(date_tok, "%Y-%m-%d").ok()?;
+    let mut rest: Vec<String> = Vec::new();
+    let mut repeater = None;
+    for tok in &tokens[1..] {
+        if let Some(r) = parse_repeater(tok) {
+            repeater = Some(r);
+            rest.push((*tok).to_string());
+        } else if tok.chars().all(|c| c.is_ascii_alphabetic())
+            && tok.len() <= 3
+            && repeater.is_none()
+        {
+            // The day name; recomputed below.
+        } else {
+            rest.push((*tok).to_string());
+        }
+    }
+    let (kind, count, unit) = repeater?;
+    date = match kind {
+        "+" => add_interval(date, count, unit)?,
+        "++" => {
+            let mut next = add_interval(date, count, unit)?;
+            let mut guard = 0;
+            while next <= today && guard < 10_000 {
+                next = add_interval(next, count, unit)?;
+                guard += 1;
+            }
+            next
+        }
+        _ => add_interval(today, count, unit)?,
+    };
+    let mut out = format!("{open}{} {}", date.format("%Y-%m-%d"), date.format("%a"));
+    for tok in rest {
+        out.push(' ');
+        out.push_str(&tok);
+    }
+    out.push(close);
+    Some(out)
+}
+
 /// Same as [`todo_keywords_from_preamble`], from already-split lines.
 pub fn todo_keywords_from_lines(lines: &[&str]) -> Vec<String> {
     let mut keywords: Vec<String> = TODO_KEYWORDS.iter().map(|s| (*s).to_string()).collect();
@@ -1457,15 +1639,13 @@ fn is_statistics_cookie(cookie: &str) -> bool {
     let Some(inner) = cookie.strip_prefix('[').and_then(|s| s.strip_suffix(']')) else {
         return false;
     };
+    // `[/]` and `[%]` are the empty cookies Org fills in (manual 5.5).
     if let Some((a, b)) = inner.split_once('/') {
-        return !a.is_empty()
-            && !b.is_empty()
-            && a.chars().all(|c| c.is_ascii_digit())
-            && b.chars().all(|c| c.is_ascii_digit());
+        return a.chars().all(|c| c.is_ascii_digit()) && b.chars().all(|c| c.is_ascii_digit());
     }
     inner
         .strip_suffix('%')
-        .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+        .is_some_and(|n| n.chars().all(|c| c.is_ascii_digit()))
 }
 
 /// Consume one Org timestamp or timestamp range at the start of `s`.
@@ -1604,6 +1784,58 @@ pub fn property_key_and_append(key: &str) -> (&str, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_todo_sequence_splits_at_the_bar_or_at_the_last_keyword() {
+        let seq = todo_sequence_from_lines(&["#+TODO: TODO WAITING(w) | DONE WONTFIX"]);
+        assert_eq!(seq.open, ["TODO", "STARTED", "BLOCKED", "WAITING"]);
+        assert_eq!(seq.done, ["DONE", "CANCELLED", "WONTFIX"]);
+        let bare = todo_sequence_from_lines(&["#+SEQ_TODO: NEXT FINISHED"]);
+        assert!(bare.open.iter().any(|k| k == "NEXT"));
+        assert!(bare.is_done("FINISHED"));
+        assert!(TodoSequence::house().knows("CANCELLED"));
+        assert!(!TodoSequence::house().knows("WAITING"));
+    }
+
+    #[test]
+    fn a_repeater_shifts_as_org_shifts_it() {
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 9, 20).unwrap();
+        assert_eq!(
+            shift_repeating_timestamp("<2026-09-22 Tue +1w>", today).as_deref(),
+            Some("<2026-09-29 Tue +1w>")
+        );
+        assert_eq!(
+            shift_repeating_timestamp("<2026-09-01 Tue 10:00 ++1w -2d>", today).as_deref(),
+            Some("<2026-09-22 Tue 10:00 ++1w -2d>")
+        );
+        assert_eq!(
+            shift_repeating_timestamp("<2026-01-31 Sat .+1m>", today).as_deref(),
+            Some("<2026-10-20 Tue .+1m>")
+        );
+        assert_eq!(
+            shift_repeating_timestamp("<2026-01-31 Sat +1m>", today).as_deref(),
+            Some("<2026-02-28 Sat +1m>")
+        );
+        assert!(shift_repeating_timestamp("<2026-09-22 Tue>", today).is_none());
+        assert!(
+            shift_repeating_timestamp("<2026-09-22 Tue>--<2026-09-23 Wed +1w>", today).is_none()
+        );
+        assert!(has_repeater("<2026-09-22 Tue +1w>"));
+        assert!(!has_repeater("<2026-09-22 Tue -2d>"));
+    }
+
+    #[test]
+    fn empty_statistics_cookies_are_cookies() {
+        assert_eq!(
+            split_statistics_cookies("Parent of two [/]"),
+            ("Parent of two".to_string(), Some("[/]".to_string()))
+        );
+        assert_eq!(
+            split_statistics_cookies("Half [%]").1.as_deref(),
+            Some("[%]")
+        );
+        assert_eq!(split_statistics_cookies("Not a cookie [a/b]").1, None);
+    }
     use std::collections::HashSet;
 
     fn house() -> Vec<String> {

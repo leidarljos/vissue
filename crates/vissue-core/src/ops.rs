@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use crate::config::{Layout, VissueConfig};
 use crate::error::Error;
 use crate::graph::DependencyGraph;
-use crate::model::{IssueHeading, LogEntry, TODO_KEYWORDS, today_inactive_bracket};
+use crate::model::{IssueHeading, LogEntry, today_inactive_bracket};
 use crate::store::{
     IssueDoc, collect_org_ids, detect_project_from_ctx, find_by_id, generate_id, load_all,
     resolve_existing_project_case, with_issues_lock, with_issues_locks,
@@ -383,6 +383,7 @@ pub fn update_as_pred(
         };
         let mut doc = IssueDoc::parse_file(&project, &path)?;
         let spec = doc.priority_spec();
+        let keywords = doc.keywords.clone();
         let h = doc
             .headings
             .iter_mut()
@@ -395,10 +396,12 @@ pub fn update_as_pred(
         if pred.if_state.is_some() || pred.if_gen.is_some() {
             let seen = crate::events::generation(layout);
             if let Some(want) = pred.if_state {
-                if !TODO_KEYWORDS.contains(&want) {
-                    return Err(
-                        anyhow!("invalid --if-state {want:?}; allowed: {TODO_KEYWORDS:?}").into(),
-                    );
+                if !keywords.knows(want) {
+                    return Err(anyhow!(
+                        "invalid --if-state {want:?}; allowed: {:?}",
+                        keywords.all()
+                    )
+                    .into());
                 }
                 if h.state != want {
                     return Err(Error::StaleWrite {
@@ -424,11 +427,18 @@ pub fn update_as_pred(
         }
 
         if let Some(s) = new_state {
-            if !TODO_KEYWORDS.contains(&s) {
-                return Err(anyhow!("invalid state {s:?}; allowed: {TODO_KEYWORDS:?}").into());
+            // The file's own sequence is the law: a keyword its `#+TODO:`
+            // declares is as legal as the house five, and the bar says
+            // which side it closes on.
+            if !keywords.knows(s) {
+                return Err(anyhow!(
+                    "invalid state {s:?}; allowed: {:?} (the file's #+TODO: line adds to these)",
+                    keywords.all()
+                )
+                .into());
             }
             if h.state != s {
-                if is_terminal(&h.state) && is_terminal(s) {
+                if keywords.is_done(&h.state) && keywords.is_done(s) {
                     record_sibling_terminal(h, s);
                     changed.push(format!("sibling terminal {s} (held {})", h.state));
                 } else {
@@ -440,6 +450,50 @@ pub fn update_as_pred(
                     }
                 }
             }
+        }
+        // Closing: Org stamps `CLOSED:` on the planning line when a task is
+        // done and clears it when the task reopens (org-log-done). A
+        // repeating task does not close; its dates move one interval on,
+        // `:LAST_REPEAT:` records the time, and the state returns to the
+        // file's first open keyword, or `:REPEAT_TO_STATE:` (manual 8.3.3).
+        let now_done = keywords.is_done(&h.state);
+        let was_done = keywords.is_done(&original);
+        if now_done && !was_done {
+            let today = chrono::Local::now().date_naive();
+            let mut repeated = Vec::new();
+            for key in ["SCHEDULED", "DEADLINE"] {
+                if let Some(value) = h.properties.get(key).cloned()
+                    && let Some(next) = crate::org::shift_repeating_timestamp(&value, today)
+                {
+                    crate::props::insert(&mut h.properties, key, next.clone());
+                    repeated.push(format!("{key} -> {next}"));
+                }
+            }
+            if repeated.is_empty() {
+                crate::props::insert(&mut h.properties, "CLOSED", LogEntry::now());
+                changed.push("CLOSED stamped".to_string());
+            } else {
+                crate::props::insert(&mut h.properties, "LAST_REPEAT", LogEntry::now());
+                let back = h
+                    .properties
+                    .get("REPEAT_TO_STATE")
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| keywords.knows(s) && !keywords.is_done(s))
+                    .or_else(|| keywords.open.first().cloned())
+                    .unwrap_or_else(|| "TODO".to_string());
+                let closed_as = h.state.clone();
+                h.record_state_change(&back);
+                for note in settle_claim(h, &closed_as, &back, identity) {
+                    changed.push(note);
+                }
+                changed.push(format!(
+                    "repeats: {}; state {closed_as} -> {back}",
+                    repeated.join(", ")
+                ));
+            }
+        } else if was_done && !now_done && h.properties.contains_key("CLOSED") {
+            crate::props::remove(&mut h.properties, "CLOSED");
+            changed.push("CLOSED cleared".to_string());
         }
 
         if let Some(p) = new_priority {
@@ -1711,6 +1765,144 @@ mod tests {
         // for recall to hand over and a pointer to an empty answer is noise.
         let alone = claim_as(&layout, &first, false, "impl").unwrap();
         assert!(!alone.contains("recall"), "{alone}");
+    }
+
+    #[test]
+    fn closing_stamps_closed_and_reopening_clears_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = fresh_layout(dir.path());
+        create(&layout, "sample", "close me", CreateOpts::default()).unwrap();
+        let id = only_id(&layout, "sample");
+        let out = update(&layout, &id, Some("DONE"), None, None, None).unwrap();
+        assert!(out.report.contains("CLOSED stamped"), "{}", out.report);
+        let text = fs::read_to_string(layout.project_issues_path("sample")).unwrap();
+        assert!(text.contains("\nCLOSED: ["), "{text}");
+        assert!(text.contains("- State \"DONE\" from \"TODO\""), "{text}");
+        update(&layout, &id, Some("TODO"), None, None, None).unwrap();
+        let text = fs::read_to_string(layout.project_issues_path("sample")).unwrap();
+        assert!(!text.contains("CLOSED:"), "{text}");
+    }
+
+    #[test]
+    fn a_keyword_the_file_declares_is_legal_and_its_side_decides_closing() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = fresh_layout(dir.path());
+        create(&layout, "sample", "wait on it", CreateOpts::default()).unwrap();
+        let id = only_id(&layout, "sample");
+        let path = layout.project_issues_path("sample");
+        let text = fs::read_to_string(&path).unwrap();
+        let text = text.replace(
+            "#+TODO: TODO STARTED BLOCKED | DONE CANCELLED",
+            "#+TODO: TODO STARTED BLOCKED WAITING | DONE CANCELLED WONTFIX",
+        );
+        assert!(
+            text.contains("WONTFIX"),
+            "the house TODO line is where expected: {text}"
+        );
+        fs::write(&path, text).unwrap();
+        update(&layout, &id, Some("WAITING"), None, None, None).unwrap();
+        assert_eq!(issue_at(&layout, "sample", &id).state, "WAITING");
+        let out = update(&layout, &id, Some("WONTFIX"), None, None, None).unwrap();
+        assert!(out.report.contains("CLOSED stamped"), "{}", out.report);
+        let err = update(&layout, &id, Some("NOPE"), None, None, None).unwrap_err();
+        assert!(err.to_string().contains("WAITING"), "{err}");
+    }
+
+    #[test]
+    fn a_repeating_deadline_moves_on_instead_of_closing() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = fresh_layout(dir.path());
+        create(
+            &layout,
+            "sample",
+            "weekly report",
+            CreateOpts {
+                deadline: Some("<2026-09-22 Tue +1w>"),
+                ..CreateOpts::default()
+            },
+        )
+        .unwrap();
+        let id = only_id(&layout, "sample");
+        let out = update(&layout, &id, Some("DONE"), None, None, None).unwrap();
+        assert!(
+            out.report
+                .contains("repeats: DEADLINE -> <2026-09-29 Tue +1w>"),
+            "{}",
+            out.report
+        );
+        let h = issue_at(&layout, "sample", &id);
+        assert_eq!(h.state, "TODO");
+        assert_eq!(
+            h.properties.get("DEADLINE").map(String::as_str),
+            Some("<2026-09-29 Tue +1w>")
+        );
+        assert!(h.properties.contains_key("LAST_REPEAT"));
+        assert!(!h.properties.contains_key("CLOSED"));
+        assert_eq!(h.logbook[0].to_state.as_deref(), Some("TODO"));
+        assert_eq!(h.logbook[1].to_state.as_deref(), Some("DONE"));
+    }
+
+    #[test]
+    fn a_parents_statistics_cookie_follows_its_children() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = fresh_layout(dir.path());
+        create(
+            &layout,
+            "sample",
+            "parent of two [/]",
+            CreateOpts::default(),
+        )
+        .unwrap();
+        let parent = only_id(&layout, "sample");
+        create(
+            &layout,
+            "sample",
+            "first child",
+            CreateOpts {
+                parent: Some(&parent),
+                ..CreateOpts::default()
+            },
+        )
+        .unwrap();
+        create(
+            &layout,
+            "sample",
+            "second child [%]",
+            CreateOpts {
+                parent: Some(&parent),
+                ..CreateOpts::default()
+            },
+        )
+        .unwrap();
+        let doc = IssueDoc::parse_file("sample", &layout.project_issues_path("sample")).unwrap();
+        let first = doc
+            .headings
+            .iter()
+            .find(|h| h.title == "first child")
+            .unwrap()
+            .id
+            .clone();
+        assert_eq!(
+            issue_at(&layout, "sample", &parent).statistics.as_deref(),
+            Some("[0/2]"),
+            "the empty cookie is filled on the first write after the children exist"
+        );
+        update(&layout, &first, Some("DONE"), None, None, None).unwrap();
+        assert_eq!(
+            issue_at(&layout, "sample", &parent).statistics.as_deref(),
+            Some("[1/2]")
+        );
+        let second = doc
+            .headings
+            .iter()
+            .find(|h| h.title == "second child")
+            .unwrap()
+            .id
+            .clone();
+        assert_eq!(
+            issue_at(&layout, "sample", &second).statistics.as_deref(),
+            Some("[0%]")
+        );
     }
 
     /// The citation is the handoff, so it has to survive the round trip through

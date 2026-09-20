@@ -21,7 +21,7 @@ contrib / MELPA set that writes into the same drawer or preamble.
 | =:TYPE:= =:PARENT:= =:BLOCKED_BY:= =:VISSUE_TAGS:= | Tracker graph and type. |
 | =:CLAIMED_BY:= =:CLAIMED_AT:= =:FILES:= =:VERIFY:= | Claim and close-out. |
 | =:DISCOVERED_FROM:= =:PIVOTED_TO:= =:SIBLING_TERMINAL:= | Bounce / sibling race. |
-| Planning =DEADLINE:= =SCHEDULED:= =CLOSED:= | Org agenda dates. |
+| Planning =DEADLINE:= =SCHEDULED:= =CLOSED:= | Org agenda dates; =CLOSED:= is stamped on close and cleared on reopen (org-log-done). |
 | Heading tags for a legal =TYPE= | Org tag search. |
 
 * Read (interpret, do not mint)
@@ -30,7 +30,9 @@ contrib / MELPA set that writes into the same drawer or preamble.
 |------+---------+------------------|
 | =:BLOCKER:= | GNU ELPA org-edna; org-contrib org-depend | =ids(...)= and a bare id list feed =ready=. A real edna form (=prev-sibling=, =headings=) stays. Never written. |
 | =:Effort:= / =:EFFORT:= | Org effort; edna sorts by it | Read; =check= rejects a value Org will not parse. |
-| =#+TODO:= extras | Org 5.2 | A file-local keyword is still an issue. Writes stay the house five. |
+| =#+TODO:= extras | Org 5.2 | A file-local keyword is an issue, and a legal =update -s=; the bar decides whether it closes. |
+| Repeaters on =SCHEDULED:= / =DEADLINE:= | Org 8.3.3 | Closing a repeating task moves its dates one interval on (=+=, =++=, =.+=), writes =:LAST_REPEAT:=, and returns the state to =:REPEAT_TO_STATE:= or the first open keyword. |
+| Statistics cookies =[/]= =[%]= | Org 5.5 | Filled on every write from the =:PARENT:= children in the file; =:COOKIE_DATA:= =checkbox= counts the body's boxes, =recursive= every descendant. |
 | =#+SETUPFILE:= | Org 17.8 | Local files only. Keyword lines merge into TODO / TAGS / PRIORITIES. URLs unread. |
 | =#+PRIORITIES:= | Org 5.4 | File range and default cookie. |
 | =:ORDERED:= =:NOBLOCKING:= | Org 5.7 | Sibling gate in =ready=. |

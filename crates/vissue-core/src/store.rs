@@ -176,6 +176,35 @@ where
     f()
 }
 
+/// Checkboxes in a body: `(total, checked)`. `[X]` and `[x]` are checked;
+/// `[ ]` and `[-]` are not (manual 5.6).
+fn checkbox_counts(body: &str) -> (usize, usize) {
+    let mut total = 0;
+    let mut checked = 0;
+    for line in body.lines() {
+        let t = line.trim_start();
+        let Some(rest) = t
+            .strip_prefix("- ")
+            .or_else(|| t.strip_prefix("+ "))
+            .or_else(|| t.strip_prefix("* "))
+            .or_else(|| {
+                t.split_once(". ")
+                    .filter(|(n, _)| n.chars().all(|c| c.is_ascii_digit()))
+                    .map(|(_, r)| r)
+            })
+        else {
+            continue;
+        };
+        if rest.starts_with("[ ]") || rest.starts_with("[-]") {
+            total += 1;
+        } else if rest.starts_with("[X]") || rest.starts_with("[x]") {
+            total += 1;
+            checked += 1;
+        }
+    }
+    (total, checked)
+}
+
 /// One project's `issues.org`: a preamble followed by top-level headings.
 #[derive(Debug, Clone)]
 pub struct IssueDoc {
@@ -187,6 +216,8 @@ pub struct IssueDoc {
     pub preamble: String,
     /// `#+FILETAGS:`, `#+TAGS:`, and export tag keywords from the preamble.
     pub tag_settings: TagSettings,
+    /// The file's TODO sequence: the house five and what `#+TODO:` adds.
+    pub keywords: crate::org::TodoSequence,
     /// Top-level issue headings, in file order.
     pub headings: Vec<IssueHeading>,
     /// Org that follows each issue (COMMENT trees, notes headings). Same
@@ -204,6 +235,7 @@ impl IssueDoc {
             path,
             tag_settings: tag_settings_from_preamble(&preamble),
             preamble,
+            keywords: crate::org::TodoSequence::house(),
             headings: Vec::new(),
             after: Vec::new(),
         }
@@ -255,6 +287,7 @@ impl IssueDoc {
         // handful of `#+TODO:` lines in it, and the content is already split.
         let keyword_lines: Vec<&str> = settings.lines().chain(lines.iter().copied()).collect();
         let keywords = todo_keywords_from_lines(&keyword_lines);
+        let sequence = crate::org::todo_sequence_from_lines(&keyword_lines);
         // Once for the file, then indexed: one pass answers for the first
         // heading, the heading loop, and the scan between two headings.
         let headline_at: Vec<bool> = (0..lines.len())
@@ -314,6 +347,7 @@ impl IssueDoc {
                 parent.as_deref(),
             )),
             preamble,
+            keywords: sequence,
             headings,
             after,
         })
@@ -344,6 +378,68 @@ impl IssueDoc {
         out
     }
 
+    /// Fill every statistics cookie from what it counts, as Org does when a
+    /// child changes state (manual 5.5): by default the heading's children
+    /// (`:PARENT:` in this file), with `:COOKIE_DATA: checkbox` the boxes in
+    /// its body, with `recursive` every descendant. `[n/m]` and `[p%]` keep
+    /// their style; `[/]` and `[%]` are filled in.
+    pub fn refresh_statistics(&mut self) {
+        let done: Vec<bool> = self
+            .headings
+            .iter()
+            .map(|h| self.keywords.is_done(&h.state))
+            .collect();
+        let parents: Vec<Option<String>> = self
+            .headings
+            .iter()
+            .map(|h| h.properties.get("PARENT").map(|p| p.trim().to_string()))
+            .collect();
+        let mut updates = Vec::new();
+        for (i, h) in self.headings.iter().enumerate() {
+            let Some(cookie) = h.statistics.as_deref() else {
+                continue;
+            };
+            let data = h
+                .properties
+                .get("COOKIE_DATA")
+                .map(|v| v.to_ascii_lowercase())
+                .unwrap_or_default();
+            let (total, finished) = if data.contains("checkbox") {
+                checkbox_counts(&h.body)
+            } else {
+                let mut wanted: Vec<usize> = Vec::new();
+                let mut frontier = vec![h.id.clone()];
+                while let Some(id) = frontier.pop() {
+                    for (j, parent) in parents.iter().enumerate() {
+                        if parent.as_deref() == Some(id.as_str()) && !wanted.contains(&j) {
+                            wanted.push(j);
+                            if data.contains("recursive") {
+                                frontier.push(self.headings[j].id.clone());
+                            }
+                        }
+                    }
+                }
+                (wanted.len(), wanted.iter().filter(|j| done[**j]).count())
+            };
+            let filled = if cookie.contains('%') {
+                let pct = if total == 0 {
+                    0
+                } else {
+                    finished * 100 / total
+                };
+                format!("[{pct}%]")
+            } else {
+                format!("[{finished}/{total}]")
+            };
+            if filled != cookie {
+                updates.push((i, filled));
+            }
+        }
+        for (i, filled) in updates {
+            self.headings[i].statistics = Some(filled);
+        }
+    }
+
     /// Render and replace the file through a uniquely named temporary. Callers
     /// hold [`with_issues_lock`] around the parse and this write.
     ///
@@ -355,7 +451,9 @@ impl IssueDoc {
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let out = self.render_string();
+        let mut doc = self.clone();
+        doc.refresh_statistics();
+        let out = doc.render_string();
         // A shared temporary name races: a peer renames it out from under this
         // writer and the rename fails with ENOENT.
         let seq = WRITE_TMP_SEQ.fetch_add(1, Ordering::Relaxed);

@@ -53,7 +53,18 @@ refused rather than guessed at.
 
 * States and priorities
 
-States are =TODO=, =STARTED=, =BLOCKED=, =DONE=, and =CANCELLED=. An issue is
+States are =TODO=, =STARTED=, =BLOCKED=, =DONE=, and =CANCELLED=, plus
+whatever the file's =#+TODO:= (or =#+SEQ_TODO:=, =#+TYP_TODO:=) line
+adds: a keyword before the bar is open, one after it closes the issue,
+and =update -s= accepts either. Closing stamps =CLOSED:= on the planning
+line and reopening clears it. A closed issue whose =SCHEDULED:= or
+=DEADLINE:= carries a repeater (=+1w=, =++1w=, =.+1w=) does not close:
+the dates move one interval on as Org moves them, =:LAST_REPEAT:= takes
+the time, and the state returns to =:REPEAT_TO_STATE:= or the first open
+keyword. A statistics cookie on a heading (=[/]=, =[2/5]=, =[%]=) is
+filled on every write from its =:PARENT:= children in the file, or from
+the checkboxes in its body under =:COOKIE_DATA: checkbox=, or from every
+descendant under =recursive=. An issue is
 /ready/ when it is =TODO= or =STARTED=, no id in its =:BLOCKED_BY:= is
 still open, and no earlier open sibling sits under an =:ORDERED:=
 parent (unless this heading has =:NOBLOCKING:=). Priorities are the
