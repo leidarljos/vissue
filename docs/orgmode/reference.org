@@ -246,6 +246,7 @@ socket.
 | =VISSUE_HUD_LOG=         | HUD stderr log; default is =hud.log= next to the control socket    |
 | =VISSUE_HUD_NOTIFY=      | =0= turns off the desktop notices the HUD posts on a claim, an unblock, or a move into BLOCKED, FAILED or CANCELLED |
 | =VISSUE_HUD_TRAY=        | =0= leaves the StatusNotifier tray out (Linux); left click toggles the overlay, Quit leaves the HUD alone |
+| =VISSUE_HUD_WINDOW=      | =1= boots the decorated pop-out (=me.rgoswami.vissue-hud.window=) instead of the overlay; unset keeps the overlay |
 
 * Control socket
 
@@ -290,7 +291,9 @@ changes the picker list.
 
 =P= (=window.popout=, remappable in =keys.toml=) opens the board in a
 decorated window of its own and takes the overlay down; closing that
-window hides the HUD and leaves it running. The HUD posts a desktop
+window hides the HUD and leaves it running.
+=VISSUE_HUD_WINDOW=1= starts in that decorated window instead of the
+overlay, so a nested X walk can crop a managed client. The HUD posts a desktop
 notice when an issue is claimed, comes unblocked, or moves into BLOCKED,
 FAILED or CANCELLED, with the board in view or not, and on Linux sits in
 the StatusNotifier tray.

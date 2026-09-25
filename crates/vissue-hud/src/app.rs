@@ -9,6 +9,7 @@ use iced::window;
 use iced::{Element, Font, Pixels, Subscription, Task, time};
 
 use vissue_core::config::Layout;
+use vissue_core::process_env;
 
 use crate::attach;
 use crate::keys::ActionId;
@@ -459,6 +460,15 @@ impl HudApp {
         open.map(|id| Message::WindowId(Some(id)))
     }
 
+    /// First mapped surface: pop-out when `VISSUE_HUD_WINDOW=1`, else overlay.
+    fn boot_window(&mut self) -> Task<Message> {
+        if window_mode() {
+            self.pop_out()
+        } else {
+            self.open_window()
+        }
+    }
+
     fn mapped(&self) -> bool {
         self.window_id.is_some()
     }
@@ -518,6 +528,18 @@ impl HudApp {
 /// The app id of the pop-out, so a compositor rule on the overlay's id
 /// leaves it a normal window.
 pub const POPOUT_APP_ID: &str = "me.rgoswami.vissue-hud.window";
+
+/// `VISSUE_HUD_WINDOW=1` boots [`popout_window`] instead of the overlay.
+pub const HUD_WINDOW_ENV: &str = "VISSUE_HUD_WINDOW";
+
+/// True when the process asked for a decorated window at boot.
+#[must_use]
+pub fn window_mode() -> bool {
+    match process_env::var(HUD_WINDOW_ENV) {
+        Ok(v) => v.trim() == "1",
+        Err(_) => false,
+    }
+}
 
 /// The pop-out: a decorated window at the compositor's own level, the size
 /// of the overlay, that the window manager places and stacks like any other.
@@ -598,7 +620,7 @@ fn boot(palette: Palette) -> (HudApp, Task<Message>) {
     let mut app = HudApp::from_palette(palette);
     app.tray_quit = crate::tray::start();
     let task = if visible {
-        app.open_window()
+        app.boot_window()
     } else {
         Task::none()
     };
@@ -844,5 +866,52 @@ mod tests {
         );
         let _ = app.update(Message::Closed(pop));
         assert!(!app.mapped());
+    }
+
+    #[test]
+    fn window_env_boots_the_pop_out_not_the_overlay() {
+        let _guard = crate::env_lock();
+        process_env::clear_override(HUD_WINDOW_ENV);
+        assert!(!window_mode());
+
+        let (_dir, mut overlay_app) = empty_app();
+        let _ = overlay_app.boot_window();
+        assert!(
+            overlay_app.window_id.is_some(),
+            "unset env still maps the overlay"
+        );
+        assert!(
+            overlay_app.popout_id.is_none(),
+            "unset env must not map the pop-out"
+        );
+        let overlay = board_window();
+        assert!(!overlay.decorations);
+        assert_eq!(overlay.level, iced::window::Level::AlwaysOnTop);
+
+        process_env::override_var(HUD_WINDOW_ENV, Some("1"));
+        assert!(window_mode());
+        let (_dir, mut app) = empty_app();
+        let _ = app.boot_window();
+        assert!(
+            app.popout_id.is_some(),
+            "VISSUE_HUD_WINDOW=1 maps the pop-out"
+        );
+        assert!(
+            app.window_id.is_none(),
+            "window mode must not also map the overlay"
+        );
+        let pop = popout_window();
+        assert!(pop.decorations, "the pop-out is a managed window");
+        assert_eq!(pop.level, iced::window::Level::Normal);
+        #[cfg(target_os = "linux")]
+        {
+            assert_eq!(pop.platform_specific.application_id, POPOUT_APP_ID);
+            assert_eq!(
+                overlay.platform_specific.application_id,
+                crate::place::OVERLAY_APP_ID,
+                "the overlay Boot is unchanged when window mode is on"
+            );
+        }
+        process_env::clear_override(HUD_WINDOW_ENV);
     }
 }
