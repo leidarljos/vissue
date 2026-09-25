@@ -209,8 +209,15 @@ pub const TUI_ACTIONS: &[ActionId] = &[
 /// it, then the board's own keys, then the chords only the HUD answers.
 pub fn help_text(keymap: &KeyMap) -> String {
     let mut out = String::from("vissue tui\n\n");
+    // The state chord sits above the fold. A 24-row help box clips the
+    // later catalog rows, and the board's own message names this chord
+    // as the way to cycle TODO / STARTED / BLOCKED.
+    out.push_str(&format!(
+        "{:<13} cycle TODO / STARTED / BLOCKED\n",
+        keymap.chord_for(ActionId::StateCycle),
+    ));
     for row in KeyMap::catalog() {
-        if !TUI_ACTIONS.contains(&row.id) {
+        if !TUI_ACTIONS.contains(&row.id) || row.id == ActionId::StateCycle {
             continue;
         }
         out.push_str(&format!(
