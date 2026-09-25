@@ -67,3 +67,6 @@ serde_json.workspace = true
 # leaves the HUD and nothing else.
 [target.'cfg(target_os = "linux")'.dependencies]
 ksni = "0.3"
+wayland-backend = { version = "0.3.16", features = ["client_system"] }
+wayland-client = { version = "0.31.15", features = ["system"] }
+wayland-protocols = { version = "0.32.13", features = ["client", "staging"] }

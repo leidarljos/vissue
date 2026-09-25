@@ -19,6 +19,7 @@ pub mod summon;
 pub mod theme;
 pub mod tray;
 pub mod wire;
+pub mod wlactivate;
 
 pub mod app;
 pub mod view;

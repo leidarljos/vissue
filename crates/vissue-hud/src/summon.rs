@@ -136,12 +136,57 @@ pub fn sanitize_token(raw: &str) -> Option<String> {
     Some(t.to_string())
 }
 
-/// Read `XDG_ACTIVATION_TOKEN` if it is a legal token.
-pub fn take_env_token() -> Option<String> {
+/// Read `XDG_ACTIVATION_TOKEN` without unsetting it.
+fn peek_env_token() -> Option<String> {
     std::env::var("XDG_ACTIVATION_TOKEN")
         .ok()
         .as_deref()
         .and_then(sanitize_token)
+}
+
+/// Read `XDG_ACTIVATION_TOKEN` and unset it and `DESKTOP_STARTUP_ID`.
+pub fn take_env_token() -> Option<String> {
+    let tok = peek_env_token();
+    crate::wlactivate::unset_activation_vars();
+    tok
+}
+
+/// True when the socket is absent so a compositor bind cannot talk to a HUD.
+pub fn is_summon_miss(err: &SummonError) -> bool {
+    matches!(
+        err,
+        SummonError::NotRunning(_) | SummonError::NoPath | SummonError::Unsupported
+    )
+}
+
+/// What `--show` / `--hide` / `--toggle` should do after talking to the socket.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SummonCli {
+    /// Command delivered, or hide with nothing running.
+    Done,
+    /// Start a new HUD and show the overlay.
+    StartShown,
+}
+
+/// Plan the binary's next step after [`send_command`].
+///
+/// Hide with no listener exits successfully. Show and toggle start a HUD.
+///
+/// # Errors
+///
+/// Returns the send error when it is not a miss (socket absent / unsupported).
+pub fn plan_summon_cli(
+    action: SummonAction,
+    result: Result<(), SummonError>,
+) -> Result<SummonCli, SummonError> {
+    match result {
+        Ok(()) => Ok(SummonCli::Done),
+        Err(err) if is_summon_miss(&err) && matches!(action, SummonAction::Hide) => {
+            Ok(SummonCli::Done)
+        }
+        Err(err) if is_summon_miss(&err) => Ok(SummonCli::StartShown),
+        Err(err) => Err(err),
+    }
 }
 
 /// Wire form for `action` (one word, no newline).
@@ -184,13 +229,17 @@ pub fn socket_accepts(path: &Path) -> bool {
 /// on the default path, or the write fails.
 pub fn send_command(action: SummonAction) -> Result<(), SummonError> {
     let token = match action {
-        SummonAction::Hide => {
-            let _ = take_env_token();
-            None
-        }
-        _ => take_env_token(),
+        SummonAction::Hide => None,
+        _ => peek_env_token(),
     };
-    send_request(SummonRequest { action, token })
+    let result = send_request(SummonRequest { action, token });
+    // Live bounce consumes the token on the wire. Hide always drops it so
+    // a miss cannot leave compositor capability in env. Show/toggle miss
+    // keeps the vars for StartShown owner boot.
+    if result.is_ok() || matches!(action, SummonAction::Hide) {
+        crate::wlactivate::unset_activation_vars();
+    }
+    result
 }
 
 /// Send a parsed request to the default socket.
@@ -440,6 +489,104 @@ mod tests {
     }
 
     #[test]
+    fn hide_miss_is_done() {
+        let err = SummonError::NotRunning("/tmp/missing.sock".into());
+        assert_eq!(
+            plan_summon_cli(SummonAction::Hide, Err(err)).unwrap(),
+            SummonCli::Done
+        );
+    }
+
+    #[test]
+    fn plan_summon_cli_starts_when_show_misses() {
+        let miss = SummonError::NotRunning("gone".into());
+        assert_eq!(
+            plan_summon_cli(SummonAction::Show, Err(miss)).unwrap(),
+            SummonCli::StartShown
+        );
+        assert_eq!(
+            plan_summon_cli(SummonAction::Toggle, Err(SummonError::NoPath)).unwrap(),
+            SummonCli::StartShown
+        );
+        assert_eq!(
+            plan_summon_cli(SummonAction::Hide, Err(SummonError::Unsupported)).unwrap(),
+            SummonCli::Done
+        );
+        assert_eq!(
+            plan_summon_cli(SummonAction::Show, Ok(())).unwrap(),
+            SummonCli::Done
+        );
+        assert!(plan_summon_cli(SummonAction::Show, Err(SummonError::Other("x".into()))).is_err());
+    }
+
+    #[test]
+    fn take_env_token_unsets_activation_vars() {
+        let _guard = crate::env_lock();
+        crate::wlactivate::set_activation_vars("tok-xyz", "startup");
+        let tok = take_env_token();
+        assert_eq!(tok.as_deref(), Some("tok-xyz"));
+        assert!(std::env::var("XDG_ACTIVATION_TOKEN").is_err());
+        assert!(std::env::var("DESKTOP_STARTUP_ID").is_err());
+    }
+
+    #[test]
+    fn take_env_token_unsets_illegal_and_empty() {
+        let _guard = crate::env_lock();
+        crate::wlactivate::set_activation_vars("a\nb", "startup");
+        assert!(take_env_token().is_none());
+        assert!(std::env::var("XDG_ACTIVATION_TOKEN").is_err());
+        assert!(std::env::var("DESKTOP_STARTUP_ID").is_err());
+        crate::wlactivate::set_activation_vars("", "startup");
+        assert!(take_env_token().is_none());
+        assert!(std::env::var("XDG_ACTIVATION_TOKEN").is_err());
+        assert!(std::env::var("DESKTOP_STARTUP_ID").is_err());
+    }
+
+    fn missing_socket_dir(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+        let dir =
+            std::env::temp_dir().join(format!("vissue-hud-summon-{tag}-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("hud.sock");
+        let _ = std::fs::remove_file(&path);
+        (dir, path)
+    }
+
+    #[test]
+    fn send_command_show_miss_leaves_activation_vars() {
+        let _guard = crate::env_lock();
+        let (dir, path) = missing_socket_dir("show-miss");
+        vissue_core::process_env::override_var(SOCKET_ENV, path.to_str());
+        crate::wlactivate::set_activation_vars("tok-keep", "startup");
+        let err = send_command(SummonAction::Show).unwrap_err();
+        assert!(is_summon_miss(&err));
+        assert_eq!(
+            std::env::var("XDG_ACTIVATION_TOKEN").ok().as_deref(),
+            Some("tok-keep")
+        );
+        assert_eq!(
+            std::env::var("DESKTOP_STARTUP_ID").ok().as_deref(),
+            Some("startup")
+        );
+        crate::wlactivate::unset_activation_vars();
+        vissue_core::process_env::clear_override(SOCKET_ENV);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn send_command_hide_miss_unsets_activation_vars() {
+        let _guard = crate::env_lock();
+        let (dir, path) = missing_socket_dir("hide-miss");
+        vissue_core::process_env::override_var(SOCKET_ENV, path.to_str());
+        crate::wlactivate::set_activation_vars("tok-hide", "startup");
+        let err = send_command(SummonAction::Hide).unwrap_err();
+        assert!(is_summon_miss(&err));
+        assert!(std::env::var("XDG_ACTIVATION_TOKEN").is_err());
+        assert!(std::env::var("DESKTOP_STARTUP_ID").is_err());
+        vissue_core::process_env::clear_override(SOCKET_ENV);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn sanitize_token_rejects_empty_newline_and_oversize() {
         assert_eq!(sanitize_token("  "), None);
         assert_eq!(sanitize_token("a\nb"), None);
@@ -621,6 +768,41 @@ mod tests {
             thread::sleep(Duration::from_millis(25));
         }
         assert_eq!(got, Some(SummonRequest::new(SummonAction::Show)));
+        drop(server);
+        vissue_core::process_env::clear_override(SOCKET_ENV);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn install_then_send_forwards_env_token_and_unsets() {
+        let _guard = crate::env_lock();
+        let dir =
+            std::env::temp_dir().join(format!("vissue-hud-summon-envtok-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("hud.sock");
+        let _ = std::fs::remove_file(&path);
+        vissue_core::process_env::override_var(SOCKET_ENV, path.to_str());
+        crate::wlactivate::set_activation_vars("act.token", "startup");
+        let server = install().expect("install");
+        send_command(SummonAction::Show).expect("send");
+        let mut got = None;
+        for _ in 0..40 {
+            if let Some(req) = try_recv() {
+                got = Some(req);
+                break;
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
+        assert_eq!(
+            got,
+            Some(SummonRequest {
+                action: SummonAction::Show,
+                token: Some("act.token".into()),
+            })
+        );
+        assert!(std::env::var("XDG_ACTIVATION_TOKEN").is_err());
+        assert!(std::env::var("DESKTOP_STARTUP_ID").is_err());
         drop(server);
         vissue_core::process_env::clear_override(SOCKET_ENV);
         let _ = std::fs::remove_dir_all(&dir);

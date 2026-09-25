@@ -6158,6 +6158,9 @@ dependencies = [
  "vissue-core",
  "vissue-serve",
  "vissue-tui",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-protocols",
 ]
 
 [[package]]

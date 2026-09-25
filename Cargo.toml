@@ -12,7 +12,7 @@ members = [
 ]
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+unsafe_code = "deny"
 missing_debug_implementations = "warn"
 missing_docs = "warn"
 rust_2024_compatibility = { level = "warn", priority = -1 }

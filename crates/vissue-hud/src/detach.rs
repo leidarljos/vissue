@@ -107,6 +107,7 @@ mod tests {
             toggle: false,
             show: false,
             hide: false,
+            install_desktop: false,
         }
     }
 

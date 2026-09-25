@@ -1325,17 +1325,34 @@ impl Palette {
         }
     }
 
-    /// Apply a compositor summon verb. Show and toggle keep the
-    /// xdg-activation token for the surface to consume.
+    /// Apply a compositor summon verb. Stash the token only when the
+    /// verb will show; hide and toggle-while-visible clear it.
     pub fn apply_summon(&mut self, req: &SummonRequest) {
-        if req.action != SummonAction::Hide {
+        let will_show = match req.action {
+            SummonAction::Show => true,
+            SummonAction::Hide => false,
+            SummonAction::Toggle => !self.visible,
+        };
+        if will_show {
             self.pending_token = req.token.clone();
+        } else {
+            self.pending_token = None;
         }
         match req.action {
             SummonAction::Show => self.show(),
             SummonAction::Hide => self.hide(),
             SummonAction::Toggle => self.toggle(),
         }
+    }
+
+    /// Token from the last show/toggle, if not yet applied.
+    pub fn pending_token(&self) -> Option<&str> {
+        self.pending_token.as_deref()
+    }
+
+    /// Stash a compositor token taken at owner boot.
+    pub fn stash_token(&mut self, token: Option<String>) {
+        self.pending_token = token;
     }
 
     /// Consume the token from the last show/toggle, if any.
@@ -4166,6 +4183,36 @@ mod tests {
         assert!(!palette.visible());
         palette.handle_key(PaletteKey::Char('c'));
         assert!(!palette.visible());
+    }
+
+    #[test]
+    fn apply_summon_stashes_token_only_when_showing() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = Layout::new(dir.path(), DEFAULT_PREFIX);
+        std::fs::create_dir_all(layout.projects_dir()).unwrap();
+        let mut palette = Palette::open_core(layout, "tok".into()).unwrap();
+        assert!(palette.visible());
+        palette.apply_summon(&SummonRequest {
+            action: SummonAction::Show,
+            token: Some("tok-1".into()),
+        });
+        assert_eq!(palette.pending_token(), Some("tok-1"));
+        palette.apply_summon(&SummonRequest::new(SummonAction::Hide));
+        assert_eq!(palette.pending_token(), None);
+
+        palette.apply_summon(&SummonRequest {
+            action: SummonAction::Toggle,
+            token: Some("tok-2".into()),
+        });
+        assert!(palette.visible());
+        assert_eq!(palette.pending_token(), Some("tok-2"));
+
+        palette.apply_summon(&SummonRequest {
+            action: SummonAction::Toggle,
+            token: Some("fresh".into()),
+        });
+        assert!(!palette.visible());
+        assert_eq!(palette.pending_token(), None);
     }
 
     #[test]
