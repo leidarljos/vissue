@@ -6,6 +6,14 @@ All notable changes to vissue are recorded here. The format follows
 
 <!-- towncrier release notes start -->
 
+## [0.16.2](https://github.com/leidarljos/vissue/releases/tag/v0.16.2) - 2026-09-25
+
+### Fixed
+
+- `vissue vote --for` accepts `--used` and `--confidence`. The choice on
+  the tally stays the option alone. The deeds and the stated probability
+  stay on the ballot line.
+
 ## [0.16.1](https://github.com/leidarljos/vissue/releases/tag/v0.16.1) - 2026-09-20
 
 ### Added
