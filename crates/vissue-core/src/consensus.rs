@@ -680,6 +680,8 @@ mod tests {
             agent: agent.to_string(),
             choice: choice.to_string(),
             stamp: "[2026-09-07 Mon]".to_string(),
+            used: None,
+            confidence: None,
         }
     }
 

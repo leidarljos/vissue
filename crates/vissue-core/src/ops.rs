@@ -898,6 +898,10 @@ pub struct Ballot {
     pub choice: String,
     /// Inactive org date the vote was cast or last changed.
     pub stamp: String,
+    /// Deed accessions the ballot drew on, or `none`.
+    pub used: Option<String>,
+    /// Stated probability that `choice` is the outcome, as written.
+    pub confidence: Option<String>,
 }
 
 /// Cast or change one agent's vote, or read the tally when `choice` is `None`.
@@ -909,6 +913,28 @@ pub struct Ballot {
 /// Returns an error if `id` is not in the corpus, `choice` is blank, or the file
 /// cannot be rewritten.
 pub fn vote(layout: &Layout, id: &str, choice: Option<&str>, identity: &str) -> Result<String> {
+    vote_with(layout, id, choice, identity, None, None)
+}
+
+/// [`vote`], plus the deeds the ballot used and a stated probability.
+///
+/// `used` is `none` or accession ids. `confidence` is a decimal in `(0, 1]`.
+/// Both are kept on the ballot line and are not part of the choice.
+///
+/// # Errors
+///
+/// Returns an error when `used` or `confidence` is not a single token, or
+/// `confidence` is outside `(0, 1]`. The errors from [`vote`] apply as well.
+pub fn vote_with(
+    layout: &Layout,
+    id: &str,
+    choice: Option<&str>,
+    identity: &str,
+    used: Option<&str>,
+    confidence: Option<&str>,
+) -> Result<String> {
+    let used = clean_used(used)?;
+    let confidence = clean_confidence(confidence)?;
     let (_h, path, project) =
         find_by_id(layout, id)?.ok_or_else(|| Error::IssueNotFound { id: id.to_string() })?;
     let Some(choice) = choice else {
@@ -956,6 +982,8 @@ pub fn vote(layout: &Layout, id: &str, choice: Option<&str>, identity: &str) -> 
             agent: identity.to_string(),
             choice: choice.to_string(),
             stamp,
+            used,
+            confidence,
         };
         match previous {
             Some(i) => ballots[i] = ballot,
@@ -1030,11 +1058,59 @@ fn parse_ballot(line: &str) -> Option<Ballot> {
     if agent.is_empty() || choice.is_empty() {
         return None;
     }
+    let (choice, used, confidence) = split_ballot_tail(choice);
     Some(Ballot {
         agent: agent.to_string(),
         choice: choice.to_string(),
         stamp: format!("[{stamp}]"),
+        used,
+        confidence,
     })
+}
+
+/// `used` is one token: `none` or accession ids. A blank is the same as absent.
+fn clean_used(used: Option<&str>) -> Result<Option<String>> {
+    let Some(used) = used.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    if used.contains(char::is_whitespace) {
+        return Err(anyhow!("--used is one token, `none` or accession ids").into());
+    }
+    Ok(Some(used.to_string()))
+}
+
+/// A stated probability in `(0, 1]`, kept as written after the range check.
+fn clean_confidence(confidence: Option<&str>) -> Result<Option<String>> {
+    let Some(confidence) = confidence.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    let p: f64 = confidence
+        .parse()
+        .map_err(|_| anyhow!("--confidence must be a number in (0, 1]"))?;
+    if !p.is_finite() || p <= 0.0 || p > 1.0 {
+        return Err(anyhow!("--confidence must be a number in (0, 1]").into());
+    }
+    Ok(Some(confidence.to_string()))
+}
+
+/// Split `ship used=none confidence=0.5` into the choice and the two tails.
+fn split_ballot_tail(choice: &str) -> (&str, Option<String>, Option<String>) {
+    if let Some((choice, tail)) = choice.split_once(" used=") {
+        let (used, confidence) = match tail.split_once(" confidence=") {
+            Some((used, confidence)) => (used, Some(confidence.to_string())),
+            None => (tail, None),
+        };
+        let used = if used.is_empty() {
+            None
+        } else {
+            Some(used.to_string())
+        };
+        return (choice.trim(), used, confidence);
+    }
+    if let Some((choice, confidence)) = choice.split_once(" confidence=") {
+        return (choice.trim(), None, Some(confidence.to_string()));
+    }
+    (choice, None, None)
 }
 
 fn drawer_name_is(drawer: &str, name: &str) -> bool {
@@ -1062,7 +1138,14 @@ fn write_ballots(h: &mut IssueHeading, ballots: &[Ballot], foreign: &[String]) {
     }
     let mut drawer = format!(":{VOTES_DRAWER}:\n");
     for b in ballots {
-        drawer.push_str(&format!("{} {}: {}\n", b.stamp, b.agent, b.choice));
+        drawer.push_str(&format!("{} {}: {}", b.stamp, b.agent, b.choice));
+        if let Some(used) = &b.used {
+            drawer.push_str(&format!(" used={used}"));
+        }
+        if let Some(confidence) = &b.confidence {
+            drawer.push_str(&format!(" confidence={confidence}"));
+        }
+        drawer.push('\n');
     }
     for line in foreign {
         drawer.push_str(line);
@@ -3364,6 +3447,15 @@ mod tests {
         let text = std::fs::read_to_string(layout.project_issues_path("sample")).unwrap();
         assert!(text.contains(":VOTES:"), "{text}");
         assert!(text.contains("agent-a: ship"), "{text}");
+        let recorded = vote_with(&layout, &id, Some("hold"), "agent-b", Some("none"), Some("0.5")).unwrap();
+        assert!(recorded.contains("agent-b voted hold"), "{recorded}");
+        let text = std::fs::read_to_string(layout.project_issues_path("sample")).unwrap();
+        assert!(text.contains("agent-b: hold used=none confidence=0.5"), "{text}");
+        let ballots = ballots(&layout, &id).unwrap();
+        let b = ballots.iter().find(|b| b.agent == "agent-b").unwrap();
+        assert_eq!(b.choice, "hold");
+        assert_eq!(b.used.as_deref(), Some("none"));
+        assert_eq!(b.confidence.as_deref(), Some("0.5"));
 
         let tally = vote(&layout, &id, None, "reader").unwrap();
         assert!(tally.contains("agent-a"), "{tally}");

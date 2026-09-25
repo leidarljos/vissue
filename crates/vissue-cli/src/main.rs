@@ -237,6 +237,12 @@ enum Command {
         /// The ballots as JSON rows of `agent`, `choice`, `stamp`; reads only.
         #[arg(long, conflicts_with = "choice")]
         json: bool,
+        /// Deed accessions this ballot used, or `none`.
+        #[arg(long, requires = "choice")]
+        used: Option<String>,
+        /// Probability in (0, 1] that the choice is the outcome.
+        #[arg(long, requires = "choice")]
+        confidence: Option<f64>,
     },
     /// Cite, drop, or list the deeds this issue's work produced.
     ///
@@ -1431,19 +1437,42 @@ fn run() -> Result<()> {
                 std::process::exit(1);
             }
         }
-        Command::Vote { id, choice, json } => {
+        Command::Vote {
+            id,
+            choice,
+            json,
+            used,
+            confidence,
+        } => {
             let found = layout_for_id(&router, &id)?;
             if json {
                 let rows: Vec<serde_json::Value> = ops::ballots(&found, &id)?
                     .iter()
                     .map(|b| {
-                        serde_json::json!({"agent": b.agent, "choice": b.choice, "stamp": b.stamp})
+                        serde_json::json!({
+                            "agent": b.agent,
+                            "choice": b.choice,
+                            "stamp": b.stamp,
+                            "used": b.used,
+                            "confidence": b.confidence,
+                        })
                     })
                     .collect();
                 emit!("{}", serde_json::Value::Array(rows))
             } else {
                 let who = vissue_core::config::identity(&found);
-                emit!("{}", ops::vote(&found, &id, choice.as_deref(), &who)?)
+                let confidence = confidence.map(|p| p.to_string());
+                emit!(
+                    "{}",
+                    ops::vote_with(
+                        &found,
+                        &id,
+                        choice.as_deref(),
+                        &who,
+                        used.as_deref(),
+                        confidence.as_deref(),
+                    )?
+                )
             }
         }
         Command::Append { id, text, file } => {
