@@ -9,7 +9,7 @@
        <img class="vi-hero-mark" src="_static/mark.svg" width="64" height="64" alt="" />
        <div>
          <p class="vi-hero-name">vissue</p>
-         <p class="vi-hero-tag">The file is the database.</p>
+         <p class="vi-hero-tag">What does this node stand on, and who agrees?</p>
        </div>
      </div>
      <p class="vi-hero-tagline">A plan is a directed acyclic graph of Org headings.</p>
