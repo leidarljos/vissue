@@ -57,11 +57,14 @@ impl Layout {
     /// `<root>/vissue.toml` exists but cannot be read or parsed.
     pub fn resolve(root: Option<&Path>, prefix: Option<&str>) -> Result<Self> {
         let here = std::env::current_dir().context("resolve current directory as root")?;
+        let home = home();
+        let named = root.map(|r| expand_home(r, home.as_deref()));
         let (root, guessed) = choose_root(
-            root,
+            named.as_deref(),
             std::env::var_os("ISSUE_ROOT")
                 .or_else(|| std::env::var_os("VISSUE_ROOT"))
-                .map(PathBuf::from),
+                .filter(|raw| !raw.is_empty())
+                .map(|raw| expand_home(Path::new(&raw), home.as_deref())),
             &here,
             here.join("vissue.toml").is_file(),
             SeatConfig::path().as_deref().and_then(SeatConfig::read),
@@ -181,6 +184,26 @@ impl SeatConfig {
             _ => home()?.join(".config"),
         };
         Some(base.join("vissue").join("config.toml"))
+    }
+}
+
+/// A leading `~` or `~/` against `home`. Shells expand it; environment.d,
+/// MCP `env` blocks and quoted arguments do not, and an unexpanded `~/...`
+/// root is a relative path that plants a tracker under whatever directory
+/// the caller stands in.
+fn expand_home(raw: &Path, home: Option<&Path>) -> PathBuf {
+    let Some(home) = home else {
+        return raw.to_path_buf();
+    };
+    let Some(text) = raw.to_str() else {
+        return raw.to_path_buf();
+    };
+    if text == "~" {
+        return home.to_path_buf();
+    }
+    match text.strip_prefix("~/") {
+        Some(rest) => home.join(rest),
+        None => raw.to_path_buf(),
     }
 }
 
@@ -926,5 +949,29 @@ mod tests {
         // And with no seat file, the working directory as a guess, which is
         // what `require_tracker` refuses when it holds no tracker.
         assert_eq!(choose_root(None, None, &here, false, None), (here, true));
+    }
+
+    /// A root that arrives as `~/...` from the environment is the home one,
+    /// never a directory named `~` under the working directory.
+    #[test]
+    fn a_tilde_root_expands_against_home() {
+        let home = Path::new("/home/seat");
+        assert_eq!(
+            expand_home(Path::new("~/vault"), Some(home)),
+            PathBuf::from("/home/seat/vault")
+        );
+        assert_eq!(expand_home(Path::new("~"), Some(home)), home.to_path_buf());
+        assert_eq!(
+            expand_home(Path::new("/abs/vault"), Some(home)),
+            PathBuf::from("/abs/vault")
+        );
+        assert_eq!(
+            expand_home(Path::new("~other/vault"), Some(home)),
+            PathBuf::from("~other/vault")
+        );
+        assert_eq!(
+            expand_home(Path::new("~/vault"), None),
+            PathBuf::from("~/vault")
+        );
     }
 }
