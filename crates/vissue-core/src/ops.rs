@@ -3447,10 +3447,21 @@ mod tests {
         let text = std::fs::read_to_string(layout.project_issues_path("sample")).unwrap();
         assert!(text.contains(":VOTES:"), "{text}");
         assert!(text.contains("agent-a: ship"), "{text}");
-        let recorded = vote_with(&layout, &id, Some("hold"), "agent-b", Some("none"), Some("0.5")).unwrap();
+        let recorded = vote_with(
+            &layout,
+            &id,
+            Some("hold"),
+            "agent-b",
+            Some("none"),
+            Some("0.5"),
+        )
+        .unwrap();
         assert!(recorded.contains("agent-b voted hold"), "{recorded}");
         let text = std::fs::read_to_string(layout.project_issues_path("sample")).unwrap();
-        assert!(text.contains("agent-b: hold used=none confidence=0.5"), "{text}");
+        assert!(
+            text.contains("agent-b: hold used=none confidence=0.5"),
+            "{text}"
+        );
         let ballots = ballots(&layout, &id).unwrap();
         let b = ballots.iter().find(|b| b.agent == "agent-b").unwrap();
         assert_eq!(b.choice, "hold");

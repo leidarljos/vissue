@@ -118,7 +118,12 @@ mod tests {
         fs::write(&exe, b"x").unwrap();
         let data = root.join("share");
         let report = install(&root, &exe, Some(&data)).unwrap();
-        assert!(report.wrote.iter().any(|p| p.ends_with("vissue-hud.desktop")));
+        assert!(
+            report
+                .wrote
+                .iter()
+                .any(|p| p.ends_with("vissue-hud.desktop"))
+        );
         assert!(report.wrote.iter().any(|p| p.ends_with("sway-hud.conf")));
         let desktop = fs::read_to_string(data.join("applications/vissue-hud.desktop")).unwrap();
         assert!(desktop.contains("Exec="));
