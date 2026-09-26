@@ -343,9 +343,10 @@ keeps it, because the holder is still on the issue. Returning to TODO, or
 closing, gives it up and writes a logbook note naming who held it and since
 when, so the history outlives the properties.
 
-=hygiene= groups live claims by holder, with the newest claim or note date for
-each, and flags holders whose last activity is older than =stale_claim_days=
-(default 7). STARTED issues nobody has claimed are still listed one by one.
+=hygiene= groups live claims by holder, with each holder's newest =CLAIMED_AT=
+stamp, and flags holders whose claim is older than =stale_claim_days=
+(default 7). Logbook notes do not count: they do not name who wrote them.
+STARTED issues nobody has claimed are still listed one by one.
 
 To drop every claim one identity still holds, without changing state:
 

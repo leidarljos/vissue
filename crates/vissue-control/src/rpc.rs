@@ -953,7 +953,7 @@ pub struct ClaimParams {
 pub struct ReleaseParams {
     /// Identity whose claims to drop.
     pub holder: String,
-    /// Only claims whose newest claim or note is older than this many days.
+    /// Only claims whose claim stamp is older than this many days.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub older_than: Option<i64>,
     /// Print what would be released without writing.

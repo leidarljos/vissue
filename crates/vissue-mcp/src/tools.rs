@@ -145,7 +145,7 @@ pub struct ClaimArgs {
 pub struct ReleaseArgs {
     /// Identity whose claims to drop.
     pub holder: String,
-    /// Only claims whose newest claim or note is older than this many days.
+    /// Only claims whose claim stamp is older than this many days.
     pub older_than: Option<i64>,
     /// Print what would be released without writing.
     pub dry_run: Option<bool>,

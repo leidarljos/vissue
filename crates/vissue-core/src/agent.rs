@@ -461,6 +461,35 @@ mod tests {
     }
 
     #[test]
+    fn a_note_from_someone_else_does_not_keep_a_dead_holder_live() {
+        let (_dir, layout, first, _blocker) = layout_with_two_issues();
+        crate::ops::claim_as(&layout, &first, false, "dead-host").unwrap();
+        let path = layout.project_issues_path("sample");
+        let mut doc = IssueDoc::parse_file("sample", &path).unwrap();
+        doc.headings
+            .iter_mut()
+            .find(|h| h.id == first)
+            .unwrap()
+            .properties
+            .insert("CLAIMED_AT".into(), "[2026-01-11 Sun]".into());
+        doc.write().unwrap();
+        crate::ops::note(&layout, &first, "progress from another seat").unwrap();
+
+        let text = hygiene(&layout, Some(7)).unwrap();
+        assert!(text.contains("dead-host"), "{text}");
+        assert!(text.contains("stale_holders=1"), "{text}");
+        assert!(text.contains("stale_claims=1"), "{text}");
+        assert!(
+            text.contains("stale"),
+            "a later note kept the dead holder live: {text}"
+        );
+        assert!(
+            !text.contains("  0d"),
+            "the later note counted as this holder's activity: {text}"
+        );
+    }
+
+    #[test]
     fn body_excerpt_returns_the_heading_range() {
         let dir = tempfile::tempdir().unwrap();
         let layout = Layout::new(dir.path(), DEFAULT_PREFIX);

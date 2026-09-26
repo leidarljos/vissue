@@ -230,7 +230,7 @@ enum Command {
         /// Identity whose claims to drop
         #[arg(long)]
         holder: String,
-        /// Only claims whose newest claim or note is older than this many days
+        /// Only claims whose claim stamp is older than this many days
         #[arg(long)]
         older_than: Option<i64>,
         /// Print what would be released without writing

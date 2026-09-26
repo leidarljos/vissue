@@ -324,22 +324,10 @@ impl IssueHeading {
         Some((today - taken).num_days())
     }
 
-    /// Newest date among the claim stamp and logbook notes.
+    /// Date of the holder's claim stamp. Logbook notes do not name an author,
+    /// so they are not activity by this holder.
     pub fn last_activity_date(&self) -> Option<chrono::NaiveDate> {
-        let mut best = self.claimed_at().and_then(parse_stamp_date);
-        for entry in &self.logbook {
-            if entry.note.is_none() {
-                continue;
-            }
-            let Some(d) = parse_stamp_date(&entry.timestamp) else {
-                continue;
-            };
-            best = Some(match best {
-                Some(b) => b.max(d),
-                None => d,
-            });
-        }
-        best
+        parse_stamp_date(self.claimed_at()?)
     }
 
     /// Whole days since [`Self::last_activity_date`], when that date parses.
@@ -608,7 +596,7 @@ mod tests {
     }
 
     #[test]
-    fn last_activity_prefers_a_note_over_the_claim_stamp() {
+    fn last_activity_is_the_claim_stamp_even_when_someone_else_noted() {
         let mut h = sample_heading();
         h.properties.insert(CLAIMED_BY.to_string(), "worker".into());
         h.properties
@@ -622,10 +610,10 @@ mod tests {
         });
         assert_eq!(
             h.last_activity_date(),
-            Some(chrono::NaiveDate::from_ymd_opt(2026, 3, 15).unwrap())
+            Some(chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap())
         );
         let today = chrono::NaiveDate::from_ymd_opt(2026, 3, 22).unwrap();
-        assert_eq!(h.last_activity_age_days(today), Some(7));
+        assert_eq!(h.last_activity_age_days(today), Some(80));
         assert_eq!(h.claim_age_days(today), Some(80));
     }
 

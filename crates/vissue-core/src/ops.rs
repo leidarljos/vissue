@@ -820,7 +820,7 @@ fn fold_note_text(text: &str) -> String {
 ///
 /// Each released heading gets the usual claim-released bookkeeping line plus a
 /// note naming who ran the verb and why. `--older-than` keeps claims whose
-/// newest claim or note is still inside that many days. `dry_run` prints the
+/// claim stamp is still inside that many days. `dry_run` prints the
 /// same report without writing.
 ///
 /// # Errors
