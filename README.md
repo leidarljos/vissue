@@ -53,6 +53,9 @@ parser-k29f            TODO      [#C]  Reject a manifest with no header
 The files land under `<root>/Software/<project>/issues.org`; the prefix
 is configurable and `<root>` comes from `--root`, `VISSUE_ROOT`, or a
 user-level route table that sends named projects to other checkouts.
+A write names the generation it read: `vissue update parser-3xq7 --state DONE --if-gen 7`.
+`vissue gen` prints that generation and `vissue events` is the log of writes.
+Agents never `Write` or `StrReplace` an `issues.org`.
 
 ## Documentation
 
