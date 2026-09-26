@@ -36,7 +36,7 @@ contrib / MELPA set that writes into the same drawer or preamble.
 | =#+SETUPFILE:= | Org 17.8 | Local files only. Keyword lines merge into TODO / TAGS / PRIORITIES. URLs unread. |
 | =#+PRIORITIES:= | Org 5.4 | File range and default cookie. |
 | =:ORDERED:= =:NOBLOCKING:= | Org 5.7 | Sibling gate in =ready=. |
-| slash =:ID:= | org-gcal | Not an issue id. The heading stays Org around the issues. |
+| =:ID:= =<event>/<calendar>= | org-gcal | Not an issue id. The heading stays Org around the issues. A nested-project vissue id (=Infra/terra-6cx2=) is still ={project}-{suffix}=. |
 | FILETAGS inheritance | Org 6.1 | =search= / =show= match inherited tags. Not copied onto the heading. |
 | =#+TAGS:= groups | Org 6.2 / 6.3 | Exclusive braces; =[ group : members ]= expands in =search=. |
 

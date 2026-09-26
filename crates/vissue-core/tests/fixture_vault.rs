@@ -2128,12 +2128,21 @@ fn check_counts_a_priority_outside_the_declared_range() {
     assert_finds(&out, "[warn] atlas: 1 heading(s) have a [#");
 }
 
-/// An id with a slash is an org-gcal event, which means a calendar sync owns the
-/// heading and a tracker write would fight it.
+/// An org-gcal `<event>/<calendar>` id means a calendar sync owns the heading
+/// and a tracker write would fight it.
 #[test]
 fn check_reports_an_id_a_calendar_sync_owns() {
     let out = check_after(|l| edit_raw(l, "atlas", "atlas-3e4f", "cal/2026abc"));
     assert_finds(&out, "[err]  atlas: 1 heading(s) use an org-gcal event");
+}
+
+/// A nested-project vissue id contains `/` because the project name does.
+/// That slash is not an org-gcal event/calendar split.
+#[test]
+fn check_does_not_treat_a_nested_project_id_as_org_gcal() {
+    let out = check_after(|l| edit_raw(l, "atlas", "atlas-3e4f", "acme/cli-1a2b"));
+    assert_eq!(out.errors, 0, "{}", out.text);
+    assert!(!out.text.contains("org-gcal"), "{}", out.text);
 }
 
 #[test]

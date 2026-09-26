@@ -1469,6 +1469,26 @@ mod tests {
     }
 
     #[test]
+    fn a_nested_project_id_heading_is_an_issue() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Software/sample/issues.org");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            "#+TITLE: sample issues\n#+TODO: TODO STARTED BLOCKED | DONE CANCELLED\n\n* TODO [#A] Nested work\n:PROPERTIES:\n:ID:         acme/cli-1a2b\n:END:\n\n* TODO [#B] Calendar dump\n:PROPERTIES:\n:ID:         abc123/primary@group.calendar.google.com\n:END:\n",
+        )
+        .unwrap();
+        let doc = IssueDoc::parse_file("sample", &path).unwrap();
+        assert_eq!(
+            doc.headings
+                .iter()
+                .map(|h| h.id.as_str())
+                .collect::<Vec<_>>(),
+            ["acme/cli-1a2b"]
+        );
+    }
+
+    #[test]
     fn setupfile_todo_keywords_make_an_issue() {
         let dir = tempfile::tempdir().unwrap();
         let setup = dir.path().join("house.org");

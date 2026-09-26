@@ -77,8 +77,10 @@ file (and its local =#+SETUPFILE:=) has no such line, it uses
 * Properties
 
 =:ID:= is required. =create= mints one unless =--id= keeps a free
-={project}-= suffix of =0-9a-z=. An org-gcal =<event>/<calendar>=
-value is not an issue id; that heading stays Org around the issues.
+={project}-= suffix of =0-9a-z=. =project= may contain =/= when the
+tracker lives in a nested directory (=Infra/terra-6cx2=). An org-gcal
+=<event>/<calendar>= value is not an issue id; that heading stays Org
+around the issues.
 =:CREATED:= is set on create. =:PARENT:=,
 =:BLOCKED_BY:=, =:VISSUE_TAGS:=, =:TYPE:=, =:CLAIMED_BY:=, =:CLAIMED_AT:=,
 and =:DISCOVERED_FROM:= are read by the query verbs. =:TYPE:= is also
