@@ -17,9 +17,10 @@ use crate::store::{
     resolve_existing_project_case, with_issues_lock, with_issues_locks,
 };
 
-/// Resolve the project to act on. An explicit name wins; otherwise walk up from
-/// the current directory for `.project-ctx.toml` and read `[project].name`.
-/// Neither available is an error, so nothing is ever guessed silently.
+/// Resolve the project to act on. An explicit name wins; then a current
+/// directory inside `<root>/<prefix>/<name>/` means `<name>`; otherwise walk
+/// up for `.project-ctx.toml` and read `[project].name`. None available is an
+/// error, so nothing is ever guessed silently.
 ///
 /// # Errors
 ///
@@ -34,6 +35,9 @@ pub fn resolve_project(layout: &Layout, explicit: Option<&str>) -> Result<String
         return resolve_existing_project_case(layout, p);
     }
     let cwd = std::env::current_dir()?;
+    if let Some(name) = project_from_tracker_path(&layout.projects_dir(), &cwd) {
+        return resolve_existing_project_case(layout, &name);
+    }
     let detected = detect_project_from_ctx(&cwd).ok_or_else(|| {
         anyhow!(
             "no --project given and no .project-ctx.toml found walking up from {}",
@@ -41,6 +45,26 @@ pub fn resolve_project(layout: &Layout, explicit: Option<&str>) -> Result<String
         )
     })?;
     resolve_existing_project_case(layout, &detected)
+}
+
+/// The project directory `cwd` stands in, when it is under `projects_dir`.
+/// Both paths are compared as given and canonicalized, so a symlinked vault
+/// still matches.
+fn project_from_tracker_path(projects_dir: &Path, cwd: &Path) -> Option<String> {
+    let first_under = |base: &Path, here: &Path| {
+        here.strip_prefix(base)
+            .ok()
+            .and_then(|rest| rest.components().next())
+            .and_then(|c| match c {
+                std::path::Component::Normal(name) => name.to_str().map(str::to_string),
+                _ => None,
+            })
+    };
+    first_under(projects_dir, cwd).or_else(|| {
+        let base = projects_dir.canonicalize().ok()?;
+        let here = cwd.canonicalize().ok()?;
+        first_under(&base, &here)
+    })
 }
 
 /// Optional fields on a new issue.
@@ -3678,5 +3702,32 @@ mod tests {
         voted(&layout, &id, "agent-c", "hold");
         let after = std::fs::read_to_string(&path).unwrap();
         assert_eq!(after.matches("agent-a:").count(), 1, "{after}");
+    }
+
+    /// Standing in a project directory of the tracker names that project,
+    /// ahead of a `.project-ctx.toml` at the vault root.
+    #[test]
+    fn a_cwd_under_the_prefix_names_its_project() {
+        let projects = Path::new("/vault/Software");
+        assert_eq!(
+            project_from_tracker_path(projects, Path::new("/vault/Software/ljos")),
+            Some("ljos".to_string())
+        );
+        assert_eq!(
+            project_from_tracker_path(projects, Path::new("/vault/Software/ljos/notes/deep")),
+            Some("ljos".to_string())
+        );
+        assert_eq!(
+            project_from_tracker_path(projects, Path::new("/vault/Software")),
+            None
+        );
+        assert_eq!(
+            project_from_tracker_path(projects, Path::new("/vault")),
+            None
+        );
+        assert_eq!(
+            project_from_tracker_path(projects, Path::new("/elsewhere/ljos")),
+            None
+        );
     }
 }
