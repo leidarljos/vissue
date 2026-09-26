@@ -1091,7 +1091,7 @@ _vissue_commands() {
 'reject:Reject an issue, redirecting to an existing destination or a new replacement' \
 'ready:Actionable issues\: TODO or STARTED with no open blocker' \
 'claim:Take an issue\: move it to STARTED and stamp the claim' \
-'release:Drop every live claim held by one identity. State stays' \
+'release:Drop every claim stamp held by one identity, including one left on a closed heading. State stays' \
 'vote:Cast this agent'\''s vote on an issue, or show the tally with no \`--for\`' \
 'deed:Cite, drop, or list the deeds this issue'\''s work produced' \
 'recall:The working set for an issue\: its plan, its inputs'\'' deeds, and its own' \
@@ -1259,7 +1259,7 @@ _vissue__subcmd__help_commands() {
 'reject:Reject an issue, redirecting to an existing destination or a new replacement' \
 'ready:Actionable issues\: TODO or STARTED with no open blocker' \
 'claim:Take an issue\: move it to STARTED and stamp the claim' \
-'release:Drop every live claim held by one identity. State stays' \
+'release:Drop every claim stamp held by one identity, including one left on a closed heading. State stays' \
 'vote:Cast this agent'\''s vote on an issue, or show the tally with no \`--for\`' \
 'deed:Cite, drop, or list the deeds this issue'\''s work produced' \
 'recall:The working set for an issue\: its plan, its inputs'\'' deeds, and its own' \
