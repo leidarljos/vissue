@@ -11,9 +11,9 @@ use vissue_control::rpc::{
     IssueListParams, IssueListResult, IssueSelected, JsonRpcError, JsonRpcRequest, JsonRpcResponse,
     MirrorCheckParams, MutResult, NormalizeParams, NoteParams, Notification, PROTOCOL_VERSION,
     PingParams, ProjectFilterParams, ProjectListResult, RecallParams, RefileParams, RejectParams,
-    RelatedParams, ResolveParams, SearchParams, StaleParams, TreeParams, TreeResult, UpdateParams,
-    VoteParams, WaitParams, WalkParams, error_from_core, internal_error, invalid_params,
-    method_not_found, parse_initialize_params,
+    RelatedParams, ReleaseParams, ResolveParams, SearchParams, StaleParams, TreeParams, TreeResult,
+    UpdateParams, VoteParams, WaitParams, WalkParams, error_from_core, internal_error,
+    invalid_params, method_not_found, parse_initialize_params,
 };
 use vissue_core::catalog::{CatalogService, load_recs, tree_text_from};
 use vissue_core::config::Layout;
@@ -64,6 +64,7 @@ pub fn dispatch_ex(state: &OwnerState, session: &mut Session, req: &JsonRpcReque
         "issue/create" => dispatch_create(state, session, req.params.as_ref()),
         "issue/update" => dispatch_update(state, session, req.params.as_ref()),
         "issue/claim" => dispatch_claim(state, session, req.params.as_ref()),
+        "issue/release" => dispatch_release(state, session, req.params.as_ref()),
         "issue/vote" => dispatch_vote(state, session, req.params.as_ref()),
         "issue/deed" => dispatch_deed(state, req.params.as_ref()),
         "issue/recall" => dispatch_recall(state, req.params.as_ref()),
@@ -141,6 +142,7 @@ fn is_mutating(method: &str) -> bool {
         "issue/create"
             | "issue/update"
             | "issue/claim"
+            | "issue/release"
             | "issue/note"
             | "issue/refile"
             | "issue/vote"
@@ -608,6 +610,25 @@ fn dispatch_claim(
         ops::claim_as(&state.layout, &params.id, params.force, &agent).map_err(map_core)?;
     let issue = detail_one(&state.layout, &params.id);
     mut_result(state, report, issue)
+}
+
+fn dispatch_release(
+    state: &OwnerState,
+    session: &Session,
+    params: Option<&Value>,
+) -> Result<Value, JsonRpcError> {
+    let params: ReleaseParams = decode(params)?;
+    let agent = resolve_agent(session, params.agent.as_deref())?;
+    let report = ops::release_holder_as(
+        &state.layout,
+        &params.holder,
+        params.older_than,
+        params.why.as_deref(),
+        params.dry_run,
+        &agent,
+    )
+    .map_err(map_core)?;
+    mut_result(state, report, None)
 }
 
 /// A ballot is cast as the session's agent, not as the process identity, because

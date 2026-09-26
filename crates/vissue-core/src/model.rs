@@ -324,6 +324,29 @@ impl IssueHeading {
         Some((today - taken).num_days())
     }
 
+    /// Newest date among the claim stamp and logbook notes.
+    pub fn last_activity_date(&self) -> Option<chrono::NaiveDate> {
+        let mut best = self.claimed_at().and_then(parse_stamp_date);
+        for entry in &self.logbook {
+            if entry.note.is_none() {
+                continue;
+            }
+            let Some(d) = parse_stamp_date(&entry.timestamp) else {
+                continue;
+            };
+            best = Some(match best {
+                Some(b) => b.max(d),
+                None => d,
+            });
+        }
+        best
+    }
+
+    /// Whole days since [`Self::last_activity_date`], when that date parses.
+    pub fn last_activity_age_days(&self, today: chrono::NaiveDate) -> Option<i64> {
+        Some((today - self.last_activity_date()?).num_days())
+    }
+
     /// Record the claim. Stores the identity verbatim: it is an opaque tag.
     pub fn set_claim(&mut self, identity: &str) {
         self.properties
@@ -582,6 +605,28 @@ mod tests {
             line_start: 4,
             line_end: 12,
         }
+    }
+
+    #[test]
+    fn last_activity_prefers_a_note_over_the_claim_stamp() {
+        let mut h = sample_heading();
+        h.properties.insert(CLAIMED_BY.to_string(), "worker".into());
+        h.properties
+            .insert(CLAIMED_AT.to_string(), "[2026-01-01 Thu]".into());
+        h.logbook.push(LogEntry {
+            timestamp: "[2026-03-15 Sun]".into(),
+            from_state: None,
+            to_state: None,
+            note: Some("still going".into()),
+            raw: None,
+        });
+        assert_eq!(
+            h.last_activity_date(),
+            Some(chrono::NaiveDate::from_ymd_opt(2026, 3, 15).unwrap())
+        );
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 3, 22).unwrap();
+        assert_eq!(h.last_activity_age_days(today), Some(7));
+        assert_eq!(h.claim_age_days(today), Some(80));
     }
 
     #[test]

@@ -201,27 +201,73 @@ pub fn hygiene(layout: &Layout, stale_days: Option<i64>) -> Result<String> {
     let today = chrono::Local::now().date_naive();
     let mut stale_claims = 0usize;
     let mut unclaimed_started = 0usize;
+    struct HolderRow {
+        count: usize,
+        last: Option<chrono::NaiveDate>,
+    }
+    let mut holders: std::collections::BTreeMap<String, HolderRow> =
+        std::collections::BTreeMap::new();
     for (project, h) in load_all(layout)? {
-        if h.state != "STARTED" {
+        if h.state == "STARTED" && h.claimed_by().is_none() {
+            unclaimed_started += 1;
+            writeln!(out, "[warn] STARTED with no claimant: {} ({project})", h.id)?;
             continue;
         }
-        match h.claimed_by() {
-            None => {
-                unclaimed_started += 1;
-                writeln!(out, "[warn] STARTED with no claimant: {} ({project})", h.id)?;
-            }
-            Some(who) => {
-                if let Some(days) = h.claim_age_days(today)
-                    && days > threshold
-                {
-                    stale_claims += 1;
-                    writeln!(
-                        out,
-                        "[warn] claim held {days}d (over {threshold}d): {} by {who} ({project})",
-                        h.id
-                    )?;
-                }
-            }
+        let Some(who) = h.claimed_by() else {
+            continue;
+        };
+        if h.state != "STARTED" && h.state != "BLOCKED" {
+            continue;
+        }
+        let last = h.last_activity_date();
+        let age = h.last_activity_age_days(today);
+        if age.is_some_and(|d| d > threshold) {
+            stale_claims += 1;
+        }
+        let row = holders.entry(who.to_string()).or_insert(HolderRow {
+            count: 0,
+            last: None,
+        });
+        row.count += 1;
+        row.last = match (row.last, last) {
+            (Some(a), Some(b)) => Some(a.max(b)),
+            (a, b) => a.or(b),
+        };
+    }
+    let mut holder_rows: Vec<(String, HolderRow)> = holders.into_iter().collect();
+    holder_rows.sort_by(|a, b| match (a.1.last, b.1.last) {
+        (Some(x), Some(y)) => x.cmp(&y).then_with(|| a.0.cmp(&b.0)),
+        (None, Some(_)) => std::cmp::Ordering::Less,
+        (Some(_), None) => std::cmp::Ordering::Greater,
+        (None, None) => a.0.cmp(&b.0),
+    });
+    let stale_holders = holder_rows
+        .iter()
+        .filter(|(_, row)| row.last.is_some_and(|d| (today - d).num_days() > threshold))
+        .count();
+    if !holder_rows.is_empty() {
+        writeln!(
+            out,
+            "holders ({} live, {stale_holders} stale over {threshold}d):",
+            holder_rows.len()
+        )?;
+        for (name, row) in &holder_rows {
+            let age = row.last.map(|d| (today - d).num_days());
+            let age_txt = age.map(|d| format!("{d}d")).unwrap_or_else(|| "?d".into());
+            let last_txt = row
+                .last
+                .map(|d| d.format("%Y-%m-%d").to_string())
+                .unwrap_or_else(|| "?".into());
+            let flag = if age.is_some_and(|d| d > threshold) {
+                "stale"
+            } else {
+                "    "
+            };
+            writeln!(
+                out,
+                "  {:>5}  {:>5}  {last_txt}  {flag}  {name}",
+                row.count, age_txt
+            )?;
         }
     }
 
@@ -256,7 +302,8 @@ pub fn hygiene(layout: &Layout, stale_days: Option<i64>) -> Result<String> {
     }
     writeln!(
         out,
-        "summary: started_not_ready={started_not_ready} stale_claims={stale_claims} unclaimed_started={unclaimed_started} closed_without_a_product={closed_without_a_product} projects={} errors={} warnings={}",
+        "summary: started_not_ready={started_not_ready} stale_claims={stale_claims} stale_holders={stale_holders} holders={} unclaimed_started={unclaimed_started} closed_without_a_product={closed_without_a_product} projects={} errors={} warnings={}",
+        holder_rows.len(),
         list_projects(layout)?.len(),
         check.errors,
         check.warnings
@@ -391,6 +438,26 @@ mod tests {
         assert!(text.contains("STARTED but not ready"), "{text}");
         assert!(text.contains("started_not_ready=1"), "{text}");
         assert!(text.contains("[ok] check passed"), "{text}");
+    }
+
+    #[test]
+    fn hygiene_groups_claims_by_holder() {
+        let (_dir, layout, first, _blocker) = layout_with_two_issues();
+        crate::ops::claim_as(&layout, &first, false, "quiet-holder").unwrap();
+
+        let text = hygiene(&layout, Some(7)).unwrap();
+        assert!(
+            text.contains("holders (1 live, 0 stale over 7d):"),
+            "{text}"
+        );
+        assert!(text.contains("quiet-holder"), "{text}");
+        assert!(text.contains("stale_claims=0"), "{text}");
+        assert!(text.contains("stale_holders=0"), "{text}");
+        assert!(text.contains("holders=1"), "{text}");
+        assert!(
+            !text.contains("claim held"),
+            "per-issue stale lines came back: {text}"
+        );
     }
 
     #[test]

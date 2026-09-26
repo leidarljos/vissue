@@ -180,6 +180,15 @@ const operations :List(Operation) = [
       ( cli = "force", tool = "force", socket = "force", note = "", toolType = "Option<bool>", socketType = "bool" , omittable = true ),
       ( cli = "", tool = "", socket = "agent", note = "socket only: it overrides the identity the connection was opened with, which the other surfaces take from the environment", toolType = "", socketType = "Option<String>" )
     ] ),
+  ( cli = "release", socket = "issue/release", mcp = "vissue_release", mutates = true, local = false,
+    note = "",
+    fields = [
+      ( cli = "holder", tool = "holder", socket = "holder", note = "", toolType = "String", socketType = "String" ),
+      ( cli = "older-than", tool = "older_than", socket = "older_than", note = "", toolType = "Option<i64>", socketType = "Option<i64>" ),
+      ( cli = "dry-run", tool = "dry_run", socket = "dry_run", note = "", toolType = "Option<bool>", socketType = "bool" , omittable = true ),
+      ( cli = "why", tool = "why", socket = "why", note = "", toolType = "Option<String>", socketType = "Option<String>" ),
+      ( cli = "", tool = "", socket = "agent", note = "socket only: it overrides the identity the connection was opened with, which the other surfaces take from the environment", toolType = "", socketType = "Option<String>" )
+    ] ),
   ( cli = "note", socket = "issue/note", mcp = "vissue_note", mutates = true, local = false,
     note = "",
     fields = [

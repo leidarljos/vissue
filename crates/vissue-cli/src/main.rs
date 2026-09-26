@@ -225,6 +225,21 @@ enum Command {
         #[arg(long)]
         force: bool,
     },
+    /// Drop every live claim held by one identity. State stays.
+    Release {
+        /// Identity whose claims to drop
+        #[arg(long)]
+        holder: String,
+        /// Only claims whose newest claim or note is older than this many days
+        #[arg(long)]
+        older_than: Option<i64>,
+        /// Print what would be released without writing
+        #[arg(long)]
+        dry_run: bool,
+        /// Why this holder is being released; written on each ticket
+        #[arg(long)]
+        why: Option<String>,
+    },
     /// Cast this agent's vote on an issue, or show the tally with no `--for`.
     ///
     /// One ballot per identity and a recast replaces it, so several agents can
@@ -1368,6 +1383,15 @@ fn run() -> Result<()> {
             let found = layout_for_id(&router, &id)?;
             emit!("{}", agent::claim(&found, &id, force)?)
         }
+        Command::Release {
+            holder,
+            older_than,
+            dry_run,
+            why,
+        } => emit!(
+            "{}",
+            release_holder_routed(&router, &holder, older_than, why.as_deref(), dry_run)?
+        ),
         Command::Deed { id, add, remove } => {
             let found = layout_for_id(&router, &id)?;
             emit!("{}", ops::deed(&found, &id, &add, &remove)?)
@@ -2240,6 +2264,22 @@ fn hygiene_routed(router: &Router, stale_days: Option<i64>) -> Result<String> {
     let mut out = String::new();
     for layout in router.unique_layouts() {
         out.push_str(&agent::hygiene(layout, stale_days)?);
+    }
+    Ok(out)
+}
+
+fn release_holder_routed(
+    router: &Router,
+    holder: &str,
+    older_than: Option<i64>,
+    why: Option<&str>,
+    dry_run: bool,
+) -> Result<String> {
+    let mut out = String::new();
+    for layout in router.unique_layouts() {
+        out.push_str(&ops::release_holder(
+            layout, holder, older_than, why, dry_run,
+        )?);
     }
     Ok(out)
 }

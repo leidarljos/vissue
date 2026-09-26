@@ -343,8 +343,20 @@ keeps it, because the holder is still on the issue. Returning to TODO, or
 closing, gives it up and writes a logbook note naming who held it and since
 when, so the history outlives the properties.
 
-=hygiene= reports claims held longer than =stale_claim_days= (default 7) and
-STARTED issues nobody has claimed.
+=hygiene= groups live claims by holder, with the newest claim or note date for
+each, and flags holders whose last activity is older than =stale_claim_days=
+(default 7). STARTED issues nobody has claimed are still listed one by one.
+
+To drop every claim one identity still holds, without changing state:
+
+#+begin_src console
+$ vissue release --holder rgoswami@rgx1gen11 --dry-run
+$ vissue release --holder rgoswami@rgx1gen11 --why "X1 laptop is gone"
+$ vissue release --holder impl-A --older-than 7 --why "old panel persona"
+#+end_src
+
+=--dry-run= prints the same report without writing. Each released issue gets a
+logbook note naming who ran the verb and why.
 
 * Report progress on an issue someone else holds
 

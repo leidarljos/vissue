@@ -7,7 +7,7 @@
 |---------------------------------------------------------------------------+--------------------------------------------------------------------------|
 | =create=, =q=                                                             | Add an issue; =q= prints only the new id                                 |
 | =list=, =show=                                                            | Rows of issues; one issue's metadata and body (=--org= for the raw heading) |
-| =update=, =claim=, =refile=, =reject=, =resolve=                          | Change state, priority, or blockers; take an issue; move it; redirect; pick a sibling terminal |
+| =update=, =claim=, =release=, =refile=, =reject=, =resolve=               | Change state, priority, or blockers; take an issue; drop one holder's claims; move it; redirect; pick a sibling terminal |
 | =note=                                                                    | Add a dated logbook entry; state and claim untouched                     |
 | =append=                                                                  | Record a dated report under the heading, from =--text=, =--file=, or stdin |
 | =body-excerpt=                                                            | A capped preview of an issue's file range; =show --org= for the whole heading |
@@ -265,7 +265,7 @@ The owner holds an in-memory catalog and answers the v1 methods:
 =issue/agenda=, =issue/show=, =issue/excerpt=, =issue/tree=,
 =issue/related=, =issue/children=, =issue/ancestors=, =issue/impact=,
 =issue/backlinks=, =issue/open=, =issue/create=, =issue/update=,
-=issue/claim=, =issue/note=, =issue/refile=, =project/list=,
+=issue/claim=, =issue/release=, =issue/note=, =issue/refile=, =project/list=,
 =events/since=, =events/gen=, and =identity/get=. =initialize= requires a
 non-empty =agent=. Mutations use that connection agent, or an optional
 per-call =agent=; they never read =VISSUE_AGENT= for the RPC. After a
@@ -320,7 +320,8 @@ Read one issue or many: =vissue_list=, =vissue_ready=, =vissue_show=,
 =vissue_count=, =vissue_search=, =vissue_claims=, =vissue_agenda=,
 =vissue_body_excerpt=, =vissue_org=, =vissue_export=.
 
-Change one: =vissue_create=, =vissue_update=, =vissue_claim=, =vissue_note=,
+Change one: =vissue_create=, =vissue_update=, =vissue_claim=, =vissue_release=,
+=vissue_note=,
 =vissue_append=, =vissue_refile=, =vissue_fold=, =vissue_reject=, =vissue_resolve=,
 =vissue_vote=, =vissue_deed=.
 
@@ -515,7 +516,7 @@ need no Cap'n Proto toolchain; regenerating after a schema edit does, and
 * Control socket coverage
 
 Every verb that changes a file has a method: =issue/create=, =issue/update=,
-=issue/claim=, =issue/note=, =issue/append=, =issue/refile=, =issue/reject=,
+=issue/claim=, =issue/release=, =issue/note=, =issue/append=, =issue/refile=, =issue/reject=,
 =issue/resolve=, =issue/vote=, =issue/deed=, =issue/fold=, =issue/normalize=.
 
 The reads have methods too: =issue/list=, =issue/show=, =issue/get=,

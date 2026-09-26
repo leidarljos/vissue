@@ -142,6 +142,18 @@ pub struct ClaimArgs {
 }
 
 #[derive(Deserialize, JsonSchema)]
+pub struct ReleaseArgs {
+    /// Identity whose claims to drop.
+    pub holder: String,
+    /// Only claims whose newest claim or note is older than this many days.
+    pub older_than: Option<i64>,
+    /// Print what would be released without writing.
+    pub dry_run: Option<bool>,
+    /// Why this holder is being released; written on each ticket.
+    pub why: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
 pub struct AppendArgs {
     /// Issue id to append to.
     pub issue_id: String,

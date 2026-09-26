@@ -808,6 +808,182 @@ fn standing_on(h: &IssueHeading) -> String {
     format!("  `recall {}` for {}\n", h.id, parts.join(", "))
 }
 
+/// Fold a logbook note the same way [`note`] does: one line, single quotes.
+fn fold_note_text(text: &str) -> String {
+    text.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .replace('"', "'")
+}
+
+/// Drop every live claim held by `holder`. State stays STARTED or BLOCKED.
+///
+/// Each released heading gets the usual claim-released bookkeeping line plus a
+/// note naming who ran the verb and why. `--older-than` keeps claims whose
+/// newest claim or note is still inside that many days. `dry_run` prints the
+/// same report without writing.
+///
+/// # Errors
+///
+/// Returns an error if `holder` is empty or a file cannot be rewritten.
+pub fn release_holder(
+    layout: &Layout,
+    holder: &str,
+    older_than: Option<i64>,
+    why: Option<&str>,
+    dry_run: bool,
+) -> Result<String> {
+    let identity = crate::config::identity(layout);
+    release_holder_as(layout, holder, older_than, why, dry_run, &identity)
+}
+
+/// [`release_holder`] with the releasing identity passed in.
+///
+/// # Errors
+///
+/// Returns an error if `holder` is empty or a file cannot be rewritten.
+pub fn release_holder_as(
+    layout: &Layout,
+    holder: &str,
+    older_than: Option<i64>,
+    why: Option<&str>,
+    dry_run: bool,
+    identity: &str,
+) -> Result<String> {
+    if holder.trim().is_empty() {
+        return Err(anyhow!("--holder given but empty").into());
+    }
+    let today = chrono::Local::now().date_naive();
+    let why_text = {
+        let folded = why.map(fold_note_text).unwrap_or_default();
+        if folded.is_empty() {
+            match older_than {
+                Some(days) => {
+                    format!("bulk release of holder {holder}: last activity older than {days}d")
+                }
+                None => format!("bulk release of holder {holder}"),
+            }
+        } else {
+            folded
+        }
+    };
+    let note_line = format!("released by {identity}: {why_text}");
+
+    #[derive(Clone)]
+    struct Target {
+        id: String,
+        project: String,
+        last: Option<NaiveDate>,
+        age: Option<i64>,
+        state: String,
+    }
+
+    let mut targets: Vec<Target> = Vec::new();
+    for (project, h) in load_all(layout)? {
+        let Some(who) = h.claimed_by() else {
+            continue;
+        };
+        if who != holder {
+            continue;
+        }
+        if h.state != "STARTED" && h.state != "BLOCKED" {
+            continue;
+        }
+        let age = h.last_activity_age_days(today);
+        if let Some(limit) = older_than {
+            match age {
+                Some(d) if d > limit => {}
+                _ => continue,
+            }
+        }
+        targets.push(Target {
+            id: h.id.clone(),
+            project,
+            last: h.last_activity_date(),
+            age,
+            state: h.state.clone(),
+        });
+    }
+    targets.sort_by(|a, b| a.id.cmp(&b.id));
+
+    let mut out = String::new();
+    if targets.is_empty() {
+        let _ = writeln!(out, "no live claims held by {holder}");
+        return Ok(out);
+    }
+    let prefix = if dry_run {
+        "dry-run: would release"
+    } else {
+        "released"
+    };
+    let _ = writeln!(
+        out,
+        "{prefix} {} claim{} held by {holder}",
+        targets.len(),
+        if targets.len() == 1 { "" } else { "s" }
+    );
+    for t in &targets {
+        let age_txt = t
+            .age
+            .map(|d| format!("{d}d"))
+            .unwrap_or_else(|| "?d".into());
+        let last_txt = t
+            .last
+            .map(|d| d.format("%Y-%m-%d").to_string())
+            .unwrap_or_else(|| "?".into());
+        let _ = writeln!(
+            out,
+            "  {}  {}  last {last_txt}  {age_txt}  {} ({})",
+            t.id, t.state, holder, t.project
+        );
+    }
+    let _ = writeln!(out, "note: {note_line}");
+    if dry_run {
+        return Ok(out);
+    }
+
+    let mut by_path: BTreeMap<PathBuf, (String, Vec<String>)> = BTreeMap::new();
+    for t in &targets {
+        let path = layout.project_issues_path(&t.project);
+        by_path
+            .entry(path)
+            .or_insert_with(|| (t.project.clone(), Vec::new()))
+            .1
+            .push(t.id.clone());
+    }
+    let paths: Vec<PathBuf> = by_path.keys().cloned().collect();
+    let path_refs: Vec<&Path> = paths.iter().map(PathBuf::as_path).collect();
+    with_issues_locks(&path_refs, || {
+        for (path, (project, ids)) in &by_path {
+            let mut doc = IssueDoc::parse_file(project, path)?;
+            for id in ids {
+                let h = doc
+                    .headings
+                    .iter_mut()
+                    .find(|x| x.id == *id)
+                    .ok_or_else(|| Error::IssueNotFound { id: id.clone() })?;
+                if h.claimed_by() != Some(holder) {
+                    continue;
+                }
+                h.release_claim();
+                h.logbook.insert(
+                    0,
+                    LogEntry {
+                        timestamp: LogEntry::now(),
+                        from_state: None,
+                        to_state: None,
+                        note: Some(note_line.clone()),
+                        raw: None,
+                    },
+                );
+            }
+            doc.write()?;
+        }
+        Ok(())
+    })?;
+    Ok(out)
+}
+
 /// What an update changed, plus advice about issues left dangling by it.
 #[derive(Debug, Clone)]
 pub struct UpdateOutcome {
@@ -2231,6 +2407,85 @@ mod tests {
         let h = issue_at(&layout, "sample", &first);
         assert_eq!(h.state, "TODO");
         assert!(h.claimed_by().is_none(), "claim stuck on TODO: {h:?}");
+    }
+
+    #[test]
+    fn release_holder_drops_every_claim_and_leaves_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = fresh_layout(dir.path());
+        create(&layout, "sample", "first", CreateOpts::default()).unwrap();
+        create(&layout, "sample", "second", CreateOpts::default()).unwrap();
+        let doc = IssueDoc::parse_file("sample", &layout.project_issues_path("sample")).unwrap();
+        let first = doc.headings[0].id.clone();
+        let second = doc.headings[1].id.clone();
+        claim_as(&layout, &first, false, "dead-host").unwrap();
+        claim_as(&layout, &second, false, "dead-host").unwrap();
+
+        let preview = release_holder_as(
+            &layout,
+            "dead-host",
+            None,
+            Some("X1 laptop is gone"),
+            true,
+            "operator",
+        )
+        .unwrap();
+        assert!(
+            preview.starts_with("dry-run: would release 2 claims"),
+            "{preview}"
+        );
+        assert!(
+            preview.contains(&first) && preview.contains(&second),
+            "{preview}"
+        );
+        assert!(
+            issue_at(&layout, "sample", &first).claimed_by() == Some("dead-host"),
+            "dry-run wrote"
+        );
+
+        let done = release_holder_as(
+            &layout,
+            "dead-host",
+            None,
+            Some("X1 laptop is gone"),
+            false,
+            "operator",
+        )
+        .unwrap();
+        assert!(
+            done.starts_with("released 2 claims held by dead-host"),
+            "{done}"
+        );
+        for id in [&first, &second] {
+            let h = issue_at(&layout, "sample", id);
+            assert_eq!(h.state, "STARTED", "{id} left STARTED");
+            assert_eq!(h.claimed_by(), None, "{id} still claimed");
+            assert!(
+                h.logbook.iter().any(|e| {
+                    e.note
+                        .as_deref()
+                        .is_some_and(|n| n.contains("released by operator: X1 laptop is gone"))
+                }),
+                "no why note on {id}: {:?}",
+                h.logbook
+            );
+        }
+    }
+
+    #[test]
+    fn release_holder_older_than_keeps_a_fresh_claim() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = fresh_layout(dir.path());
+        create(&layout, "sample", "fresh", CreateOpts::default()).unwrap();
+        let id = only_id(&layout, "sample");
+        claim_as(&layout, &id, false, "still-here").unwrap();
+        let text =
+            release_holder_as(&layout, "still-here", Some(7), None, false, "operator").unwrap();
+        assert!(text.contains("no live claims held by still-here"), "{text}");
+        assert_eq!(
+            issue_at(&layout, "sample", &id).claimed_by(),
+            Some("still-here")
+        );
     }
 
     #[test]

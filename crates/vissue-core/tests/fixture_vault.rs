@@ -1138,13 +1138,19 @@ fn hygiene_reports_a_claim_that_has_gone_stale() {
     let layout = fixture_layout();
     // The fixture claim was taken in January, so any small threshold trips it.
     let text = vissue_core::agent::hygiene(&layout, Some(7)).unwrap();
-    assert!(text.contains("claim held"), "{text}");
-    assert!(text.contains("atlas-1a2b by fixture-agent"), "{text}");
+    assert!(text.contains("stale"), "{text}");
+    assert!(text.contains("fixture-agent"), "{text}");
     assert!(text.contains("stale_claims=1"), "{text}");
+    assert!(text.contains("stale_holders=1"), "{text}");
+    assert!(
+        !text.contains("claim held"),
+        "per-issue stale lines came back: {text}"
+    );
 
     // A threshold wider than the claim age reports nothing stale.
     let wide = vissue_core::agent::hygiene(&layout, Some(100_000)).unwrap();
     assert!(wide.contains("stale_claims=0"), "{wide}");
+    assert!(wide.contains("stale_holders=0"), "{wide}");
 }
 
 #[test]

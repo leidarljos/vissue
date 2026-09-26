@@ -335,6 +335,29 @@ impl VissueServer {
     }
 
     #[tool(
+        description = "Drop every live claim held by one identity. State stays STARTED or BLOCKED. Pass dry_run to preview; why is written on each ticket.",
+        annotations(
+            title = "Release a holder's claims",
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn vissue_release(
+        &self,
+        Parameters(args): Parameters<ReleaseArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        text(ops::release_holder(
+            &self.layout,
+            &args.holder,
+            args.older_than,
+            args.why.as_deref(),
+            args.dry_run.unwrap_or(false),
+        ))
+    }
+
+    #[tool(
         description = "Append a dated report to an issue's body. Use this to record work that was done: the logbook holds one line per event, so a written report belongs in the body. Markdown is safe.",
         annotations(
             title = "Append a report",
@@ -1561,6 +1584,19 @@ mod tests {
                 .vissue_note(Parameters(NoteArgs {
                     issue_id: id.clone(),
                     text: "waiting on the vault rotation window".into(),
+                }))
+                .await
+                .unwrap()
+                .is_error,
+            Some(false)
+        );
+        assert_eq!(
+            server
+                .vissue_release(Parameters(ReleaseArgs {
+                    holder: "nobody".into(),
+                    older_than: None,
+                    dry_run: Some(true),
+                    why: None,
                 }))
                 .await
                 .unwrap()

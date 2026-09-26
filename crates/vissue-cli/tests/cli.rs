@@ -496,6 +496,11 @@ fn the_read_only_command_surface_dispatches_against_the_fixture() {
         (&["claims"], "fixture-agent"),
         (&["agenda", "--days", "5000"], "beacon-5j6k"),
         (&["hygiene", "--stale-days", "1"], "stale_claims=1"),
+        (&["hygiene", "--stale-days", "1"], "stale_holders=1"),
+        (
+            &["release", "--holder", "fixture-agent", "--dry-run"],
+            "dry-run: would release 1 claim held by fixture-agent",
+        ),
         (&["waiting-on", "atlas-1a2b"], "atlas-3e4f"),
         (
             &["body-excerpt", "atlas-1a2b"],

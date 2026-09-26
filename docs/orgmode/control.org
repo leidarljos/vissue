@@ -99,7 +99,7 @@ and never feeds a core generation into =issue/list.since_revision=.
 * Identity
 
 =initialize.params.agent= is required and non-empty. That value sticks
-on the connection. =issue/claim=, =issue/update=, =issue/append= and =issue/vote= may send =agent=
+on the connection. =issue/claim=, =issue/release=, =issue/update=, =issue/append= and =issue/vote= may send =agent=
 to override; omitting it means use the initialize agent.
 
 Serve never falls back to process =VISSUE_AGENT= for a control client,
@@ -132,6 +132,7 @@ Capabilities returned by =initialize= (v1):
 | =issue/create=     | Create; fields of the CLI create verb                     |
 | =issue/update=     | State, priority, block, unblock                           |
 | =issue/claim=      | Take the issue; =force= default false                     |
+| =issue/release=    | Drop every live claim held by =holder=; =dry_run=, =older_than=, =why= |
 | =issue/note=       | Dated logbook entry                                       |
 | =issue/refile=     | Move to another project                                   |
 | =issue/append=     | Dated report under the heading                             |

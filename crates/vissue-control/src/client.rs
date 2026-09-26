@@ -249,6 +249,9 @@ pub fn decode_response(method: &str, value: Value) -> Result<Response, Error> {
             Ok(Response::IssueUpdate(serde_json::from_value(value)?))
         }
         crate::rpc::Method::IssueClaim => Ok(Response::IssueClaim(serde_json::from_value(value)?)),
+        crate::rpc::Method::IssueRelease => {
+            Ok(Response::IssueRelease(serde_json::from_value(value)?))
+        }
         crate::rpc::Method::IssueNote => Ok(Response::IssueNote(serde_json::from_value(value)?)),
         crate::rpc::Method::IssueRefile => {
             Ok(Response::IssueRefile(serde_json::from_value(value)?))
@@ -555,6 +558,7 @@ mod tests {
             "issue/create",
             "issue/update",
             "issue/claim",
+            "issue/release",
             "issue/note",
             "issue/refile",
             "project/list",
@@ -572,7 +576,8 @@ mod tests {
                     json!([])
                 }
                 "issue/tree" => json!({"text": "* a"}),
-                "issue/create" | "issue/update" | "issue/claim" | "issue/note" | "issue/refile" => {
+                "issue/create" | "issue/update" | "issue/claim" | "issue/release"
+                | "issue/note" | "issue/refile" => {
                     json!({"ok":true,"report":"","issue":null,"revision":1,"generation":1})
                 }
                 "project/list" => json!({"projects":[],"revision":1}),

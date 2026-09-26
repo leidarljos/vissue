@@ -853,6 +853,10 @@ fn every_mutating_reply_has_the_same_shape() {
     let calls: Vec<(&str, serde_json::Value)> = vec![
         ("issue/update", json!({"id": id, "priority": "B"})),
         ("issue/claim", json!({"id": id, "agent": "shape-agent"})),
+        (
+            "issue/release",
+            json!({"holder": "nobody", "dry_run": true}),
+        ),
         ("issue/note", json!({"id": id, "text": "a note"})),
         ("issue/append", json!({"id": id, "text": "a report"})),
         (
