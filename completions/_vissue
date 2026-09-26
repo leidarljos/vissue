@@ -166,7 +166,7 @@ _arguments "${_arguments_options[@]}" : \
 (release)
 _arguments "${_arguments_options[@]}" : \
 '--holder=[Identity whose claims to drop]:HOLDER:_default' \
-'--older-than=[Only claims whose newest claim or note is older than this many days]:OLDER_THAN:_default' \
+'--older-than=[Only claims whose claim stamp is older than this many days]:OLDER_THAN:_default' \
 '--why=[Why this holder is being released; written on each ticket]:WHY:_default' \
 '--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
 '--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \

@@ -155,7 +155,7 @@ complete -c vissue -n "__fish_vissue_using_subcommand claim" -l force -d 'Take o
 complete -c vissue -n "__fish_vissue_using_subcommand claim" -l no-route -d 'Ignore `$VISSUE_CONFIG` / `~/.config/vissue/config.toml` and keep every verb on the process default layout'
 complete -c vissue -n "__fish_vissue_using_subcommand claim" -s h -l help -d 'Print help'
 complete -c vissue -n "__fish_vissue_using_subcommand release" -l holder -d 'Identity whose claims to drop' -r
-complete -c vissue -n "__fish_vissue_using_subcommand release" -l older-than -d 'Only claims whose newest claim or note is older than this many days' -r
+complete -c vissue -n "__fish_vissue_using_subcommand release" -l older-than -d 'Only claims whose claim stamp is older than this many days' -r
 complete -c vissue -n "__fish_vissue_using_subcommand release" -l why -d 'Why this holder is being released; written on each ticket' -r
 complete -c vissue -n "__fish_vissue_using_subcommand release" -l root -d 'Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory' -r -F
 complete -c vissue -n "__fish_vissue_using_subcommand release" -l prefix -d 'Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then `prefix` in vissue.toml, then `Software`' -r
