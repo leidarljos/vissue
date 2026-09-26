@@ -335,7 +335,7 @@ impl VissueServer {
     }
 
     #[tool(
-        description = "Drop every live claim held by one identity. State stays STARTED or BLOCKED. Pass dry_run to preview; why is written on each ticket.",
+        description = "Drop every claim stamp held by one identity, including one left on a closed heading. State stays. Pass dry_run to preview; why is written on each ticket.",
         annotations(
             title = "Release a holder's claims",
             read_only_hint = false,

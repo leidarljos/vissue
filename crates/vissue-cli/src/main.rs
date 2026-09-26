@@ -225,7 +225,7 @@ enum Command {
         #[arg(long)]
         force: bool,
     },
-    /// Drop every live claim held by one identity. State stays.
+    /// Drop every claim stamp held by one identity, including one left on a closed heading. State stays.
     Release {
         /// Identity whose claims to drop
         #[arg(long)]

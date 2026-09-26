@@ -376,7 +376,7 @@ pub enum Method {
     IssueUpdate,
     /// Take the issue.
     IssueClaim,
-    /// Drop every live claim held by one identity.
+    /// Drop every claim stamp held by one identity, including one left on a closed heading.
     IssueRelease,
     /// Dated logbook entry.
     IssueNote,
@@ -1401,7 +1401,7 @@ pub enum Request {
     IssueUpdate(UpdateParams),
     /// Take the issue.
     IssueClaim(ClaimParams),
-    /// Drop every live claim held by one identity.
+    /// Drop every claim stamp held by one identity, including one left on a closed heading.
     IssueRelease(ReleaseParams),
     /// Dated logbook entry.
     IssueNote(NoteParams),

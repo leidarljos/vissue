@@ -348,7 +348,7 @@ stamp, and flags holders whose claim is older than =stale_claim_days=
 (default 7). Logbook notes do not count: they do not name who wrote them.
 STARTED issues nobody has claimed are still listed one by one.
 
-To drop every claim one identity still holds, without changing state:
+To drop every claim stamp one identity still holds, including a stamp left on a closed heading, without changing state:
 
 #+begin_src console
 $ vissue release --holder rgoswami@rgx1gen11 --dry-run

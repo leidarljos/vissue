@@ -829,11 +829,13 @@ fn fold_note_text(text: &str) -> String {
         .replace('"', "'")
 }
 
-/// Drop every live claim held by `holder`. State stays STARTED or BLOCKED.
+/// Drop every claim stamp held by `holder`. State stays as it is.
 ///
-/// Each released heading gets the usual claim-released bookkeeping line plus a
-/// note naming who ran the verb and why. `--older-than` keeps claims whose
-/// claim stamp is still inside that many days. `dry_run` prints the
+/// A closed heading can still carry the stamp when it was closed without
+/// giving the claim up. That stamp is what `claims` lists, so it is released
+/// too. Each released heading gets the usual claim-released bookkeeping line
+/// plus a note naming who ran the verb and why. `--older-than` keeps claims
+/// whose claim stamp is still inside that many days. `dry_run` prints the
 /// same report without writing.
 ///
 /// # Errors
@@ -897,9 +899,6 @@ pub fn release_holder_as(
             continue;
         };
         if who != holder {
-            continue;
-        }
-        if h.state != "STARTED" && h.state != "BLOCKED" {
             continue;
         }
         let age = h.last_activity_age_days(today);
@@ -2521,6 +2520,50 @@ mod tests {
         assert_eq!(
             issue_at(&layout, "sample", &id).claimed_by(),
             Some("still-here")
+        );
+    }
+
+    #[test]
+    fn release_holder_clears_a_stamp_left_on_a_closed_heading() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = fresh_layout(dir.path());
+        create(
+            &layout,
+            "sample",
+            "closed with a stamp",
+            CreateOpts::default(),
+        )
+        .unwrap();
+        let id = only_id(&layout, "sample");
+        claim_as(&layout, &id, false, "dead-host").unwrap();
+        let path = layout.project_issues_path("sample");
+        let mut doc = IssueDoc::parse_file("sample", &path).unwrap();
+        let h = doc.headings.iter_mut().find(|h| h.id == id).unwrap();
+        h.state = "DONE".to_string();
+        doc.write().unwrap();
+
+        let done = release_holder_as(
+            &layout,
+            "dead-host",
+            None,
+            Some("lost host"),
+            false,
+            "operator",
+        )
+        .unwrap();
+        assert!(done.contains("released 1 claim"), "{done}");
+        assert!(done.contains("DONE"), "{done}");
+        let h = issue_at(&layout, "sample", &id);
+        assert_eq!(h.state, "DONE");
+        assert_eq!(h.claimed_by(), None);
+        assert!(
+            h.logbook.iter().any(|e| {
+                e.note
+                    .as_deref()
+                    .is_some_and(|n| n.contains("released by operator: lost host"))
+            }),
+            "no why note: {:?}",
+            h.logbook
         );
     }
 
