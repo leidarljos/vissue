@@ -28,7 +28,12 @@ allow = [
 # wraps LLVM's fuzzer. It arrives through iced's image decoding
 # (image -> ravif -> rav1e) and is only built when fuzzing, so the licence
 # is allowed for that crate rather than for the whole graph.
-exceptions = [{ name = "libfuzzer-sys", allow = ["NCSA"] }]
+exceptions = [
+    { name = "libfuzzer-sys", allow = ["NCSA"] },
+    # ksni is the StatusNotifier tray. Its crate is Unlicense, which is
+    # not on the graph-wide list.
+    { name = "ksni", allow = ["Unlicense"] },
+]
 
 [sources]
 unknown-registry = "deny"
