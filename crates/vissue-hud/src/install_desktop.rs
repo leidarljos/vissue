@@ -43,6 +43,11 @@ impl Report {
 }
 
 /// Install under `xdg_data` / `xdg_config` using `exe` as Exec=.
+///
+/// # Errors
+///
+/// Returns an error when the application or config directory cannot be
+/// created, or when either file cannot be written.
 pub fn install(home: &Path, exe: &Path, xdg_data: Option<&Path>) -> io::Result<Report> {
     let data = xdg_data
         .map(Path::to_path_buf)
@@ -84,6 +89,11 @@ pub fn install(home: &Path, exe: &Path, xdg_data: Option<&Path>) -> io::Result<R
 }
 
 /// CLI: install using this process executable.
+///
+/// # Errors
+///
+/// Returns an error when `HOME` is unset, the executable path cannot be
+/// read, or [`install`] fails.
 pub fn run_cli() -> io::Result<Report> {
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
