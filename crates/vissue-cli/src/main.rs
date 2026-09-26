@@ -781,7 +781,7 @@ fn create_routed(
     let pref = router.route(project);
     // A create mints an id into a file; a guessed root without a tracker is
     // a checkout, and a ticket written there is lost to every other seat.
-    pref.layout.require_tracker()?;
+    pref.layout.require_tracker_to_create()?;
     // Paths rather than ids: the mint reads them under the lock it writes
     // under, so a twin create in another root cannot slip between.
     let twins = router.extra_id_paths_for(&pref.dir);

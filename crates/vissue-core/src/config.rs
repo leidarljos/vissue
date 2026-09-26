@@ -100,6 +100,25 @@ impl Layout {
         })
     }
 
+    /// [`Self::require_tracker`], and a root that exists: a create under a
+    /// named root that is not a directory would build a private tree that no
+    /// other seat reads and that mints ids the real tracker already holds.
+    ///
+    /// # Errors
+    ///
+    /// [`crate::error::Error::NotATracker`] as for `require_tracker`, or when
+    /// the root is not a directory.
+    pub fn require_tracker_to_create(&self) -> Result<()> {
+        self.require_tracker()?;
+        if self.root.is_dir() {
+            return Ok(());
+        }
+        Err(crate::error::Error::NotATracker {
+            root: self.root.clone(),
+            prefix: self.prefix.clone(),
+        })
+    }
+
     /// Tracker root: the directory that holds `vissue.toml` and `prefix`.
     pub fn root(&self) -> &Path {
         &self.root
@@ -949,6 +968,26 @@ mod tests {
         // And with no seat file, the working directory as a guess, which is
         // what `require_tracker` refuses when it holds no tracker.
         assert_eq!(choose_root(None, None, &here, false, None), (here, true));
+    }
+
+    /// A named root that does not exist is refused, as a guessed empty one
+    /// is; a named directory is trusted even before it holds a project.
+    #[test]
+    fn a_missing_named_root_is_not_a_tracker() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(
+            Layout::new(dir.path(), "Software")
+                .require_tracker_to_create()
+                .is_ok()
+        );
+        let missing = dir.path().join("~/vault");
+        assert!(
+            Layout::new(&missing, "Software")
+                .require_tracker_to_create()
+                .is_err()
+        );
+        // Reads under a missing named root keep their own error paths.
+        assert!(Layout::new(&missing, "Software").require_tracker().is_ok());
     }
 
     /// A root that arrives as `~/...` from the environment is the home one,
