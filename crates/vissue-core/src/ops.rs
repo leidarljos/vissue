@@ -109,6 +109,19 @@ pub struct CreateOpts<'a> {
 /// `parent` is not a known org id, the id space is exhausted, or the file
 /// cannot be locked or rewritten.
 pub fn create(layout: &Layout, project: &str, title: &str, opts: CreateOpts<'_>) -> Result<String> {
+    // A board this tracker projects from another holds its issues there; a
+    // heading written here lands in a stub no seat reads.
+    if let Some(board) = crate::projection::boards(layout.root())
+        .unwrap_or_default()
+        .into_iter()
+        .find(|b| b.source != "self" && b.project.eq_ignore_ascii_case(project))
+    {
+        return Err(anyhow!(
+            "{project} is not created here: {}",
+            crate::projection::projected_note(&board)
+        )
+        .into());
+    }
     let project = resolve_existing_project_case(layout, project)?;
     let cfg = VissueConfig::load(layout)?;
     let path = layout.project_issues_path(&project);
@@ -2017,6 +2030,29 @@ mod tests {
             .headings[0]
             .id
             .clone()
+    }
+
+    #[test]
+    fn a_projected_board_refuses_a_create_and_names_its_inbox() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = fresh_layout(dir.path());
+        fs::write(
+            dir.path().join("vissue.toml"),
+            "[[projection.board]]\nproject = \"surf\"\nmirror = \"m/surf.org\"\n\n[[projection.board]]\nproject = \"ljos\"\nsource = \"vault\"\nmirror = \"m/ljos.org\"\ninbox = \"Software/ljos/inbox.org\"\n",
+        )
+        .unwrap();
+        let err = create(&layout, "ljos", "an audit", CreateOpts::default()).unwrap_err();
+        assert!(err.to_string().contains("Software/ljos/inbox.org"), "{err}");
+        assert!(!layout.project_issues_path("ljos").exists());
+        // A board this tracker is the source of takes the create.
+        create(&layout, "surf", "local work", CreateOpts::default()).unwrap();
+        assert_eq!(
+            IssueDoc::parse_file("surf", &layout.project_issues_path("surf"))
+                .unwrap()
+                .headings
+                .len(),
+            1
+        );
     }
 
     /// A claim is where an agent starts working, so it is where the working set
