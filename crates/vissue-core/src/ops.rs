@@ -1099,7 +1099,7 @@ pub fn append_body_as(layout: &Layout, id: &str, text: &str, identity: &str) -> 
 }
 
 /// Name of the drawer votes live in.
-const VOTES_DRAWER: &str = "VOTES";
+pub(crate) const VOTES_DRAWER: &str = "VOTES";
 
 /// One agent's ballot on one issue.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1262,7 +1262,7 @@ fn read_ballots(h: &IssueHeading) -> (Vec<Ballot>, Vec<String>) {
 
 /// `[date] agent: choice`. The choice may hold ": ", so the first one delimits
 /// and the agent may not contain it; [`vote`] refuses an identity that does.
-fn parse_ballot(line: &str) -> Option<Ballot> {
+pub(crate) fn parse_ballot(line: &str) -> Option<Ballot> {
     let (stamp, rest) = line.strip_prefix('[')?.split_once("] ")?;
     let (agent, choice) = rest.split_once(": ")?;
     let agent = agent.trim();
@@ -1325,7 +1325,7 @@ fn split_ballot_tail(choice: &str) -> (&str, Option<String>, Option<String>) {
     (choice, None, None)
 }
 
-fn drawer_name_is(drawer: &str, name: &str) -> bool {
+pub(crate) fn drawer_name_is(drawer: &str, name: &str) -> bool {
     drawer
         .lines()
         .next()

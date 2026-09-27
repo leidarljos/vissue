@@ -15,6 +15,7 @@ pub mod error;
 pub mod events;
 pub mod graph;
 pub mod keys;
+pub mod merge;
 pub mod mirror;
 pub mod model;
 pub mod ops;

@@ -569,6 +569,26 @@ enum Command {
         #[arg(long)]
         check: bool,
     },
+    /// Merge three versions of one issues.org by heading: git's merge
+    /// driver. Notes, ballots, tags and properties that commute merge on
+    /// their own; a field both sides changed keeps ours and is written on
+    /// the heading as a merge-conflict note. A side that does not parse
+    /// leaves git's ordinary conflict. `--install` registers the driver
+    /// in the repository you stand in.
+    MergeDriver {
+        /// The common ancestor (git's %O).
+        base: Option<PathBuf>,
+        /// Ours (%A); the merge is written here.
+        ours: Option<PathBuf>,
+        /// Theirs (%B).
+        theirs: Option<PathBuf>,
+        /// The file's path in the tree (%P); its directory names the project.
+        path: Option<String>,
+        /// Register the driver in this repository's git config and
+        /// .gitattributes instead of merging.
+        #[arg(long)]
+        install: bool,
+    },
     /// Write a read-only projection of one or more projects to a file.
     Mirror {
         /// Project to include; repeat for several. Omit for every project.
@@ -774,6 +794,95 @@ fn main() {
         }
         eprintln!("vissue: {}", vissue_core::error::chain_line(&e));
         std::process::exit(1);
+    }
+}
+
+/// git's merge driver for issues.org, or its registration with `install`.
+fn merge_driver(
+    base: Option<&std::path::Path>,
+    ours: Option<&std::path::Path>,
+    theirs: Option<&std::path::Path>,
+    path: Option<&str>,
+    install: bool,
+) -> Result<()> {
+    if install {
+        let exe = std::env::current_exe().context("merge-driver: locate this binary")?;
+        let driver = format!("{} merge-driver %O %A %B %P", exe.display());
+        for (key, value) in [
+            ("merge.vissue.name", "vissue: merge issues.org by heading"),
+            ("merge.vissue.driver", driver.as_str()),
+        ] {
+            let ok = std::process::Command::new("git")
+                .args(["config", "--local", key, value])
+                .status()
+                .context("merge-driver: run git config")?
+                .success();
+            if !ok {
+                bail!(
+                    "merge-driver: git config {key} failed; run this inside the tracker's repository"
+                );
+            }
+        }
+        let top = std::process::Command::new("git")
+            .args(["rev-parse", "--show-toplevel"])
+            .output()
+            .context("merge-driver: find the repository top")?;
+        let top = PathBuf::from(String::from_utf8_lossy(&top.stdout).trim());
+        let attrs = top.join(".gitattributes");
+        let line = "issues.org merge=vissue";
+        let held = std::fs::read_to_string(&attrs).unwrap_or_default();
+        if !held.lines().any(|l| l.trim() == line) {
+            let mut text = held;
+            if !text.is_empty() && !text.ends_with('\n') {
+                text.push('\n');
+            }
+            text.push_str(line);
+            text.push('\n');
+            std::fs::write(&attrs, text).with_context(|| format!("write {}", attrs.display()))?;
+        }
+        println!(
+            "merge-driver: registered as {driver}; {} names issues.org; commit it so every clone merges the same way",
+            attrs.display()
+        );
+        return Ok(());
+    }
+    let (Some(base), Some(ours), Some(theirs)) = (base, ours, theirs) else {
+        bail!("merge-driver: pass BASE OURS THEIRS [PATH], as git's %O %A %B %P");
+    };
+    let read = |p: &std::path::Path| {
+        std::fs::read_to_string(p).with_context(|| format!("read {}", p.display()))
+    };
+    let project = path
+        .and_then(|p| std::path::Path::new(p).parent())
+        .and_then(|d| d.file_name())
+        .and_then(|n| n.to_str())
+        .unwrap_or("issues")
+        .to_string();
+    match vissue_core::merge::merge_tracker(&project, &read(base)?, &read(ours)?, &read(theirs)?) {
+        Ok(m) => {
+            std::fs::write(ours, &m.text).with_context(|| format!("write {}", ours.display()))?;
+            if m.conflicts > 0 {
+                eprintln!(
+                    "vissue merge: {} clash(es) in {} kept ours and written as merge-conflict notes",
+                    m.conflicts,
+                    path.unwrap_or("issues.org")
+                );
+            }
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!(
+                "vissue merge: {}; leaving git's text conflict",
+                vissue_core::error::chain_line(&anyhow::Error::from(e))
+            );
+            let _ = std::process::Command::new("git")
+                .args(["merge-file", "-L", "ours", "-L", "base", "-L", "theirs"])
+                .arg(ours)
+                .arg(base)
+                .arg(theirs)
+                .status();
+            std::process::exit(1);
+        }
     }
 }
 
@@ -1204,7 +1313,7 @@ fn run_keys(check: bool, occupancy: bool) -> Result<()> {
 /// from anywhere.
 fn reads_the_corpus(command: &Command) -> bool {
     match command {
-        Command::Completions { .. } | Command::Man => false,
+        Command::Completions { .. } | Command::Man | Command::MergeDriver { .. } => false,
         // Sealing and checking a satchel read a directory somebody was handed.
         // The whole point of a satchel is that it opens where there is no
         // tracker, so requiring one to check it would refuse the receiver.
@@ -1215,6 +1324,23 @@ fn reads_the_corpus(command: &Command) -> bool {
 
 fn run() -> Result<()> {
     let cli = Cli::parse();
+    // git runs the merge driver in any repository, tracker or not.
+    if let Command::MergeDriver {
+        base,
+        ours,
+        theirs,
+        path,
+        install,
+    } = &cli.command
+    {
+        return merge_driver(
+            base.as_deref(),
+            ours.as_deref(),
+            theirs.as_deref(),
+            path.as_deref(),
+            *install,
+        );
+    }
     let router = build_router(&cli)?;
     // With no routed layouts the guessed default must be a tracker: "none"
     // from a directory that holds none is a wrong answer.
@@ -1764,6 +1890,8 @@ fn run() -> Result<()> {
         Command::Keys { check, occupancy } => {
             run_keys(check, occupancy)?;
         }
+        // Answered before the router is built; git runs it anywhere.
+        Command::MergeDriver { .. } => {}
         Command::Man => {
             let mut buffer: Vec<u8> = Vec::new();
             clap_mangen::Man::new(Cli::command())

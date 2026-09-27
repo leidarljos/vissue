@@ -223,7 +223,7 @@ pub struct IssueDoc {
     /// Org that follows each issue (COMMENT trees, notes headings). Same
     /// length as [`Self::headings`] after a parse; a write pads missing
     /// slots with the usual blank line.
-    after: Vec<String>,
+    pub(crate) after: Vec<String>,
 }
 
 impl IssueDoc {

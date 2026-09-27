@@ -36,6 +36,7 @@
 | =hud=                                                                     | Iced task board; =--rofi= for the dmenu picker (=--mode=) |
 | =keys=                                                                    | The board key catalog; =--check= validates an overlay, =--occupancy= lists taken chords |
 | =completions=, =man=                                                      | Shell completion scripts and the manual page                             |
+| =merge-driver=                                                            | git's merge driver for =issues.org=: merges by heading, keeps a clash as a note; =--install= registers it in this repository |
 | =surface=                                                                 | This binary's own subcommands, aliases and flags as JSON; hidden, and not about the tracker |
 
 * Projects
