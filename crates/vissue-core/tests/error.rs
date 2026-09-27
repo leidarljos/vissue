@@ -140,3 +140,18 @@ fn the_debug_shape_names_the_variant() {
     );
     assert!(text.contains("InvalidState"), "{text}");
 }
+
+#[test]
+fn a_chain_line_says_a_wrapped_message_once() {
+    let wrapped: Error = anyhow::anyhow!("acme is not created here").into();
+    let e = anyhow::Error::from(wrapped);
+    assert_eq!(
+        vissue_core::error::chain_line(&e),
+        "acme is not created here"
+    );
+    let caused = anyhow::anyhow!("disk full").context("write refused");
+    assert_eq!(
+        vissue_core::error::chain_line(&caused),
+        "write refused: disk full"
+    );
+}

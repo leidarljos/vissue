@@ -161,6 +161,21 @@ impl std::error::Error for Error {
     }
 }
 
+/// An error chain as one line, each cause after a colon. A link whose text
+/// repeats the one before it is left out: `Error::Other` shows its wrapped
+/// error and names it as its source too, so `{:#}` printed it twice.
+#[must_use]
+pub fn chain_line(err: &anyhow::Error) -> String {
+    let mut out: Vec<String> = Vec::new();
+    for link in err.chain() {
+        let text = link.to_string();
+        if out.last() != Some(&text) {
+            out.push(text);
+        }
+    }
+    out.join(": ")
+}
+
 impl From<anyhow::Error> for Error {
     fn from(err: anyhow::Error) -> Self {
         match err.downcast::<Error>() {

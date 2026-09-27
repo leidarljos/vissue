@@ -772,7 +772,7 @@ fn main() {
         if is_broken_pipe(&e) {
             return;
         }
-        eprintln!("vissue: {e:#}");
+        eprintln!("vissue: {}", vissue_core::error::chain_line(&e));
         std::process::exit(1);
     }
 }
