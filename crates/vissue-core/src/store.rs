@@ -817,18 +817,62 @@ pub fn list_projects(layout: &Layout) -> Result<Vec<String>> {
         return Ok(Vec::new());
     }
     let mut projects = Vec::new();
+    let mut held = std::collections::HashSet::new();
+    let mut parents = Vec::new();
     for entry in fs::read_dir(&dir).with_context(|| format!("read dir {}", dir.display()))? {
         let entry = entry?;
         let path = entry.path();
-        if path.is_dir()
-            && path.join("issues.org").exists()
-            && let Some(name) = path.file_name().and_then(|n| n.to_str())
-        {
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if !path.is_dir() || name.starts_with('.') {
+            continue;
+        }
+        let file = path.join("issues.org");
+        if file.exists() {
             projects.push(name.to_string());
+            held.insert(file.canonicalize().unwrap_or(file));
+        }
+        parents.push((name.to_string(), path));
+    }
+    // One level down: prefix/A/B/issues.org is the project A/B, whose ids
+    // are A/B-{suffix}, when the file is stamped as a tracker. Every read
+    // walks every project, so an org file that merely shares the name would
+    // fail ready and list for every seat. A file already listed at the top,
+    // through a symlink such as prefix/B -> A/B, is that project and not a
+    // second one. Deeper trees are notes, not trackers.
+    for (name, path) in parents {
+        let Ok(inner) = fs::read_dir(&path) else {
+            continue;
+        };
+        for sub in inner.flatten() {
+            let sub_path = sub.path();
+            let file = sub_path.join("issues.org");
+            if let Some(sub_name) = sub_path.file_name().and_then(|n| n.to_str())
+                && !sub_name.starts_with('.')
+                && sub_path.is_dir()
+                && stamped_tracker(&file)
+                && held.insert(file.canonicalize().unwrap_or(file))
+            {
+                projects.push(format!("{name}/{sub_name}"));
+            }
         }
     }
     projects.sort();
     Ok(projects)
+}
+
+/// Whether an issues.org carries the `#+VISSUE:` stamp in its header.
+fn stamped_tracker(path: &Path) -> bool {
+    use std::io::BufRead as _;
+    let Ok(file) = fs::File::open(path) else {
+        return false;
+    };
+    std::io::BufReader::new(file)
+        .lines()
+        .take(40)
+        .map_while(std::result::Result::ok)
+        .any(|l| l.trim_start().starts_with("#+VISSUE:"))
 }
 
 /// Map a project name onto the directory that already exists, ignoring case.
@@ -1466,6 +1510,50 @@ mod tests {
             written.contains("abc123/primary@group.calendar.google.com"),
             "{written}"
         );
+    }
+
+    #[test]
+    fn a_nested_tracker_is_listed_as_its_relative_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = Layout::new(dir.path(), "Software");
+        let heading = |id: &str| {
+            format!(
+                "#+VISSUE: 1\n#+TODO: TODO | DONE\n\n* TODO Work\n:PROPERTIES:\n:ID: {id}\n:END:\n"
+            )
+        };
+        // A nested org file without the stamp is notes, and stays out.
+        fs::create_dir_all(dir.path().join("Software/Infra/notes")).unwrap();
+        fs::write(
+            dir.path().join("Software/Infra/notes/issues.org"),
+            "* TODO no id here\n",
+        )
+        .unwrap();
+        for (rel, id) in [("acme", "acme-1a2b"), ("Infra/brio", "Infra/brio-3c4d")] {
+            let path = dir.path().join("Software").join(rel).join("issues.org");
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, heading(id)).unwrap();
+        }
+        fs::create_dir_all(dir.path().join("Software/.hidden/x")).unwrap();
+        fs::write(
+            dir.path().join("Software/.hidden/x/issues.org"),
+            heading("x-1"),
+        )
+        .unwrap();
+        fs::create_dir_all(dir.path().join("Software/Infra/brio/deep/er")).unwrap();
+        fs::write(
+            dir.path().join("Software/Infra/brio/deep/er/issues.org"),
+            heading("y-1"),
+        )
+        .unwrap();
+        // A top-level symlink to a nested tracker is that one project.
+        std::os::unix::fs::symlink("Infra/brio", dir.path().join("Software/brio")).unwrap();
+        assert_eq!(list_projects(&layout).unwrap(), ["acme", "brio"]);
+        fs::remove_file(dir.path().join("Software/brio")).unwrap();
+        assert_eq!(list_projects(&layout).unwrap(), ["Infra/brio", "acme"]);
+        let found = find_by_id(&layout, "Infra/brio-3c4d")
+            .unwrap()
+            .expect("nested id resolves");
+        assert_eq!(found.2, "Infra/brio");
     }
 
     #[test]
