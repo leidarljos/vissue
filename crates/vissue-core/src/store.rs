@@ -820,29 +820,11 @@ pub fn list_projects(layout: &Layout) -> Result<Vec<String>> {
     for entry in fs::read_dir(&dir).with_context(|| format!("read dir {}", dir.display()))? {
         let entry = entry?;
         let path = entry.path();
-        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
-            continue;
-        };
-        if !path.is_dir() || name.starts_with('.') {
-            continue;
-        }
-        if path.join("issues.org").exists() {
+        if path.is_dir()
+            && path.join("issues.org").exists()
+            && let Some(name) = path.file_name().and_then(|n| n.to_str())
+        {
             projects.push(name.to_string());
-        }
-        // One level down: prefix/A/B/issues.org is the project A/B, whose
-        // ids are A/B-{suffix}. Deeper trees are notes, not trackers.
-        let Ok(inner) = fs::read_dir(&path) else {
-            continue;
-        };
-        for sub in inner.flatten() {
-            let sub_path = sub.path();
-            if let Some(sub_name) = sub_path.file_name().and_then(|n| n.to_str())
-                && !sub_name.starts_with('.')
-                && sub_path.is_dir()
-                && sub_path.join("issues.org").exists()
-            {
-                projects.push(format!("{name}/{sub_name}"));
-            }
         }
     }
     projects.sort();
@@ -1484,37 +1466,6 @@ mod tests {
             written.contains("abc123/primary@group.calendar.google.com"),
             "{written}"
         );
-    }
-
-    #[test]
-    fn a_nested_tracker_is_listed_as_its_relative_path() {
-        let dir = tempfile::tempdir().unwrap();
-        let layout = Layout::new(dir.path(), "Software");
-        let heading = |id: &str| {
-            format!("#+TODO: TODO | DONE\n\n* TODO Work\n:PROPERTIES:\n:ID: {id}\n:END:\n")
-        };
-        for (rel, id) in [("acme", "acme-1a2b"), ("Infra/brio", "Infra/brio-3c4d")] {
-            let path = dir.path().join("Software").join(rel).join("issues.org");
-            fs::create_dir_all(path.parent().unwrap()).unwrap();
-            fs::write(&path, heading(id)).unwrap();
-        }
-        fs::create_dir_all(dir.path().join("Software/.hidden/x")).unwrap();
-        fs::write(
-            dir.path().join("Software/.hidden/x/issues.org"),
-            heading("x-1"),
-        )
-        .unwrap();
-        fs::create_dir_all(dir.path().join("Software/Infra/brio/deep/er")).unwrap();
-        fs::write(
-            dir.path().join("Software/Infra/brio/deep/er/issues.org"),
-            heading("y-1"),
-        )
-        .unwrap();
-        assert_eq!(list_projects(&layout).unwrap(), ["Infra/brio", "acme"]);
-        let found = find_by_id(&layout, "Infra/brio-3c4d")
-            .unwrap()
-            .expect("nested id resolves");
-        assert_eq!(found.2, "Infra/brio");
     }
 
     #[test]
