@@ -2260,14 +2260,16 @@ fn claims_json_routed(router: &Router, by: Option<&str>, project: Option<&str>) 
         let pref = router.route(p);
         return Ok(report::claims(&pref.layout, by, Some(&pref.dir), true)?);
     }
-    let mut rows: Vec<serde_json::Value> = Vec::new();
-    for pref in router.visible_projects()? {
-        let part = report::claims(&pref.layout, by, Some(&pref.dir), true)?;
-        let parsed: Vec<serde_json::Value> = serde_json::from_str(&part)
-            .with_context(|| format!("parsing the claims of {}", pref.dir))?;
-        rows.extend(parsed);
-    }
-    Ok(format!("{}\n", serde_json::to_string(&rows)?))
+    vissue_core::catalog::with_shared_corpus(true, || {
+        let mut rows: Vec<serde_json::Value> = Vec::new();
+        for pref in router.visible_projects()? {
+            let part = report::claims(&pref.layout, by, Some(&pref.dir), true)?;
+            let parsed: Vec<serde_json::Value> = serde_json::from_str(&part)
+                .with_context(|| format!("parsing the claims of {}", pref.dir))?;
+            rows.extend(parsed);
+        }
+        Ok(format!("{}\n", serde_json::to_string(&rows)?))
+    })
 }
 
 fn agenda_routed(router: &Router, days: i64, project: Option<&str>) -> Result<String> {
@@ -2351,14 +2353,19 @@ fn concat_project_reports_with(
         let pref = router.route(p);
         return Ok(f(&pref.layout, Some(&pref.dir))?);
     }
+    // Each report reads its tracker whole; inside the shared scope that read
+    // happens once per tracker, not once per project.
     let mut out = String::new();
-    for pref in router.visible_projects()? {
-        let part = f(&pref.layout, Some(&pref.dir))?;
-        match empty_marker {
-            Some(marker) if part == marker => {}
-            _ => out.push_str(&part),
+    vissue_core::catalog::with_shared_corpus(true, || -> Result<()> {
+        for pref in router.visible_projects()? {
+            let part = f(&pref.layout, Some(&pref.dir))?;
+            match empty_marker {
+                Some(marker) if part == marker => {}
+                _ => out.push_str(&part),
+            }
         }
-    }
+        Ok(())
+    })?;
     if let Some(marker) = empty_marker
         && out.is_empty()
     {

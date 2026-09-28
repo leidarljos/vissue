@@ -706,8 +706,8 @@ pub fn stale(layout: &Layout, days: i64, project_filter: Option<&str>) -> Result
     let today = Local::now().date_naive();
     let cutoff = today - chrono::Duration::days(days);
     let mut rows: Vec<(String, IssueHeading, NaiveDate)> = Vec::new();
-    for (project, h) in load_all(layout)? {
-        if !project_selected(&project, project_filter) {
+    for (project, h) in crate::catalog::shared_all(layout)?.iter() {
+        if !project_selected(project, project_filter) {
             continue;
         }
         if !READY_STATES.contains(&h.state.as_str()) {
@@ -720,7 +720,7 @@ pub fn stale(layout: &Layout, days: i64, project_filter: Option<&str>) -> Result
             continue;
         };
         if parsed <= cutoff {
-            rows.push((project, h, parsed));
+            rows.push((project.clone(), h.clone(), parsed));
         }
     }
     rows.sort_by_key(|r| r.2);
@@ -750,7 +750,7 @@ pub fn claims(
     project_filter: Option<&str>,
     json: bool,
 ) -> Result<String> {
-    let recs = load_recs(layout)?;
+    let recs = crate::catalog::shared_recs(layout)?;
     let rows = CatalogService::from_recs(&recs).claims(holder_filter, project_filter)?;
 
     if json {
@@ -910,14 +910,14 @@ pub fn count_in(
 /// Returns an error if the corpus cannot be read.
 pub fn export(layout: &Layout, project_filter: Option<&str>) -> Result<String> {
     let mut out = String::new();
-    for rec in load_recs(layout)? {
+    for rec in crate::catalog::shared_recs(layout)?.iter() {
         if !project_selected(&rec.project, project_filter) {
             continue;
         }
         let _ = writeln!(
             out,
             "{}",
-            export_row(&rec.project, rec.heading, &rec.tag_settings)
+            export_row(&rec.project, rec.heading.clone(), &rec.tag_settings)
         );
     }
     Ok(out)
@@ -1242,10 +1242,11 @@ pub fn graph(layout: &Layout, project_filter: Option<&str>) -> Result<String> {
 ///
 /// Returns an error if the corpus cannot be read.
 pub fn graph_body(layout: &Layout, project_filter: Option<&str>) -> Result<String> {
-    let all = load_all(layout)?;
-    let graph = GraphIndex::new(&all);
+    let shared = crate::catalog::shared_all(layout)?;
+    let all: &[(String, IssueHeading)] = &shared;
+    let graph = GraphIndex::new(all);
     let mut out = String::new();
-    for (project, h) in &all {
+    for (project, h) in all {
         if !project_selected(project, project_filter) {
             continue;
         }
@@ -1266,7 +1267,7 @@ pub fn graph_body(layout: &Layout, project_filter: Option<&str>) -> Result<Strin
             fill
         );
     }
-    for (project, h) in &all {
+    for (project, h) in all {
         if !project_selected(project, project_filter) {
             continue;
         }
@@ -1325,9 +1326,10 @@ pub fn roadmap(layout: &Layout, project_filter: Option<&str>) -> Result<String> 
 ///
 /// Returns an error if the corpus cannot be read.
 pub fn roadmap_body(layout: &Layout, project_filter: Option<&str>) -> Result<String> {
-    let all = load_all(layout)?;
+    let shared = crate::catalog::shared_all(layout)?;
+    let all: &[(String, IssueHeading)] = &shared;
     let mut by_project: BTreeMap<String, Vec<&IssueHeading>> = BTreeMap::new();
-    for (project, h) in &all {
+    for (project, h) in all {
         if !project_selected(project, project_filter) {
             continue;
         }

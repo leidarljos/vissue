@@ -51,6 +51,117 @@ pub fn load_recs(layout: &Layout) -> Result<Vec<IssueRec>> {
     Ok(per_project.into_iter().flatten().collect())
 }
 
+/// The corpus a routed command reads once per tracker. Inside
+/// [`with_shared_corpus`], [`shared_recs`] and [`shared_all`] parse each
+/// layout once and hand every later caller the same copy; outside it they
+/// read afresh, so a long-lived server never answers from a stale corpus.
+struct SharedCorpus {
+    recs: Vec<((std::path::PathBuf, String), std::sync::Arc<Vec<IssueRec>>)>,
+    all: Vec<(
+        (std::path::PathBuf, String),
+        std::sync::Arc<Vec<(String, IssueHeading)>>,
+    )>,
+    leak: bool,
+}
+
+static SHARED: std::sync::Mutex<Option<SharedCorpus>> = std::sync::Mutex::new(None);
+
+fn layout_key(layout: &Layout) -> (std::path::PathBuf, String) {
+    (layout.root().to_path_buf(), layout.prefix().to_string())
+}
+
+/// Run `f` with each layout's corpus parsed at most once. A command that
+/// reports per project over a routed tracker otherwise parses the whole
+/// tracker once per project: 173 full parses for one `vissue claims` on a
+/// large vault, 16 s and enough memory to wake the kernel's OOM killer.
+/// With `leak`, the corpus is not freed at the end, for a process that
+/// exits next and would spend longer in the allocator than the OS does.
+pub fn with_shared_corpus<R>(leak: bool, f: impl FnOnce() -> R) -> R {
+    {
+        let mut slot = SHARED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *slot = Some(SharedCorpus {
+            recs: Vec::new(),
+            all: Vec::new(),
+            leak,
+        });
+    }
+    let out = f();
+    let taken = SHARED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take();
+    if let Some(corpus) = taken {
+        if corpus.leak {
+            std::mem::forget(corpus);
+        }
+    }
+    out
+}
+
+/// [`load_recs`], shared inside [`with_shared_corpus`].
+///
+/// # Errors
+///
+/// As [`load_recs`].
+pub fn shared_recs(layout: &Layout) -> Result<std::sync::Arc<Vec<IssueRec>>> {
+    let key = layout_key(layout);
+    {
+        let slot = SHARED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match slot.as_ref() {
+            None => return Ok(std::sync::Arc::new(load_recs(layout)?)),
+            Some(c) => {
+                if let Some((_, recs)) = c.recs.iter().find(|(k, _)| *k == key) {
+                    return Ok(recs.clone());
+                }
+            }
+        }
+    }
+    let recs = std::sync::Arc::new(load_recs(layout)?);
+    if let Some(c) = SHARED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_mut()
+    {
+        c.recs.push((key, recs.clone()));
+    }
+    Ok(recs)
+}
+
+/// [`crate::store::load_all`], shared inside [`with_shared_corpus`].
+///
+/// # Errors
+///
+/// As [`crate::store::load_all`].
+pub fn shared_all(layout: &Layout) -> Result<std::sync::Arc<Vec<(String, IssueHeading)>>> {
+    let key = layout_key(layout);
+    {
+        let slot = SHARED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match slot.as_ref() {
+            None => return Ok(std::sync::Arc::new(crate::store::load_all(layout)?)),
+            Some(c) => {
+                if let Some((_, all)) = c.all.iter().find(|(k, _)| *k == key) {
+                    return Ok(all.clone());
+                }
+            }
+        }
+    }
+    let all = std::sync::Arc::new(crate::store::load_all(layout)?);
+    if let Some(c) = SHARED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_mut()
+    {
+        c.all.push((key, all.clone()));
+    }
+    Ok(all)
+}
+
 /// Read-only queries over a cached `&[IssueRec]`.
 #[derive(Debug)]
 pub struct CatalogService<'a> {
@@ -1275,5 +1386,40 @@ fn walk_hit(rec: &IssueRec, relation: &str) -> WalkHit {
         state: rec.heading.state.clone(),
         title: rec.heading.title.clone(),
         relation: relation.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod shared_corpus_tests {
+    use super::*;
+
+    #[test]
+    fn a_shared_scope_parses_a_tracker_once_and_outside_it_every_read_is_fresh() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = Layout::new(dir.path(), "Software");
+        let path = dir.path().join("Software/acme/issues.org");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            "#+TODO: TODO | DONE\n\n* TODO Work\n:PROPERTIES:\n:ID: acme-1a2b\n:END:\n",
+        )
+        .unwrap();
+        let outside_a = shared_recs(&layout).unwrap();
+        let outside_b = shared_recs(&layout).unwrap();
+        assert!(
+            !std::sync::Arc::ptr_eq(&outside_a, &outside_b),
+            "fresh outside a scope"
+        );
+        with_shared_corpus(false, || {
+            let a = shared_recs(&layout).unwrap();
+            let b = shared_recs(&layout).unwrap();
+            assert!(std::sync::Arc::ptr_eq(&a, &b), "one parse inside a scope");
+            assert_eq!(a.len(), 1);
+            let all_a = shared_all(&layout).unwrap();
+            let all_b = shared_all(&layout).unwrap();
+            assert!(std::sync::Arc::ptr_eq(&all_a, &all_b));
+        });
+        let after = shared_recs(&layout).unwrap();
+        assert!(!std::sync::Arc::ptr_eq(&outside_a, &after));
     }
 }
