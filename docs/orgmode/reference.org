@@ -12,7 +12,7 @@
 | =append=                                                                  | Record a dated report under the heading, from =--text=, =--file=, or stdin |
 | =body-excerpt=                                                            | A capped preview of an issue's file range; =show --org= for the whole heading |
 | =claims=                                                                  | Every live claim, oldest first: who holds what, for how long             |
-| =vote=                                                                    | Cast this agent's ballot (=--for=), or read the tally; =--json= for the ballot rows |
+| =vote=                                                                    | Cast this agent's ballot (=--for=), take it back (=--withdraw=, logged), or read the tally; =--json= for the ballot rows |
 | =consensus=                                                               | Weigh the same ballots by who the group listens to; social power and the two ways there is none; =--children= rolls up over a plan; =--trust JSON= lays rows over the configuration |
 | =deed=                                                                    | Cite (=--add=), drop (=--remove=), or list the deeds this issue's work produced; =d= on either board |
 | =recall=                                                                  | The working set for an issue: plan, inputs and their deeds, and its own; =--excerpts= splices in what each input concluded |
