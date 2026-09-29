@@ -41,6 +41,21 @@ fn stdout(out: &std::process::Output) -> String {
 }
 
 #[test]
+fn search_narrows_to_one_project() {
+    let all = stdout(&vissue(&["search", "e", "-n", "200"]));
+    assert!(all.contains("(atlas)") && all.contains("(beacon)"), "{all}");
+    let atlas = vissue(&["search", "e", "-n", "200", "-p", "atlas"]);
+    assert!(atlas.status.success());
+    let atlas = stdout(&atlas);
+    assert!(!atlas.is_empty());
+    assert!(atlas.lines().all(|l| l.ends_with("(atlas)")), "{atlas}");
+    let json = stdout(&vissue(&["search", "e", "-p", "beacon", "--json"]));
+    let rows: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+    assert!(!rows.is_empty());
+    assert!(rows.iter().all(|r| r["project"] == "beacon"), "{json}");
+}
+
+#[test]
 fn projects_lists_the_fixture_projects() {
     let out = vissue(&["projects"]);
     assert!(out.status.success());

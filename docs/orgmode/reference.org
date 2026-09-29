@@ -20,7 +20,7 @@
 | =--json= on a read                                                        | =list=, =show=, =ready=, =claims=, =digest=, =search=, =children=, =ancestors=, =impact=, =backlinks=, =agenda=, =tree=, =body-excerpt=, =projects=, =recall=, =consensus= |
 | =fold=                                                                    | Turn an inbox file's unstamped =* TODO= headings into issues             |
 | =whoami=                                                                  | The identity a claim would record                                        |
-| =ready=, =count=, =search=, =children=, =ancestors=, =impact=, =related=, =stale= | Query the corpus; bounded dependency and related traversal        |
+| =ready=, =count=, =search=, =children=, =ancestors=, =impact=, =related=, =stale= | Query the corpus; bounded dependency and related traversal; =search -p PROJECT= narrows to one project |
 | =agenda=                                                                  | Deadlines and scheduled starts inside a horizon, overdue first           |
 | =export=                                                                  | JSONL, one object per issue                                              |
 | =tree=, =graph=, =cycles=, =waiting-on=                                   | Relationships                                                            |

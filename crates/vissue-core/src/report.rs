@@ -656,7 +656,26 @@ fn consensus_text(
 ///
 /// Returns an error if the corpus cannot be read.
 pub fn search(layout: &Layout, query: &str, limit: usize) -> Result<String> {
-    let recs = load_recs(layout)?;
+    search_in(layout, query, limit, None)
+}
+
+/// [`search`] over one project's issues when `project` names one; the limit
+/// applies after the narrowing, so a busy project elsewhere cannot crowd
+/// the asked one out.
+///
+/// # Errors
+///
+/// As [`search`].
+pub fn search_in(
+    layout: &Layout,
+    query: &str,
+    limit: usize,
+    project: Option<&str>,
+) -> Result<String> {
+    let mut recs = load_recs(layout)?;
+    if let Some(p) = project {
+        recs.retain(|r| r.project == p);
+    }
     let hits = CatalogService::from_recs(&recs).search(query, limit)?;
     let mut out = String::new();
     for h in hits {

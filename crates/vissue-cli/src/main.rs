@@ -406,6 +406,9 @@ enum Command {
         /// Emit a JSON array instead of text
         #[arg(long)]
         json: bool,
+        /// Search only this project's issues
+        #[arg(short = 'p', long)]
+        project: Option<String>,
     },
     /// Issues whose `:PARENT:` matches this id.
     Children {
@@ -1682,11 +1685,32 @@ fn run() -> Result<()> {
                 || agent::body_excerpt(&found, &id),
             )?;
         }
-        Command::Search { query, limit, json } => {
+        Command::Search {
+            query,
+            limit,
+            json,
+            project,
+        } => {
+            // A named project reads the tracker that project routes to.
+            let home = project
+                .as_deref()
+                .map_or_else(|| layout.clone(), |p| router.route(p).layout);
             emit_shape(
                 json,
-                || with_catalog(&layout, |svc| svc.search(&query, limit)),
-                || search_routed(&router, &query, limit),
+                || -> Result<_> {
+                    let mut recs = vissue_core::catalog::load_recs(&home)?;
+                    if let Some(p) = project.as_deref() {
+                        recs.retain(|r| r.project == p);
+                    }
+                    Ok(vissue_core::catalog::CatalogService::from_recs(&recs)
+                        .search(&query, limit)?)
+                },
+                || -> Result<String> {
+                    match project.as_deref() {
+                        Some(p) => Ok(report::search_in(&home, &query, limit, Some(p))?),
+                        None => search_routed(&router, &query, limit),
+                    }
+                },
             )?;
         }
         Command::Children { id, json } => {

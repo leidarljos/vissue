@@ -386,7 +386,8 @@ const operations :List(Operation) = [
     fields = [
       ( cli = "", tool = "query", socket = "query", note = "no flag: the command line takes it as a positional argument, which is why the schema recorded every flag of this verb and not the parameter it is about", toolType = "String", socketType = "String" ),
       ( cli = "json", tool = "", socket = "", note = "the remote surfaces answer in structure already, so they need no flag to ask for it", toolType = "", socketType = "" ),
-      ( cli = "limit", tool = "limit", socket = "limit", note = "", toolType = "Option<usize>", socketType = "Option<usize>" )
+      ( cli = "limit", tool = "limit", socket = "limit", note = "", toolType = "Option<usize>", socketType = "Option<usize>" ),
+      ( cli = "project", tool = "", socket = "", note = "command line only: search one project's issues, on the tracker that project routes to", toolType = "", socketType = "" )
     ] ),
   ( cli = "show", socket = "issue/show", mcp = "vissue_show", mutates = false, local = false,
     note = "",
