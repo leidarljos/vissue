@@ -1919,6 +1919,40 @@ mod tests {
     }
 
     #[test]
+    fn the_remaining_core_errors_map_to_their_codes() {
+        let err = error_from_core(&CoreError::NotATracker {
+            root: "/srv/none".into(),
+            prefix: "Software".into(),
+        });
+        assert_eq!(err.code, NOT_FOUND);
+        assert_eq!(err.data.as_ref().unwrap()["code"], "not_a_tracker");
+        assert_eq!(err.data.as_ref().unwrap()["prefix"], "Software");
+        let err = error_from_core(&CoreError::StaleWrite {
+            id: "atlas-1a2b".into(),
+            expected_state: Some("TODO".into()),
+            actual_state: "STARTED".into(),
+            expected_gen: Some(3),
+            actual_gen: Some(4),
+        });
+        assert_eq!(err.code, INVALID_STATE);
+        let data = err.data.unwrap();
+        assert_eq!(data["code"], "stale");
+        assert_eq!(data["actual_state"], "STARTED");
+        assert_eq!(data["actual_gen"], 4);
+        let err = error_from_core(&CoreError::TerminalConflict {
+            id: "atlas-1a2b".into(),
+            held: "DONE".into(),
+            attempted: "CANCELLED".into(),
+        });
+        assert_eq!(err.code, CONFLICT);
+        assert_eq!(err.data.as_ref().unwrap()["code"], "terminal_conflict");
+        assert_eq!(err.data.as_ref().unwrap()["attempted"], "CANCELLED");
+        let err = error_from_core(&CoreError::from(std::io::Error::other("disk full")));
+        assert_eq!(err.code, INTERNAL_ERROR);
+        assert!(err.message.contains("disk full"), "{}", err.message);
+    }
+
+    #[test]
     fn core_errors_carry_data_code() {
         let err = error_from_core(&CoreError::IssueNotFound {
             id: "atlas-1a2b".into(),
