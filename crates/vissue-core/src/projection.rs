@@ -376,4 +376,113 @@ mod tests {
         assert!(find_in_mirrors(&dir, "ljos-none").is_none());
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn a_projection_folds_claims_and_mirrors_then_checks_fresh() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = Layout::new(dir.path(), "Software");
+        fs::create_dir_all(layout.projects_dir()).unwrap();
+        let quiet = crate::ops::CreateOpts {
+            quiet: true,
+            ..Default::default()
+        };
+        let first = crate::ops::create(&layout, "alpha", "first", quiet)
+            .unwrap()
+            .trim()
+            .to_string();
+        let second = crate::ops::create(&layout, "alpha", "second", quiet)
+            .unwrap()
+            .trim()
+            .to_string();
+        fs::write(
+            dir.path().join("vissue.toml"),
+            "prefix = \"Software\"\n\n[[projection.board]]\nproject = \"alpha\"\nmirror = \"share/alpha-mirror.org\"\ninbox = \"share/inbox.org\"\nclaims = \"share/claims.org\"\n\n[[projection.board]]\nproject = \"beta\"\nsource = \"/nonexistent/tracker\"\nmirror = \"share/beta.org\"\n",
+        )
+        .unwrap();
+        let share = dir.path().join("share");
+        fs::create_dir_all(&share).unwrap();
+        fs::write(
+            share.join("inbox.org"),
+            "* TODO found while reading\nBody.\n",
+        )
+        .unwrap();
+        fs::write(
+            share.join("claims.org"),
+            format!(
+                "* TODO claim {first} as brio\n* TODO release {first} as brio\n* TODO done {second} as brio\n* TODO claim alpha-none as brio\n* TODO claim without an agent\nplain line\n"
+            ),
+        )
+        .unwrap();
+        let router = Router::unrouted(layout.clone());
+
+        let before = project(&router, dir.path(), true).unwrap();
+        assert_eq!(before.stale, 1, "{:?}", before.lines);
+        assert_eq!(before.skipped, 1, "the absent source is skipped");
+        assert!(
+            before
+                .lines
+                .iter()
+                .any(|l| l.contains("does not exist yet"))
+        );
+
+        let run = project(&router, dir.path(), false).unwrap();
+        assert_eq!(run.skipped, 1);
+        assert!(
+            run.touched
+                .iter()
+                .any(|p| p.ends_with("share/alpha-mirror.org")),
+            "{:?}",
+            run.touched
+        );
+        assert!(run.touched.iter().any(|p| p.ends_with("share/claims.org")));
+        let claims = fs::read_to_string(share.join("claims.org")).unwrap();
+        assert!(
+            claims.contains(&format!("* DONE claim {first} as brio ::")),
+            "{claims}"
+        );
+        assert!(
+            claims.contains(&format!("* DONE release {first} as brio ::")),
+            "{claims}"
+        );
+        assert!(
+            claims.contains(&format!("* DONE done {second} as brio ::")),
+            "{claims}"
+        );
+        assert!(
+            claims.contains("* DONE claim alpha-none as brio :: FAILED"),
+            "{claims}"
+        );
+        assert!(
+            claims.contains("* TODO claim without an agent"),
+            "a line with no agent stays"
+        );
+        assert!(claims.contains("plain line"));
+        let mirror = fs::read_to_string(share.join("alpha-mirror.org")).unwrap();
+        assert!(mirror.contains("first"), "{mirror}");
+        assert!(
+            mirror.contains("found while reading"),
+            "the inbox folded in: {mirror}"
+        );
+
+        let after = project(&router, dir.path(), true).unwrap();
+        assert_eq!(after.stale, 0, "{:?}", after.lines);
+
+        let empty = tempfile::tempdir().unwrap();
+        let none = project(&router, empty.path(), false).unwrap();
+        assert!(
+            none.lines[0].contains("nothing to project"),
+            "{:?}",
+            none.lines
+        );
+
+        let here = dir.path().to_str().unwrap();
+        assert!(
+            resolve_source(&router, here).is_some(),
+            "a path holding a tracker"
+        );
+        assert!(resolve_source(&router, empty.path().to_str().unwrap()).is_none());
+        assert!(resolve_source(&router, "self").is_some());
+        let board = &boards(dir.path()).unwrap()[1];
+        assert!(projected_note(board).contains("takes no work back"));
+    }
 }
