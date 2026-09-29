@@ -1213,6 +1213,49 @@ pub fn vote_with(
     })
 }
 
+/// Take back `identity`'s ballot on `id`, and log what it was, so a ballot
+/// cast on the wrong issue or without a basis stops counting. The line
+/// leaves the drawer, which a merge keeps: one side removing a ballot the
+/// other left alone is a removal, not a clash.
+///
+/// # Errors
+///
+/// Returns an error if `id` is not in the corpus, `identity` holds no
+/// ballot there, or the file cannot be written.
+pub fn withdraw(layout: &Layout, id: &str, identity: &str) -> Result<String> {
+    let (_h, path, project) =
+        find_by_id(layout, id)?.ok_or_else(|| Error::IssueNotFound { id: id.to_string() })?;
+    let withdrawn = with_issues_lock(&path, || {
+        let mut doc = IssueDoc::parse_file(&project, &path)?;
+        let h = doc
+            .headings
+            .iter_mut()
+            .find(|x| x.id == id)
+            .ok_or_else(|| Error::IssueNotFound { id: id.to_string() })?;
+        let (mut ballots, foreign) = read_ballots(h);
+        let Some(at) = ballots.iter().position(|b| b.agent == identity) else {
+            return Err(anyhow!("{id}: {identity} holds no ballot to withdraw").into());
+        };
+        let gone = ballots.remove(at);
+        write_ballots(h, &ballots, &foreign);
+        doc.write()?;
+        Ok((gone, tally_text(id, &ballots)))
+    })?;
+    let (gone, tally) = withdrawn;
+    note(
+        layout,
+        id,
+        &format!(
+            "{identity} withdrew the ballot for {} cast {}",
+            gone.choice, gone.stamp
+        ),
+    )?;
+    Ok(format!(
+        "{id}: {identity} withdrew {}\n{tally}",
+        gone.choice
+    ))
+}
+
 /// The ballots cast on one issue, in drawer order; [`crate::consensus`] weighs them.
 ///
 /// # Errors
@@ -3828,6 +3871,42 @@ mod tests {
 
         let tally = vote(&layout, &id, None, "reader").unwrap();
         assert!(tally.contains("agent-a"), "{tally}");
+    }
+
+    #[test]
+    fn a_withdrawn_ballot_stops_counting_and_the_logbook_keeps_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = fresh_layout(dir.path());
+        create(&layout, "sample", "what to do", CreateOpts::default()).unwrap();
+        let id = only_id(&layout, "sample");
+        voted(&layout, &id, "agent-a", "ship");
+        voted(&layout, &id, "agent-b", "hold");
+
+        let said = withdraw(&layout, &id, "agent-b").unwrap();
+        assert!(said.contains("agent-b withdrew hold"), "{said}");
+        let left: Vec<String> = ballots(&layout, &id)
+            .unwrap()
+            .into_iter()
+            .map(|b| b.agent)
+            .collect();
+        assert_eq!(left, vec!["agent-a"]);
+        let text = std::fs::read_to_string(layout.project_issues_path("sample")).unwrap();
+        assert!(!text.contains("agent-b: hold"), "{text}");
+        assert!(
+            text.contains("agent-b withdrew the ballot for hold"),
+            "{text}"
+        );
+
+        let again = withdraw(&layout, &id, "agent-b").unwrap_err().to_string();
+        assert!(again.contains("holds no ballot"), "{again}");
+        // A withdrawn voter can vote again.
+        voted(&layout, &id, "agent-b", "ship");
+        assert_eq!(ballots(&layout, &id).unwrap().len(), 2);
+        // The last ballot going takes the drawer with it.
+        withdraw(&layout, &id, "agent-a").unwrap();
+        withdraw(&layout, &id, "agent-b").unwrap();
+        let text = std::fs::read_to_string(layout.project_issues_path("sample")).unwrap();
+        assert!(!text.contains(":VOTES:"), "{text}");
     }
 
     #[test]

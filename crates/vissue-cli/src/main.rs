@@ -258,6 +258,9 @@ enum Command {
         /// Probability in (0, 1] that the choice is the outcome.
         #[arg(long, requires = "choice")]
         confidence: Option<f64>,
+        /// Take back this identity's ballot; the logbook keeps what it was.
+        #[arg(long, conflicts_with_all = ["choice", "json"])]
+        withdraw: bool,
     },
     /// Cite, drop, or list the deeds this issue's work produced.
     ///
@@ -1593,9 +1596,13 @@ fn run() -> Result<()> {
             json,
             used,
             confidence,
+            withdraw,
         } => {
             let found = layout_for_id(&router, &id)?;
-            if json {
+            if withdraw {
+                let who = vissue_core::config::identity(&found);
+                emit!("{}", ops::withdraw(&found, &id, &who)?)
+            } else if json {
                 let rows: Vec<serde_json::Value> = ops::ballots(&found, &id)?
                     .iter()
                     .map(|b| {
