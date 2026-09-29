@@ -156,10 +156,14 @@ jobs:
           merge-multiple: true
       - name: Install dependencies
         # The commands come from dist's plan, written from this repo's dist config.
+        # bash on every runner: the Windows default is PowerShell, which has no eval.
+        shell: bash
         env:
           PACKAGES_INSTALL: ${{ matrix.packages_install }}
         run: eval "$PACKAGES_INSTALL"
       - name: Build artifacts
+        # bash on every runner, so the flags expand as ${VAR} on Windows too.
+        shell: bash
         run: |
           # Actually do builds and make zips and whatnot
           dist build ${NEEDS_PLAN_OUTPUTS_TAG_FLAG} --print=linkage --output-format=json ${DIST_ARGS} > dist-manifest.json
