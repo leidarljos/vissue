@@ -6,6 +6,15 @@ All notable changes to vissue are recorded here. The format follows
 
 <!-- towncrier release notes start -->
 
+## [0.17.1](https://github.com/leidarljos/vissue/releases/tag/v0.17.1) - 2026-09-29
+
+### Fixed
+
+- The release workflow's dependency and build steps run in bash on every
+  runner. On Windows they ran in PowerShell, which stopped the 0.17.0 release
+  before it published anything.
+
+
 ## [0.17.0](https://github.com/leidarljos/vissue/releases/tag/v0.17.0) - 2026-09-29
 
 ### Added
