@@ -6,6 +6,64 @@ All notable changes to vissue are recorded here. The format follows
 
 <!-- towncrier release notes start -->
 
+## [0.17.0](https://github.com/leidarljos/vissue/releases/tag/v0.17.0) - 2026-09-29
+
+### Added
+
+- A tracker one level down, `prefix/A/B/issues.org`, is listed as the project
+  `A/B` when its header carries `#+VISSUE:`, so `show`, `check` and the listings
+  resolve its `A/B-*` ids. An unstamped org file there stays out. A file
+  reached through a symlink at the top is listed once, under its top name.
+- `VISSUE_HUD_WINDOW=1` starts the HUD as a decorated window
+  (`me.rgoswami.vissue-hud.window`) instead of the overlay, so a nested X
+  walk can crop it. Unset keeps the overlay.
+- `hygiene` groups live claims by holder and shows each holder's newest
+  `CLAIMED_AT` stamp, flagging holders with nothing newer than
+  `stale_claim_days`. Logbook notes do not count, because they do not name
+  who wrote them. `vissue release --holder NAME` drops that identity's
+  claims in one step, including a stamp left on a closed heading. State
+  stays, and each ticket gets a why-note. `--dry-run` prints the same
+  report without writing.
+- `vissue merge-driver` merges three versions of one `issues.org` by heading, for
+  git's merge driver. Logbooks take the union of both sides, ballots merge per
+  voter, `DEEDS`, `BLOCKED_BY`, `FILES` and `VISSUE_TAGS` merge per token, and a
+  state that both sides moved takes the later logged move. A field both sides
+  changed some other way keeps ours and is written on the heading as a
+  merge-conflict note, with theirs kept in a `MERGE_CONFLICT` drawer. A side
+  that does not parse leaves git's ordinary text conflict. Register it in a
+  tracker repository with `vissue merge-driver --install`, then commit the
+  `.gitattributes` line it writes; each clone runs `--install` once.
+
+### Fixed
+
+- A create refuses a named root that is not a directory, as it already
+  refused a guessed root with no tracker. A mistyped root no longer builds a
+  private tracker tree that mints ids other seats already hold.
+- A create with no `--project` run inside `<root>/<prefix>/<name>/` files under
+  `<name>`, ahead of a `.project-ctx.toml` higher up that names the whole vault.
+- A refusal such as `create` on a projected board prints its message once
+  instead of twice.
+- Sway and other Wayland binds that summon the HUD now pass the
+  xdg-activation token through, so the overlay maps with keyboard focus.
+  The first bind (no HUD yet) and a `.desktop` launch consume the token
+  the same way. `--hide` with no HUD running exits 0 and does not start one.
+- `--root`, `ISSUE_ROOT` and `VISSUE_ROOT` expand a leading `~/`. An
+  unexpanded root from environment.d or an MCP `env` block no longer plants a
+  tracker in a directory named `~` under the working directory.
+- `check` no longer treats a nested-project issue id as an org-gcal event.
+
+  A vissue id is `{project}-{suffix}`. When the project lives in a nested
+  directory the project name contains `/` (`Infra/terra-6cx2`), which is
+  not the org-gcal `<event>/<calendar>` form. A real org-gcal id is still
+  an error, and that heading is still left as Org around the issues.
+- `vissue claims`, `stale`, `export`, `graph` and `roadmap` over a routed
+  tracker parse each tracker once instead of once per project. On a vault of
+  173 projects, `vissue claims --json` went from 29 s and a 382 MB peak to
+  0.6 s and 153 MB, with the same output.
+- `vissue create` on a board this tracker projects from another refuses and
+  names the board's inbox, instead of writing into the stub no seat reads.
+
+
 ## [0.16.2](https://github.com/leidarljos/vissue/releases/tag/v0.16.2) - 2026-09-25
 
 ### Fixed
