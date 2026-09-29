@@ -55,18 +55,20 @@ pub fn load_recs(layout: &Layout) -> Result<Vec<IssueRec>> {
 /// [`with_shared_corpus`], [`shared_recs`] and [`shared_all`] parse each
 /// layout once and hand every later caller the same copy; outside it they
 /// read afresh, so a long-lived server never answers from a stale corpus.
+/// A layout's identity: its root and prefix.
+type LayoutKey = (std::path::PathBuf, String);
+/// Every heading of a layout, keyed by id.
+type Headings = std::sync::Arc<Vec<(String, IssueHeading)>>;
+
 struct SharedCorpus {
-    recs: Vec<((std::path::PathBuf, String), std::sync::Arc<Vec<IssueRec>>)>,
-    all: Vec<(
-        (std::path::PathBuf, String),
-        std::sync::Arc<Vec<(String, IssueHeading)>>,
-    )>,
+    recs: Vec<(LayoutKey, std::sync::Arc<Vec<IssueRec>>)>,
+    all: Vec<(LayoutKey, Headings)>,
     leak: bool,
 }
 
 static SHARED: std::sync::Mutex<Option<SharedCorpus>> = std::sync::Mutex::new(None);
 
-fn layout_key(layout: &Layout) -> (std::path::PathBuf, String) {
+fn layout_key(layout: &Layout) -> LayoutKey {
     (layout.root().to_path_buf(), layout.prefix().to_string())
 }
 
@@ -92,10 +94,10 @@ pub fn with_shared_corpus<R>(leak: bool, f: impl FnOnce() -> R) -> R {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .take();
-    if let Some(corpus) = taken {
-        if corpus.leak {
-            std::mem::forget(corpus);
-        }
+    if let Some(corpus) = taken
+        && corpus.leak
+    {
+        std::mem::forget(corpus);
     }
     out
 }
