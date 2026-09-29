@@ -6,6 +6,17 @@ All notable changes to vissue are recorded here. The format follows
 
 <!-- towncrier release notes start -->
 
+## [0.18.0](https://github.com/leidarljos/vissue/releases/tag/v0.18.0) - 2026-09-30
+
+### Added
+
+- `vissue search QUERY -p PROJECT` searches one project's issues, on the
+  tracker that project routes to, and the limit counts only its hits.
+- `vissue vote ID --withdraw` takes back the caller's ballot on an issue, and
+  the logbook notes what it was and when it was cast. A merge keeps the
+  removal: one side dropping a ballot the other left alone is not a clash.
+
+
 ## [0.17.1](https://github.com/leidarljos/vissue/releases/tag/v0.17.1) - 2026-09-29
 
 ### Fixed
