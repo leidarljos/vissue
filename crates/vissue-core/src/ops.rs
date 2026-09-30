@@ -1413,7 +1413,9 @@ fn write_ballots(h: &mut IssueHeading, ballots: &[Ballot], foreign: &[String]) {
     }
 }
 
-/// The tally, and whether it is a consensus; a plurality is reported as one.
+/// The tally of ballots. A strict majority is a count of names. The
+/// weighted settle is `consensus`, and this text does not use that word
+/// for the count. One ballot is not a majority.
 fn tally_text(id: &str, ballots: &[Ballot]) -> String {
     if ballots.is_empty() {
         return format!("{id}: no votes\n");
@@ -1451,7 +1453,7 @@ fn tally_text(id: &str, ballots: &[Ballot]) -> String {
             rows[0].0
         );
     } else if top * 2 > total {
-        let _ = writeln!(out, "  consensus: {} ({top} of {total})", rows[0].0);
+        let _ = writeln!(out, "  majority: {} ({top} of {total})", rows[0].0);
     } else {
         let _ = writeln!(
             out,
@@ -3797,7 +3799,7 @@ mod tests {
         let out = voted(&layout, &id, "agent-c", "hold");
 
         assert!(out.contains("3 votes from 2 options"), "{out}");
-        assert!(out.contains("consensus: ship (2 of 3)"), "{out}");
+        assert!(out.contains("majority: ship (2 of 3)"), "{out}");
     }
 
     /// A tie is the case a tally exists to surface, so it must not report the
@@ -3988,9 +3990,9 @@ mod tests {
         assert!(out.contains("one ballot only: ship"), "{out}");
         assert!(!out.contains("consensus: ship"), "{out}");
 
-        // A second agent agreeing makes it one.
+        // A second agent agreeing is a majority of the count.
         let out = voted(&layout, &id, "agent-b", "ship");
-        assert!(out.contains("consensus: ship (2 of 2)"), "{out}");
+        assert!(out.contains("majority: ship (2 of 2)"), "{out}");
     }
 
     /// An identity holding ": " is refused: the ballot line splits there.
