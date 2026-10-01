@@ -385,7 +385,8 @@ this".
 
 * Why a tally is not a consensus
 
-=vote= counts ballots and refuses to call a plurality agreement. That is as far
+=vote= counts ballots and refuses to call a plurality agreement. A strict
+majority is labeled a majority, which is still a count of names. That is as far
 as counting goes, and it is not far enough: agents are not interchangeable. A
 maintainer, a reviewer whose last two calls were wrong, and a worker that has
 seen this file once each cast one ballot, and a count says the three are worth

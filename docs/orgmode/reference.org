@@ -706,10 +706,13 @@ the drawer survives the next vote.
 The tally distinguishes four outcomes, because a count that calls them all
 agreement is worth nothing:
 
-- *consensus*, when one choice holds more than half of at least two ballots;
+- *majority*, when one choice holds more than half of at least two ballots;
 - *plurality only*, when one choice leads without a majority;
 - *no consensus*, when the lead is tied;
 - *one ballot only*, when a single agent has voted, which nobody has agreed with.
+
+A majority here is a count of names. The weighted settle is =consensus=, and
+the tally does not call the count by that name.
 
 A choice is one line and may contain a colon, so ="ship: after the audit"= is a
 vote and not a parse error.
