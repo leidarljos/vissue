@@ -6,6 +6,17 @@ All notable changes to vissue are recorded here. The format follows
 
 <!-- towncrier release notes start -->
 
+## [0.18.2](https://github.com/leidarljos/vissue/releases/tag/v0.18.2) - 2026-10-02
+
+### Added
+
+- `vissue update ID -t TAG` adds a tag and `--untag TAG` removes one,
+  repeated or comma-separated, filed as `create` files them: on the
+  heading when Org can hold the tag, in `:VISSUE_TAGS:` otherwise.
+  `vissue append ID "text"` takes the report as the words after the id,
+  beside `--text` and `--file`.
+
+
 ## [0.18.1](https://github.com/leidarljos/vissue/releases/tag/v0.18.1) - 2026-10-02
 
 ### Added
