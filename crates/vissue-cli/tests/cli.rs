@@ -1979,7 +1979,7 @@ fn the_consensus_weighs_the_ballots_the_tally_counts() {
     own("carol", &["vote", &id, "--for", "hold"]);
 
     let tally = stdout(&own("alice", &["vote", &id]));
-    assert!(tally.contains("consensus: ship (2 of 3)"), "{tally}");
+    assert!(tally.contains("majority: ship (2 of 3)"), "{tally}");
 
     let rows: serde_json::Value =
         serde_json::from_str(&stdout(&own("alice", &["vote", &id, "--json"]))).unwrap();

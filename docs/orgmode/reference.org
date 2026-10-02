@@ -703,13 +703,18 @@ refuses rather than filing the ballot under an agent that never voted.
 Lines the parser does not recognise are kept where they are, so a comment left in
 the drawer survives the next vote.
 
-The tally distinguishes four outcomes, because a count that calls them all
+The tally distinguishes five outcomes, because a count that calls them all
 agreement is worth nothing:
 
-- *consensus*, when one choice holds more than half of at least two ballots;
+- *unanimous*, when at least two ballots all hold one choice;
+- *majority*, when one choice holds more than half of them;
 - *plurality only*, when one choice leads without a majority;
 - *no consensus*, when the lead is tied;
 - *one ballot only*, when a single agent has voted, which nobody has agreed with.
+
+A tally never says *consensus*. That word belongs to =vissue consensus=,
+which weighs the same ballots by who listens to whom, and the unanimous
+and majority lines name it.
 
 A choice is one line and may contain a colon, so ="ship: after the audit"= is a
 vote and not a parse error.

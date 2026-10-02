@@ -1413,7 +1413,9 @@ fn write_ballots(h: &mut IssueHeading, ballots: &[Ballot], foreign: &[String]) {
     }
 }
 
-/// The tally, and whether it is a consensus; a plurality is reported as one.
+/// The tally, and what it shows: unanimous, a majority, a plurality, a tie
+/// or one ballot. A count is never called a consensus; that word belongs
+/// to `consensus`, which weighs the same ballots by who listens to whom.
 fn tally_text(id: &str, ballots: &[Ballot]) -> String {
     if ballots.is_empty() {
         return format!("{id}: no votes\n");
@@ -1450,8 +1452,18 @@ fn tally_text(id: &str, ballots: &[Ballot]) -> String {
             "  one ballot only: {}, which nobody has agreed with yet",
             rows[0].0
         );
+    } else if top == total {
+        let _ = writeln!(
+            out,
+            "  unanimous: {} ({top} of {total}); `vissue consensus {id}` weighs it",
+            rows[0].0
+        );
     } else if top * 2 > total {
-        let _ = writeln!(out, "  consensus: {} ({top} of {total})", rows[0].0);
+        let _ = writeln!(
+            out,
+            "  majority: {} ({top} of {total}), not a settled consensus; `vissue consensus {id}` weighs it",
+            rows[0].0
+        );
     } else {
         let _ = writeln!(
             out,
@@ -3797,7 +3809,10 @@ mod tests {
         let out = voted(&layout, &id, "agent-c", "hold");
 
         assert!(out.contains("3 votes from 2 options"), "{out}");
-        assert!(out.contains("consensus: ship (2 of 3)"), "{out}");
+        assert!(
+            out.contains("majority: ship (2 of 3), not a settled consensus"),
+            "{out}"
+        );
     }
 
     /// A tie is the case a tally exists to surface, so it must not report the
@@ -3988,9 +4003,10 @@ mod tests {
         assert!(out.contains("one ballot only: ship"), "{out}");
         assert!(!out.contains("consensus: ship"), "{out}");
 
-        // A second agent agreeing makes it one.
+        // A second agent agreeing makes it unanimous, which is still a count.
         let out = voted(&layout, &id, "agent-b", "ship");
-        assert!(out.contains("consensus: ship (2 of 2)"), "{out}");
+        assert!(out.contains("unanimous: ship (2 of 2)"), "{out}");
+        assert!(!out.contains("consensus: ship"), "{out}");
     }
 
     /// An identity holding ": " is refused: the ballot line splits there.
