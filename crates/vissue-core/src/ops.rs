@@ -325,6 +325,73 @@ pub fn update(
     )
 }
 
+/// Add and remove tags on an issue. A tag Org can hold goes on the heading,
+/// any other in `:VISSUE_TAGS:`, as [`create`] files them; a removal takes
+/// the tag from both. Returns one line per change, none when nothing moved.
+///
+/// # Errors
+///
+/// No such issue, or the file cannot be read or written.
+pub fn retag(layout: &Layout, id: &str, add: &[String], remove: &[String]) -> Result<Vec<String>> {
+    let (_h0, path, project) =
+        find_by_id(layout, id)?.ok_or_else(|| Error::IssueNotFound { id: id.to_string() })?;
+    with_issues_lock(&path, || {
+        let mut doc = IssueDoc::parse_file(&project, &path)?;
+        let h = doc
+            .headings
+            .iter_mut()
+            .find(|x| x.id == id)
+            .ok_or_else(|| Error::IssueNotFound { id: id.to_string() })?;
+        let split = |list: &[String]| -> Vec<String> {
+            list.iter()
+                .flat_map(|t| t.split([',', ':']))
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .map(str::to_string)
+                .collect()
+        };
+        let mut property: Vec<String> = h
+            .properties
+            .get(crate::model::TAGS_PROPERTY)
+            .map(|s| split(&[s.clone()]))
+            .unwrap_or_default();
+        let mut changed = Vec::new();
+        for tag in split(add) {
+            if h.org_tags.contains(&tag) || property.contains(&tag) {
+                continue;
+            }
+            if tag.chars().all(crate::model::is_org_tag_char) {
+                h.org_tags.push(tag.clone());
+            } else {
+                property.push(tag.clone());
+            }
+            changed.push(format!("tag +{tag}"));
+        }
+        for tag in split(remove) {
+            let before = h.org_tags.len() + property.len();
+            h.org_tags.retain(|t| t != &tag);
+            property.retain(|t| t != &tag);
+            if h.org_tags.len() + property.len() < before {
+                changed.push(format!("tag -{tag}"));
+            }
+        }
+        if changed.is_empty() {
+            return Ok(changed);
+        }
+        if property.is_empty() {
+            crate::props::remove(&mut h.properties, crate::model::TAGS_PROPERTY);
+        } else {
+            crate::props::insert(
+                &mut h.properties,
+                crate::model::TAGS_PROPERTY,
+                property.join(","),
+            );
+        }
+        doc.write()?;
+        Ok(changed)
+    })
+}
+
 /// Last-seen state or generation a write must still match.
 ///
 /// This is the causal context on a PUT: the caller read the heading, then
@@ -3848,6 +3915,42 @@ mod tests {
         // 2 of 4 leads but does not carry.
         assert!(out.contains("plurality only: ship (2 of 4)"), "{out}");
         assert!(!out.contains("consensus: ship"), "{out}");
+    }
+
+    #[test]
+    fn tags_are_added_and_removed_where_create_files_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = fresh_layout(dir.path());
+        create(&layout, "sample", "what to do", CreateOpts::default()).unwrap();
+        let id = only_id(&layout, "sample");
+        let got = retag(
+            &layout,
+            &id,
+            &["decision".into(), "needs-review,bug".into()],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(got, ["tag +decision", "tag +needs-review", "tag +bug"]);
+        let text = std::fs::read_to_string(layout.project_issues_path("sample")).unwrap();
+        assert!(
+            text.contains(":decision:bug:") || text.contains(":bug:decision:"),
+            "{text}"
+        );
+        assert!(text.contains("needs-review"), "{text}");
+        assert!(
+            retag(&layout, &id, &["decision".into()], &[])
+                .unwrap()
+                .is_empty(),
+            "a tag held is no change"
+        );
+        let got = retag(&layout, &id, &[], &["needs-review".into(), "bug".into()]).unwrap();
+        assert_eq!(got, ["tag -needs-review", "tag -bug"]);
+        let text = std::fs::read_to_string(layout.project_issues_path("sample")).unwrap();
+        assert!(
+            !text.contains("needs-review") && !text.contains(":bug:"),
+            "{text}"
+        );
+        assert!(text.contains(":decision:"), "{text}");
     }
 
     #[test]

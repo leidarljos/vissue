@@ -7,9 +7,9 @@
 |---------------------------------------------------------------------------+--------------------------------------------------------------------------|
 | =create=, =q=                                                             | Add an issue; =q= prints only the new id                                 |
 | =list=, =show=                                                            | Rows of issues; one issue's metadata and body (=--org= for the raw heading) |
-| =update=, =claim=, =release=, =refile=, =reject=, =resolve=               | Change state, priority, or blockers; take an issue; drop one holder's claims; move it; redirect; pick a sibling terminal |
+| =update=, =claim=, =release=, =refile=, =reject=, =resolve=               | Change state, priority, blockers, or tags (=-t TAG=, =--untag TAG=); take an issue; drop one holder's claims; move it; redirect; pick a sibling terminal |
 | =note=                                                                    | Add a dated logbook entry; state and claim untouched                     |
-| =append=                                                                  | Record a dated report under the heading, from =--text=, =--file=, or stdin |
+| =append=                                                                  | Record a dated report under the heading, from the words after the id, =--text=, =--file=, or stdin |
 | =body-excerpt=                                                            | A capped preview of an issue's file range; =show --org= for the whole heading |
 | =claims=                                                                  | Every live claim, oldest first: who holds what, for how long             |
 | =vote=                                                                    | Cast this agent's ballot (=--for=), take it back (=--withdraw=, logged), or read the tally; =--json= for the ballot rows |
