@@ -1464,7 +1464,7 @@ fn run() -> Result<()> {
             if !tag.is_empty() || !untag.is_empty() {
                 let changed = ops::retag(&found, &id, &tag, &untag)?;
                 emit!(
-                    "{id}: {}",
+                    "{id}: {}\n",
                     if changed.is_empty() {
                         "tags unchanged".to_string()
                     } else {
