@@ -6,6 +6,21 @@ All notable changes to vissue are recorded here. The format follows
 
 <!-- towncrier release notes start -->
 
+## [0.18.1](https://github.com/leidarljos/vissue/releases/tag/v0.18.1) - 2026-10-02
+
+### Added
+
+- `vissue search QUERY -p PROJECT` searches one project's issues, on the
+  tracker that project routes to, and the limit counts only its hits.
+
+### Changed
+
+- The vote tally never calls a count a consensus: at least two ballots on
+  one choice read *unanimous*, more than half *majority*, and both name
+  `vissue consensus ID`, which weighs the same ballots by who listens to
+  whom.
+
+
 ## [0.18.0](https://github.com/leidarljos/vissue/releases/tag/v0.18.0) - 2026-09-30
 
 ### Added
