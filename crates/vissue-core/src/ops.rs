@@ -353,7 +353,7 @@ pub fn retag(layout: &Layout, id: &str, add: &[String], remove: &[String]) -> Re
         let mut property: Vec<String> = h
             .properties
             .get(crate::model::TAGS_PROPERTY)
-            .map(|s| split(&[s.clone()]))
+            .map(|s| split(std::slice::from_ref(s)))
             .unwrap_or_default();
         let mut changed = Vec::new();
         for tag in split(add) {
