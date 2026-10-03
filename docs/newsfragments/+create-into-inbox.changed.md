@@ -1,1 +1,0 @@
-`vissue create` on a board this tracker projects from elsewhere writes the issue to the board's inbox with its id, priority, type, parent and tags, and prints the id; `vissue project` folds it into the source under that id. It used to refuse, so a child chained on the new id got an empty one.
