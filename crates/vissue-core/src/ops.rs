@@ -2331,17 +2331,25 @@ mod tests {
     }
 
     #[test]
-    fn a_projected_board_refuses_a_create_and_names_its_inbox() {
+    fn a_projected_board_takes_a_create_into_its_inbox_and_one_without_refuses() {
         let dir = tempfile::tempdir().unwrap();
         let layout = fresh_layout(dir.path());
         fs::write(
             dir.path().join("vissue.toml"),
-            "[[projection.board]]\nproject = \"surf\"\nmirror = \"m/surf.org\"\n\n[[projection.board]]\nproject = \"ljos\"\nsource = \"vault\"\nmirror = \"m/ljos.org\"\ninbox = \"Software/ljos/inbox.org\"\n",
+            "[[projection.board]]\nproject = \"surf\"\nmirror = \"m/surf.org\"\n\n[[projection.board]]\nproject = \"ljos\"\nsource = \"vault\"\nmirror = \"m/ljos.org\"\ninbox = \"Software/ljos/inbox.org\"\n\n[[projection.board]]\nproject = \"far\"\nsource = \"vault\"\nmirror = \"m/far.org\"\n",
         )
         .unwrap();
-        let err = create(&layout, "ljos", "an audit", CreateOpts::default()).unwrap_err();
-        assert!(err.to_string().contains("Software/ljos/inbox.org"), "{err}");
+        let out = create(&layout, "ljos", "an audit", CreateOpts::default()).unwrap();
+        assert!(out.contains("Software/ljos/inbox.org"), "{out}");
+        let id = out.split_whitespace().next().unwrap();
+        assert!(id.starts_with("ljos-"), "{out}");
+        let inbox = fs::read_to_string(dir.path().join("Software/ljos/inbox.org")).unwrap();
+        assert!(inbox.contains("* TODO [#B] an audit"), "{inbox}");
+        assert!(inbox.contains(&format!(":ID:         {id}")), "{inbox}");
         assert!(!layout.project_issues_path("ljos").exists());
+        let err = create(&layout, "far", "nowhere", CreateOpts::default()).unwrap_err();
+        assert!(err.to_string().contains("far is not created here"), "{err}");
+        assert!(!layout.project_issues_path("far").exists());
         // A board this tracker is the source of takes the create.
         create(&layout, "surf", "local work", CreateOpts::default()).unwrap();
         assert_eq!(
