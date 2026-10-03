@@ -110,17 +110,22 @@ pub struct CreateOpts<'a> {
 /// cannot be locked or rewritten.
 pub fn create(layout: &Layout, project: &str, title: &str, opts: CreateOpts<'_>) -> Result<String> {
     // A board this tracker projects from another holds its issues there; a
-    // heading written here lands in a stub no seat reads.
+    // heading written here lands in a stub no seat reads. Its inbox is where
+    // work for it goes, so the issue is written there with its id, and the
+    // next fold carries it to the source under that id.
     if let Some(board) = crate::projection::boards(layout.root())
         .unwrap_or_default()
         .into_iter()
         .find(|b| b.source != "self" && b.project.eq_ignore_ascii_case(project))
     {
-        return Err(anyhow!(
-            "{project} is not created here: {}",
-            crate::projection::projected_note(&board)
-        )
-        .into());
+        let Some(inbox) = board.inbox.as_deref() else {
+            return Err(anyhow!(
+                "{project} is not created here: {}",
+                crate::projection::projected_note(&board)
+            )
+            .into());
+        };
+        return create_in_inbox(layout, &board, inbox, title, &opts);
     }
     let project = resolve_existing_project_case(layout, project)?;
     let cfg = VissueConfig::load(layout)?;
@@ -265,6 +270,168 @@ pub fn create(layout: &Layout, project: &str, title: &str, opts: CreateOpts<'_>)
             ))
         }
     })
+}
+
+/// [`create`] for a projected board: a `* TODO` heading with its minted id,
+/// type, parent and tags appended to the board's inbox. The id is free in
+/// the mirror and the inbox, and a parent may be any id the corpus, the
+/// mirror or the inbox holds.
+fn create_in_inbox(
+    layout: &Layout,
+    board: &crate::projection::Board,
+    inbox: &Path,
+    title: &str,
+    opts: &CreateOpts<'_>,
+) -> Result<String> {
+    let project = board.project.as_str();
+    let inbox_path = layout.root().join(inbox);
+    let mirror_path = layout.root().join(&board.mirror);
+    let priority = opts.priority.unwrap_or('B');
+    if !matches!(priority, 'A' | 'B' | 'C') {
+        return Err(anyhow!("invalid priority {priority:?}; an inbox takes A, B or C").into());
+    }
+    for d in [opts.deadline, opts.scheduled].into_iter().flatten() {
+        validate_org_date(d)?;
+    }
+    let read = |p: &Path| std::fs::read_to_string(p).unwrap_or_default();
+    with_issues_locks(&[inbox_path.as_path()], || {
+        let mirror = read(&mirror_path);
+        let existing = read(&inbox_path);
+        let mut taken: Vec<String> = crate::store::org_ids(&mirror)
+            .chain(crate::store::org_ids(&existing))
+            .map(str::to_string)
+            .collect();
+        taken.extend(opts.extra_ids.iter().cloned());
+        if let Some(p) = opts.parent
+            && !taken.iter().any(|t| t == p)
+            && !collect_org_ids(layout)?.contains(p)
+        {
+            return Err(anyhow!("--parent {p} does not refer to any known id").into());
+        }
+        let id = if let Some(want) = opts.id {
+            validate_explicit_id(project, want)?;
+            if taken.iter().any(|seen| seen == want) {
+                return Err(anyhow!("--id {want} already exists").into());
+            }
+            want.to_string()
+        } else {
+            let cfg = VissueConfig::load(layout)?;
+            generate_id(project, title, &taken, cfg.issues.id_length)?
+        };
+        let mut tags: Vec<String> = Vec::new();
+        for t in opts
+            .issue_type
+            .into_iter()
+            .chain(opts.tags.unwrap_or("").split([',', ':']))
+            .map(str::trim)
+        {
+            if !t.is_empty()
+                && t.chars().all(crate::model::is_org_tag_char)
+                && !tags.iter().any(|seen| seen == t)
+            {
+                tags.push(t.to_string());
+            }
+        }
+        let mut entry = format!("* TODO [#{priority}] {title}");
+        if !tags.is_empty() {
+            let _ = write!(entry, " :{}:", tags.join(":"));
+        }
+        let _ = write!(
+            entry,
+            "\n:PROPERTIES:\n:ID:         {id}\n:CREATED:    {}\n",
+            today_inactive_bracket()
+        );
+        for (key, value) in [
+            ("TYPE", opts.issue_type),
+            ("PARENT", opts.parent),
+            ("DEADLINE", opts.deadline),
+            ("SCHEDULED", opts.scheduled),
+        ] {
+            if let Some(v) = value {
+                let _ = writeln!(entry, ":{key}:{}{v}", " ".repeat(11 - key.len()));
+            }
+        }
+        entry.push_str(":END:\n");
+        if let Some(body) = opts.body.map(str::trim).filter(|b| !b.is_empty()) {
+            let _ = writeln!(entry, "{body}");
+        }
+        let mut text = existing;
+        if !text.is_empty() && !text.ends_with('\n') {
+            text.push('\n');
+        }
+        text.push_str(&entry);
+        std::fs::write(&inbox_path, text)
+            .with_context(|| format!("write inbox {}", inbox_path.display()))?;
+        if opts.quiet {
+            Ok(format!("{id}\n"))
+        } else {
+            Ok(format!(
+                "{id}  TODO  [#{priority}]  {title}\ninbox: {} (folds into {} on its source)\n",
+                inbox_path.display(),
+                project
+            ))
+        }
+    })
+}
+
+/// The fields an inbox heading written by [`create_in_inbox`] carries: the
+/// title without its priority cookie and tags, and the drawer's properties.
+struct InboxHeading {
+    title: String,
+    priority: Option<char>,
+    tags: Vec<String>,
+    props: BTreeMap<String, String>,
+    body: String,
+}
+
+fn inbox_heading(title: &str, body: &str) -> InboxHeading {
+    let mut title = title.trim().to_string();
+    let mut priority = None;
+    if let Some(rest) = title.strip_prefix("[#")
+        && let Some((p, after)) = rest.split_once("] ")
+        && p.len() == 1
+    {
+        priority = p.chars().next();
+        title = after.trim().to_string();
+    }
+    let mut tags = Vec::new();
+    if let Some((head, last)) = title.rsplit_once(' ')
+        && last.len() > 2
+        && last.starts_with(':')
+        && last.ends_with(':')
+        && last[1..last.len() - 1]
+            .split(':')
+            .all(|t| !t.is_empty() && t.chars().all(crate::model::is_org_tag_char))
+    {
+        tags = last[1..last.len() - 1]
+            .split(':')
+            .map(str::to_string)
+            .collect();
+        title = head.trim_end().to_string();
+    }
+    let mut props = BTreeMap::new();
+    let mut rest = body;
+    if let Some(drawer) = body.strip_prefix(":PROPERTIES:")
+        && let Some((inside, after)) = drawer.split_once(":END:")
+    {
+        for line in inside.lines() {
+            if let Some((key, value)) = line
+                .trim()
+                .strip_prefix(':')
+                .and_then(|l| l.split_once(':'))
+            {
+                props.insert(key.to_string(), value.trim().to_string());
+            }
+        }
+        rest = after;
+    }
+    InboxHeading {
+        title,
+        priority,
+        tags,
+        props,
+        body: rest.trim().to_string(),
+    }
 }
 
 /// An explicit create id is `{project}-` plus one or more `0-9a-z`.
@@ -1712,17 +1879,27 @@ pub fn fold(layout: &Layout, inbox: &std::path::Path, project: &str) -> Result<S
         if e.stamped {
             continue;
         }
+        // A heading `create` wrote here keeps its id, parent, type and tags.
+        let h = inbox_heading(&e.title, &e.body);
+        let tags = h.tags.join(",");
         let printed = create(
             layout,
             &project,
-            &e.title,
+            &h.title,
             CreateOpts {
                 quiet: true,
-                body: if e.body.is_empty() {
+                body: if h.body.is_empty() {
                     None
                 } else {
-                    Some(&e.body)
+                    Some(&h.body)
                 },
+                priority: h.priority,
+                id: h.props.get("ID").map(String::as_str),
+                parent: h.props.get("PARENT").map(String::as_str),
+                issue_type: h.props.get("TYPE").map(String::as_str),
+                deadline: h.props.get("DEADLINE").map(String::as_str),
+                scheduled: h.props.get("SCHEDULED").map(String::as_str),
+                tags: (!tags.is_empty()).then_some(tags.as_str()),
                 ..CreateOpts::default()
             },
         );
