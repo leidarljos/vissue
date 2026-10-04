@@ -6,14 +6,14 @@ use std::path::PathBuf;
 
 use crate::model::IssueHeading;
 
-/// One parsed heading plus the `issues.org` it came from.
+/// One parsed heading plus the file it was read from.
 #[derive(Debug, Clone)]
 pub struct IssueRec {
     /// Project directory name the heading lives under.
     pub project: String,
     /// Parsed heading, including body and logbook.
     pub heading: IssueHeading,
-    /// Absolute path of the project's `issues.org`.
+    /// Absolute path of the file the heading was read from.
     pub path: PathBuf,
     /// File-level tags and `#+TAGS:` groups from the preamble.
     pub tag_settings: crate::org::TagSettings,
@@ -96,7 +96,7 @@ pub struct IssueDetail {
     pub claimed_by: Option<String>,
     /// Org timestamp of the claim.
     pub claimed_at: Option<String>,
-    /// `path:line_start-line_end` of the heading in its `issues.org`.
+    /// `path:line_start-line_end` of the heading in the file it was read from.
     pub file: String,
     /// 1-based first line of the heading in the file.
     pub line_start: usize,
@@ -160,7 +160,7 @@ pub struct ClaimRow {
 pub struct Excerpt {
     /// Issue id.
     pub id: String,
-    /// Path of the `issues.org` the heading lives in.
+    /// Path of the file the heading was read from.
     pub file: String,
     /// 1-based first line of the heading.
     pub line_start: usize,

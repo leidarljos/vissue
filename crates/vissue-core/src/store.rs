@@ -225,6 +225,9 @@ pub struct IssueDoc {
     /// length as [`Self::headings`] after a parse; a write pads missing
     /// slots with the usual blank line.
     pub(crate) after: Vec<String>,
+    /// Per-issue file for each id when this document was folded from a
+    /// ledger. Empty when the headings were parsed from `issues.org`.
+    pub(crate) ledger_files: BTreeMap<String, PathBuf>,
 }
 
 impl IssueDoc {
@@ -239,7 +242,20 @@ impl IssueDoc {
             keywords: crate::org::TodoSequence::house(),
             headings: Vec::new(),
             after: Vec::new(),
+            ledger_files: BTreeMap::new(),
         }
+    }
+
+    /// File a reader should open for `id`.
+    ///
+    /// A ledger fold names that issue's append-only file. A board names
+    /// `issues.org`.
+    #[must_use]
+    pub fn heading_path(&self, id: &str) -> &Path {
+        self.ledger_files
+            .get(id)
+            .map(PathBuf::as_path)
+            .unwrap_or(&self.path)
     }
 
     /// Parse `path`, or produce an empty document when the file is absent.
@@ -354,6 +370,7 @@ impl IssueDoc {
             keywords: sequence,
             headings,
             after,
+            ledger_files: BTreeMap::new(),
         })
     }
 
@@ -1464,6 +1481,7 @@ mod tests {
             tag_settings: tag_settings_from_preamble(&default_preamble("sample")),
             headings: vec![sample_heading()],
             after: vec![String::new()],
+            ledger_files: BTreeMap::new(),
         }
         .write()
         .unwrap();

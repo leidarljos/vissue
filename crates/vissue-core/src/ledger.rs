@@ -69,11 +69,15 @@ pub fn load(project: &str, path: &Path) -> Result<IssueDoc> {
     } else {
         IssueDoc::parse(project, path.to_path_buf(), &format!("{preamble}\n"))?
     };
-    let mut headings: Vec<IssueHeading> = loaded
-        .into_iter()
-        .filter(|item| !item.tombstoned)
-        .map(|item| item.heading)
-        .collect();
+    let mut ledger_files = BTreeMap::new();
+    let mut headings = Vec::new();
+    for item in loaded {
+        if item.tombstoned {
+            continue;
+        }
+        ledger_files.insert(item.heading.id.clone(), item.file);
+        headings.push(item.heading);
+    }
     headings.sort_by(|a, b| {
         a.line_start
             .cmp(&b.line_start)
@@ -81,6 +85,7 @@ pub fn load(project: &str, path: &Path) -> Result<IssueDoc> {
     });
     shell.after = vec![String::new(); headings.len()];
     shell.headings = headings;
+    shell.ledger_files = ledger_files;
     shell.preamble = if preamble.is_empty() {
         shell.preamble
     } else {
@@ -285,10 +290,9 @@ fn read_file(issues_org: &Path, file: &Path) -> Result<Loaded> {
         .into_iter()
         .next()
         .ok_or_else(|| anyhow!("no heading in {}", file.display()))?;
-    if let Some((start, end)) = line_override(left) {
-        heading.line_start = start;
-        heading.line_end = end;
-    }
+    // `#+VISSUE_LINES:` records the old board span. The heading's own
+    // line numbers are where it sits in this file, which is what `show`
+    // prints next to the path.
     let tombstoned = apply_records(&mut heading, log, &doc.preamble)?;
     Ok(Loaded {
         file: file.to_path_buf(),
@@ -304,22 +308,6 @@ fn split_log(source: &str) -> (&str, &str) {
         Some((left, log)) => (left, log),
         None => (source, ""),
     }
-}
-
-fn line_override(text: &str) -> Option<(usize, usize)> {
-    for line in text.lines() {
-        let Some(rest) = line.strip_prefix(LINES_MARK) else {
-            if line.starts_with("* ") {
-                break;
-            }
-            continue;
-        };
-        let mut numbers = rest.split_whitespace();
-        let start = numbers.next()?.parse().ok()?;
-        let end = numbers.next()?.parse().ok()?;
-        return Some((start, end));
-    }
-    None
 }
 
 fn copied_preamble(source: &str) -> Option<String> {
@@ -662,7 +650,7 @@ Body two.
     }
 
     #[test]
-    fn migrate_keeps_show_and_a_note_appends_to_one_file() {
+    fn migrate_show_reads_the_per_issue_file_and_a_note_appends_to_one_file() {
         let (_dir, layout) = layout_with_fixture();
         let path = layout.project_issues_path("sample");
         let before_a = report::show(&layout, "sample-aaaa").unwrap();
@@ -677,8 +665,12 @@ Body two.
         let done = migrate(&layout, false).unwrap();
         assert!(done.contains("2 issue"), "{done}");
         assert_eq!(fs::read(&path).unwrap(), original);
-        assert_eq!(report::show(&layout, "sample-aaaa").unwrap(), before_a);
-        assert_eq!(report::show(&layout, "sample-bbbb").unwrap(), before_b);
+        let after_a = report::show(&layout, "sample-aaaa").unwrap();
+        let after_b = report::show(&layout, "sample-bbbb").unwrap();
+        assert_eq!(without_file(&after_a), without_file(&before_a));
+        assert_eq!(without_file(&after_b), without_file(&before_b));
+        assert_per_issue_file(&after_a, "sample-aaaa");
+        assert_per_issue_file(&after_b, "sample-bbbb");
 
         let again = migrate(&layout, false).unwrap();
         assert!(again.contains("skipped"), "{again}");
@@ -700,7 +692,9 @@ Body two.
             }
         }
         assert_eq!(changed.len(), 1, "note touched {changed:?}");
-        assert_eq!(report::show(&layout, "sample-aaaa").unwrap(), before_a);
+        let noted = report::show(&layout, "sample-aaaa").unwrap();
+        assert_eq!(without_file(&noted), without_file(&after_a));
+        assert_per_issue_file(&noted, "sample-aaaa");
 
         let (heading, _, _) = crate::store::find_by_id(&layout, "sample-aaaa")
             .unwrap()
@@ -735,12 +729,52 @@ Body two.
         assert_eq!(second.state, "TODO");
         assert_eq!(second.priority, 'C');
         assert_eq!(fs::read(&path).unwrap(), original);
-        let grown = fs::read(&issues_dir(&path).join(file_name("sample-bbbb"))).unwrap();
+        let grown = fs::read(issues_dir(&path).join(file_name("sample-bbbb"))).unwrap();
         let text = String::from_utf8(grown).unwrap();
         assert!(text.contains("BLOCKED"), "{text}");
         assert!(text.contains("TODO"), "{text}");
         assert!(text.contains("%% priority 1\nB"), "{text}");
         assert!(text.contains("%% priority 1\nC"), "{text}");
+    }
+
+    #[test]
+    fn close_appends_to_the_per_issue_file() {
+        let (_dir, layout) = layout_with_fixture();
+        let board = layout.project_issues_path("sample");
+        let original = fs::read(&board).unwrap();
+        migrate(&layout, false).unwrap();
+        let store = issues_dir(&board).join(file_name("sample-aaaa"));
+        let before = fs::read(&store).unwrap();
+        ops::update(&layout, "sample-aaaa", Some("DONE"), None, None, None).unwrap();
+        assert_eq!(fs::read(&board).unwrap(), original);
+        let after = fs::read(&store).unwrap();
+        assert!(after.starts_with(&before));
+        assert!(after.len() > before.len());
+        let shown = report::show(&layout, "sample-aaaa").unwrap();
+        assert!(shown.contains("State:    DONE"), "{shown}");
+        assert_per_issue_file(&shown, "sample-aaaa");
+    }
+
+    fn without_file(text: &str) -> String {
+        text.lines()
+            .filter(|line| !line.starts_with("File:"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn assert_per_issue_file(text: &str, id: &str) {
+        let file = text
+            .lines()
+            .find(|line| line.starts_with("File:"))
+            .unwrap_or("");
+        assert!(
+            file.contains(&format!("issues/{id}.org")),
+            "show did not name the per-issue file: {file}"
+        );
+        assert!(
+            !file.contains("issues.org"),
+            "show still names the project board: {file}"
+        );
     }
 
     #[test]

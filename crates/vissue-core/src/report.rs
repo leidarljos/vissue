@@ -179,12 +179,11 @@ pub fn ready_in(recs: &[IssueRec], project_filter: Option<&str>) -> Result<Strin
 ///
 /// Returns an error if the corpus cannot be read, or `id` is not in it.
 pub fn show(layout: &Layout, id: &str) -> Result<String> {
-    let (h, path, project) =
+    let (h, board, project) =
         find_by_id(layout, id)?.ok_or_else(|| Error::IssueNotFound { id: id.to_string() })?;
-    let preamble = IssueDoc::parse_file(&project, &path)
-        .map(|doc| doc.preamble)
-        .unwrap_or_default();
-    format_show(&preamble, &path, &project, &h)
+    let doc = IssueDoc::parse_file(&project, &board)?;
+    let file = doc.heading_path(&h.id);
+    format_show(&doc.preamble, file, &project, &h)
 }
 
 /// `show` for every issue, one project file at a time.
@@ -195,10 +194,11 @@ pub fn show(layout: &Layout, id: &str) -> Result<String> {
 pub fn show_all(layout: &Layout) -> Result<String> {
     let mut out = String::new();
     for project in list_projects(layout)? {
-        let path = layout.project_issues_path(&project);
-        let doc = IssueDoc::parse_file(&project, &path)?;
+        let board = layout.project_issues_path(&project);
+        let doc = IssueDoc::parse_file(&project, &board)?;
         for heading in &doc.headings {
-            out.push_str(&format_show(&doc.preamble, &path, &project, heading)?);
+            let file = doc.heading_path(&heading.id);
+            out.push_str(&format_show(&doc.preamble, file, &project, heading)?);
         }
     }
     Ok(out)
