@@ -1209,9 +1209,28 @@ Body two.
         let before = fs::read_to_string(proof.join("before.txt")).unwrap();
         let after = fs::read_to_string(proof.join("after.txt")).unwrap();
         assert_eq!(without_file(&after), without_file(&before));
-        assert!(before.contains("issues.org"), "{before}");
-        assert_per_issue_file(&after, "sample-aaaa");
-        assert_per_issue_file(&after, "sample-bbbb");
+        assert!(
+            before
+                .lines()
+                .any(|line| line.starts_with("File:") && line.contains("issues.org")),
+            "{before}"
+        );
+        let files: Vec<_> = after
+            .lines()
+            .filter(|line| line.starts_with("File:"))
+            .collect();
+        assert!(
+            files.iter().any(|line| line.contains("issues/sample-aaaa.org")),
+            "{files:?}"
+        );
+        assert!(
+            files.iter().any(|line| line.contains("issues/sample-bbbb.org")),
+            "{files:?}"
+        );
+        assert!(
+            files.iter().all(|line| !line.contains("issues.org")),
+            "{files:?}"
+        );
         let dry = fs::read_to_string(proof.join("dry-run.txt")).unwrap();
         assert!(dry.contains("dry-run: wrote nothing"), "{dry}");
         assert!(
