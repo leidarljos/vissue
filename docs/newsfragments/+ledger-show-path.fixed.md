@@ -1,1 +1,1 @@
-After `migrate-ledger`, `show` names the per-issue file it read. A note, an update, and a close append to that file and leave the project board unchanged.
+After `migrate-ledger`, `show` names the per-issue file it read. A note, an update, and a close append to that file and leave the project board unchanged. An older vissue still rewrites the project board and does not read those files, so every machine that writes the tracker has to be on this release once a tracker is migrated.
