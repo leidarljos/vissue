@@ -1220,11 +1220,15 @@ Body two.
             .filter(|line| line.starts_with("File:"))
             .collect();
         assert!(
-            files.iter().any(|line| line.contains("issues/sample-aaaa.org")),
+            files
+                .iter()
+                .any(|line| line.contains("issues/sample-aaaa.org")),
             "{files:?}"
         );
         assert!(
-            files.iter().any(|line| line.contains("issues/sample-bbbb.org")),
+            files
+                .iter()
+                .any(|line| line.contains("issues/sample-bbbb.org")),
             "{files:?}"
         );
         assert!(

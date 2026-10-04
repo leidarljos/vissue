@@ -1709,10 +1709,7 @@ fn run() -> Result<()> {
         } => {
             if let Some(dir) = freeze_shows {
                 let layouts = router.unique_layouts();
-                emit!(
-                    "{}",
-                    vissue_core::ledger::migrate_frozen(&layouts, &dir)?
-                );
+                emit!("{}", vissue_core::ledger::migrate_frozen(&layouts, &dir)?);
             } else {
                 let mut out = String::new();
                 for one in router.unique_layouts() {
