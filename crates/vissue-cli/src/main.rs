@@ -337,11 +337,16 @@ enum Command {
     ///
     /// After this, a note or a field change appends to `PROJECT/issues/ID.org`
     /// and `issues.org` is not written. `--dry-run` reports the split and
-    /// writes nothing.
+    /// writes nothing. `--freeze-shows` holds every project lock, writes
+    /// both show dumps, and then performs the split.
     MigrateLedger {
         /// Report the split and do not write.
         #[arg(long)]
         dry_run: bool,
+        /// Directory for `before.txt` and `after.txt`. Holds every project
+        /// lock for the dry-run, the split, and both shows.
+        #[arg(long, value_name = "DIR", conflicts_with = "dry_run")]
+        freeze_shows: Option<PathBuf>,
     },
     /// Add a dated note to the top of an issue's logbook; state and claim untouched.
     Note {
@@ -1698,12 +1703,23 @@ fn run() -> Result<()> {
             let found = layout_for_id(&router, &id)?;
             emit!("{}", ops::append_body(&found, &id, &body)?)
         }
-        Command::MigrateLedger { dry_run } => {
-            let mut out = String::new();
-            for one in router.unique_layouts() {
-                out.push_str(&vissue_core::ledger::migrate(one, dry_run)?);
+        Command::MigrateLedger {
+            dry_run,
+            freeze_shows,
+        } => {
+            if let Some(dir) = freeze_shows {
+                let layouts = router.unique_layouts();
+                emit!(
+                    "{}",
+                    vissue_core::ledger::migrate_frozen(&layouts, &dir)?
+                );
+            } else {
+                let mut out = String::new();
+                for one in router.unique_layouts() {
+                    out.push_str(&vissue_core::ledger::migrate(one, dry_run)?);
+                }
+                emit!("{out}");
             }
-            emit!("{out}");
         }
         Command::Note { id, text } => {
             let found = layout_for_id(&router, &id)?;

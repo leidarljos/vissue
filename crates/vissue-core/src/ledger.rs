@@ -57,6 +57,87 @@ pub fn migrate(layout: &crate::config::Layout, dry_run: bool) -> Result<String> 
     Ok(report)
 }
 
+/// Copy every project in `layouts` while holding their locks.
+///
+/// `show` reads without the lock, so a note that lands after one project's
+/// show and before that project's copy changes the later show. This holds
+/// every project lock first, writes `dir/before.txt`, runs a dry-run, copies,
+/// folds nothing (a board move under the lock is an error), and writes
+/// `dir/after.txt`.
+///
+/// # Errors
+///
+/// Returns an error if a lock cannot be acquired, a project appears or
+/// disappears while the locks are acquired, a board changes while its lock
+/// is held, or a show or ledger file cannot be written.
+pub fn migrate_frozen(layouts: &[&crate::config::Layout], dir: &Path) -> Result<String> {
+    let mut projects: Vec<(String, PathBuf)> = Vec::new();
+    for layout in layouts {
+        for project in crate::store::list_projects(layout)? {
+            let path = layout.project_issues_path(&project);
+            projects.push((project, path));
+        }
+    }
+    let paths: Vec<PathBuf> = projects.iter().map(|(_, path)| path.clone()).collect();
+    let path_refs: Vec<&Path> = paths.iter().map(PathBuf::as_path).collect();
+    crate::store::with_issues_locks(&path_refs, || {
+        let mut current = Vec::new();
+        for layout in layouts {
+            for project in crate::store::list_projects(layout)? {
+                current.push((project, layout.project_issues_path(&project)));
+            }
+        }
+        if current != projects {
+            return Err(anyhow!("project set changed while acquiring locks").into());
+        }
+        fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
+        let mut before = String::new();
+        for layout in layouts {
+            before.push_str(&crate::report::show_all(layout)?);
+        }
+        write_proof(dir, "before.txt", &before)?;
+        let mut dry = String::new();
+        for (project, path) in &projects {
+            dry.push_str(&describe(project, path)?);
+        }
+        dry.push_str("dry-run: wrote nothing\n");
+        write_proof(dir, "dry-run.txt", &dry)?;
+        let mut migrated = String::new();
+        for (project, path) in &projects {
+            migrated.push_str(&migrate_locked(project, path)?);
+        }
+        write_proof(dir, "migrate.txt", &migrated)?;
+        let mut catchup = String::new();
+        for (project, path) in &projects {
+            catchup.push_str(&migrate_locked(project, path)?);
+        }
+        if catchup
+            .lines()
+            .any(|line| !line.is_empty() && !line.contains("skipped"))
+        {
+            return Err(anyhow!("a board changed while its lock was held\n{catchup}").into());
+        }
+        write_proof(dir, "catchup.txt", &catchup)?;
+        let mut after = String::new();
+        for layout in layouts {
+            after.push_str(&crate::report::show_all(layout)?);
+        }
+        write_proof(dir, "after.txt", &after)?;
+        Ok(format!(
+            "frozen: {} project(s), show bytes {} -> {}\n",
+            projects.len(),
+            before.len(),
+            after.len()
+        ))
+    })
+}
+
+fn write_proof(dir: &Path, name: &str, text: &str) -> Result<()> {
+    let path = dir.join(name);
+    fs::write(&path, text).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
 /// Fold the ledger for the project whose `issues.org` is `path`.
 ///
 /// # Errors
@@ -1117,6 +1198,30 @@ Body two.
         assert_eq!(fs::read_to_string(&board).unwrap(), text);
         let shown = report::show(&layout, "sample-bbbb").unwrap();
         assert!(shown.contains("State:    DONE"), "{shown}");
+    }
+
+    #[test]
+    fn show_under_a_held_lock_matches_apart_from_the_file() {
+        let (dir, layout) = layout_with_fixture();
+        let proof = dir.path().join("proof");
+        let report = migrate_frozen(&[&layout], &proof).unwrap();
+        assert!(report.contains("frozen:"), "{report}");
+        let before = fs::read_to_string(proof.join("before.txt")).unwrap();
+        let after = fs::read_to_string(proof.join("after.txt")).unwrap();
+        assert_eq!(without_file(&after), without_file(&before));
+        assert!(before.contains("issues.org"), "{before}");
+        assert_per_issue_file(&after, "sample-aaaa");
+        assert_per_issue_file(&after, "sample-bbbb");
+        let dry = fs::read_to_string(proof.join("dry-run.txt")).unwrap();
+        assert!(dry.contains("dry-run: wrote nothing"), "{dry}");
+        assert!(
+            issues_dir(&layout.project_issues_path("sample"))
+                .join(".ledger")
+                .is_file()
+        );
+        let catchup = fs::read_to_string(proof.join("catchup.txt")).unwrap();
+        assert!(catchup.contains("skipped"), "{catchup}");
+        assert!(!catchup.contains("caught up"), "{catchup}");
     }
 
     fn without_file(text: &str) -> String {
