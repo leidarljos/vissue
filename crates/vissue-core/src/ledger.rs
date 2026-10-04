@@ -84,7 +84,8 @@ pub fn migrate_frozen(layouts: &[&crate::config::Layout], dir: &Path) -> Result<
         let mut current = Vec::new();
         for layout in layouts {
             for project in crate::store::list_projects(layout)? {
-                current.push((project, layout.project_issues_path(&project)));
+                let path = layout.project_issues_path(&project);
+                current.push((project, path));
             }
         }
         if current != projects {
