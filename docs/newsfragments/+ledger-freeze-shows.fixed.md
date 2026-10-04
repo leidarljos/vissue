@@ -1,1 +1,0 @@
-`migrate-ledger --freeze-shows` holds every project lock while it records show output, copies each heading, and records show output again. A board that changes while that lock is held stops the split.

@@ -6,6 +6,21 @@ All notable changes to vissue are recorded here. The format follows
 
 <!-- towncrier release notes start -->
 
+## [0.20.0](https://github.com/leidarljos/vissue/releases/tag/v0.20.0) - 2026-10-04
+
+### Added
+
+- Each issue lives in its own append-only file, `PROJECT/issues/ID.org`. `migrate-ledger` copies every heading there, writes `PROJECT/issues/.ledger`, and does not modify the project board.
+- The leidarljos marketplace installs this MCP server as
+  `vissue@leidarljos`. `vissue-mcp` stays on `PATH`.
+
+### Fixed
+
+- A second `migrate-ledger` folds a board note that landed after the copy into that issue's file. The board digest stored with the copy is what a later run compares, and a field both sides changed is left unsealed.
+- After `migrate-ledger`, `show` names the per-issue file it read. A note, an update, and a close append to that file and leave the project board unchanged. An older vissue still rewrites the project board and does not read those files, so every machine that writes the tracker has to be on this release once a tracker is migrated.
+- `migrate-ledger --freeze-shows` holds every project lock while it records show output, copies each heading, and records show output again. A board that changes while that lock is held stops the split.
+
+
 ## [0.19.0](https://github.com/leidarljos/vissue/releases/tag/v0.19.0) - 2026-10-03
 
 ### Changed
