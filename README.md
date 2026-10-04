@@ -34,6 +34,10 @@ Tagged releases carry prebuilt archives and a shell installer on the
 [releases page](https://github.com/leidarljos/vissue/releases).
 `vissue completions zsh` and `vissue man` come out of the binary.
 
+The leidarljos marketplace in
+[leidarljos/ljos](https://github.com/leidarljos/ljos) installs this MCP
+server as `vissue@leidarljos`. `vissue-mcp` stays on `PATH`.
+
 ## A minute of it
 
 ```console
