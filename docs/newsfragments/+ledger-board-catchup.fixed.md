@@ -1,0 +1,1 @@
+A second `migrate-ledger` folds a board note that landed after the copy into that issue's file. The board digest stored with the copy is what a later run compares, and a field both sides changed is left unsealed.

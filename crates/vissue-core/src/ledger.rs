@@ -6,7 +6,7 @@
 //! keeps the last value.
 
 use anyhow::{Context, anyhow};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -27,8 +27,13 @@ pub fn is_ledger(path: &Path) -> bool {
 
 /// Split every project under `layout`.
 ///
-/// A project that is already a ledger is skipped. `issues.org` is read and
-/// not written. `--dry-run` (`dry_run`) reports the split and creates nothing.
+/// A project whose board still matches the digest stored at copy time is
+/// skipped. A board that changed after the copy is folded into the
+/// per-issue files: a log line, field, or new heading that exists only on
+/// the board is appended, and a field the ledger already moved is left
+/// alone. The same field changed on both sides is an error. `issues.org`
+/// is read and not written. `--dry-run` (`dry_run`) reports the split and
+/// creates nothing.
 ///
 /// # Errors
 ///
@@ -154,7 +159,13 @@ struct Loaded {
 
 fn describe(project: &str, path: &Path) -> Result<String> {
     if is_ledger(path) {
-        return Ok(format!("{project}: already a ledger\n"));
+        let content =
+            fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+        let digest = board_digest(content.as_bytes());
+        if marker_digest(path)?.as_deref() == Some(digest.as_str()) {
+            return Ok(format!("{project}: already a ledger\n"));
+        }
+        return Ok(format!("{project}: board moved since the copy\n"));
     }
     let content = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
     let doc = IssueDoc::parse(project, path.to_path_buf(), &content)?;
@@ -162,10 +173,11 @@ fn describe(project: &str, path: &Path) -> Result<String> {
 }
 
 fn migrate_locked(project: &str, path: &Path) -> Result<String> {
-    if is_ledger(path) {
-        return Ok(format!("{project}: already a ledger, skipped\n"));
-    }
     let content = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    let digest = board_digest(content.as_bytes());
+    if is_ledger(path) {
+        return catch_up_locked(project, path, &content, &digest);
+    }
     let doc = IssueDoc::parse(project, path.to_path_buf(), &content)?;
     let dir = issues_dir(path);
     fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
@@ -186,12 +198,289 @@ fn migrate_locked(project: &str, path: &Path) -> Result<String> {
         let bytes = header_bytes(&doc.preamble, heading.line_start, heading.line_end, &slice);
         write_new(&file, bytes.as_bytes())?;
     }
-    write_new(&marker_path(path), b"1\n")?;
+    write_marker(path, &digest)?;
     Ok(format!(
         "{project}: {} issue(s) -> {}\n",
         doc.headings.len(),
         dir.display()
     ))
+}
+
+/// Fold board writes that landed after the copy. The stored digest is the
+/// bytes `migrate` read under the lock, so a note that landed before the
+/// copy is already in the ledger and a later note is the only mismatch.
+fn catch_up_locked(project: &str, path: &Path, content: &str, digest: &str) -> Result<String> {
+    if marker_digest(path)?.as_deref() == Some(digest) {
+        return Ok(format!("{project}: already a ledger, skipped\n"));
+    }
+    let board = IssueDoc::parse(project, path.to_path_buf(), content)?;
+    let loaded = read_dir(path)?;
+    let mut changed = 0usize;
+    for heading in &board.headings {
+        if catch_up_one(path, &board, &loaded, heading)? {
+            changed += 1;
+        }
+    }
+    for item in &loaded {
+        if item.tombstoned {
+            continue;
+        }
+        if board
+            .headings
+            .iter()
+            .any(|heading| heading.id == item.heading.id)
+        {
+            continue;
+        }
+        return Err(anyhow!(
+            "{project}: {} is in the ledger and absent from the board",
+            item.heading.id
+        )
+        .into());
+    }
+    write_marker(path, digest)?;
+    if changed == 0 {
+        return Ok(format!(
+            "{project}: board digest recorded, no heading change\n"
+        ));
+    }
+    Ok(format!(
+        "{project}: caught up {changed} issue(s) from the board\n"
+    ))
+}
+
+fn catch_up_one(
+    issues_org: &Path,
+    board: &IssueDoc,
+    loaded: &[Loaded],
+    heading: &IssueHeading,
+) -> Result<bool> {
+    let Some(existing) = loaded.iter().find(|item| item.heading.id == heading.id) else {
+        write_header(board, heading)?;
+        return Ok(true);
+    };
+    if existing.tombstoned {
+        return Err(anyhow!(
+            "{} is tombstoned in the ledger and still on the board",
+            heading.id
+        )
+        .into());
+    }
+    let snapshot = snapshot_heading(issues_org, &existing.source)?;
+    let mut buf = Vec::new();
+    queue_merge(&mut buf, &snapshot, &existing.heading, heading)?;
+    if buf.is_empty() {
+        return Ok(false);
+    }
+    append_record(&existing.file, &buf)?;
+    Ok(true)
+}
+
+fn snapshot_heading(issues_org: &Path, source: &str) -> Result<IssueHeading> {
+    let (left, _) = split_log(source);
+    let doc = IssueDoc::parse("ledger", issues_org.to_path_buf(), left)?;
+    doc.headings
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow!("ledger snapshot has no heading").into())
+}
+
+fn queue_merge(
+    buf: &mut Vec<u8>,
+    snapshot: &IssueHeading,
+    folded: &IssueHeading,
+    board: &IssueHeading,
+) -> Result<()> {
+    queue_str(
+        buf,
+        &board.id,
+        "state",
+        "state",
+        &snapshot.state,
+        &folded.state,
+        &board.state,
+    )?;
+    if let Some(priority) = board_decision(
+        &board.id,
+        "priority",
+        &snapshot.priority,
+        &folded.priority,
+        &board.priority,
+    )? {
+        push_op(buf, "priority", &priority.to_string());
+    }
+    queue_str(
+        buf,
+        &board.id,
+        "title",
+        "title",
+        &snapshot.title,
+        &folded.title,
+        &board.title,
+    )?;
+    if let Some(statistics) = board_decision(
+        &board.id,
+        "statistics",
+        &snapshot.statistics,
+        &folded.statistics,
+        &board.statistics,
+    )? {
+        push_op(buf, "statistics", statistics.as_deref().unwrap_or(""));
+    }
+    if let Some(tags) = board_decision(
+        &board.id,
+        "tags",
+        &snapshot.org_tags,
+        &folded.org_tags,
+        &board.org_tags,
+    )? {
+        push_op(buf, "org-tags", &tags.join("\n"));
+    }
+    queue_props(buf, snapshot, folded, board)?;
+    if let Some(drawers) = board_decision(
+        &board.id,
+        "drawers",
+        &snapshot.extra_drawers,
+        &folded.extra_drawers,
+        &board.extra_drawers,
+    )? {
+        push_op(buf, "drawers", &drawers.concat());
+    }
+    queue_str(
+        buf,
+        &board.id,
+        "body",
+        "body",
+        &snapshot.body,
+        &folded.body,
+        &board.body,
+    )?;
+    queue_log(buf, folded, board);
+    Ok(())
+}
+
+fn queue_str(
+    buf: &mut Vec<u8>,
+    id: &str,
+    field: &str,
+    op: &str,
+    snapshot: &str,
+    folded: &str,
+    board: &str,
+) -> Result<()> {
+    if let Some(value) = board_decision(id, field, snapshot, folded, board)? {
+        push_op(buf, op, value);
+    }
+    Ok(())
+}
+
+fn queue_props(
+    buf: &mut Vec<u8>,
+    snapshot: &IssueHeading,
+    folded: &IssueHeading,
+    board: &IssueHeading,
+) -> Result<()> {
+    let mut keys: BTreeSet<&str> = BTreeSet::new();
+    for key in snapshot
+        .properties
+        .keys()
+        .chain(folded.properties.keys())
+        .chain(board.properties.keys())
+    {
+        if key != "ID" {
+            keys.insert(key.as_str());
+        }
+    }
+    for key in keys {
+        let previous = snapshot.properties.get(key);
+        let current = folded.properties.get(key);
+        let seen = board.properties.get(key);
+        if seen == current || seen == previous {
+            continue;
+        }
+        if current == previous {
+            match seen {
+                Some(value) => push_op(buf, "prop", &format!("{key}\n{value}")),
+                None => push_op(buf, "prop-del", key),
+            }
+            continue;
+        }
+        return Err(anyhow!(
+            "{}: property {key} changed on the board and in the ledger",
+            board.id
+        )
+        .into());
+    }
+    Ok(())
+}
+
+fn queue_log(buf: &mut Vec<u8>, folded: &IssueHeading, board: &IssueHeading) {
+    let missing: Vec<&LogEntry> = board
+        .logbook
+        .iter()
+        .filter(|entry| !folded.logbook.contains(entry))
+        .collect();
+    for entry in missing.into_iter().rev() {
+        push_op(buf, "log", &entry.render());
+    }
+}
+
+/// `Some(board)` when the board moved this value and the ledger still has
+/// the copied one. `None` when the ledger already has the board value, or
+/// the ledger moved and the board did not. Both moved apart is an error.
+fn board_decision<'a, T: PartialEq + ?Sized>(
+    id: &str,
+    field: &str,
+    snapshot: &'a T,
+    folded: &'a T,
+    board: &'a T,
+) -> Result<Option<&'a T>> {
+    if board == folded || board == snapshot {
+        return Ok(None);
+    }
+    if folded == snapshot {
+        return Ok(Some(board));
+    }
+    Err(anyhow!("{id}: {field} changed on the board and in the ledger").into())
+}
+
+fn board_digest(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn marker_digest(issues_org: &Path) -> Result<Option<String>> {
+    let path = marker_path(issues_org);
+    let text = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let mut lines = text.lines();
+    if lines.next() != Some("1") {
+        return Ok(None);
+    }
+    Ok(lines
+        .next()
+        .filter(|line| line.len() == 64)
+        .map(str::to_string))
+}
+
+fn write_marker(issues_org: &Path, digest: &str) -> Result<()> {
+    let path = marker_path(issues_org);
+    let body = format!("1\n{digest}\n");
+    if path.is_file() {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&path)
+            .with_context(|| format!("open {}", path.display()))?;
+        file.write_all(body.as_bytes())
+            .with_context(|| format!("write {}", path.display()))?;
+        file.sync_all()
+            .with_context(|| format!("sync {}", path.display()))?;
+        return Ok(());
+    }
+    write_new(&path, body.as_bytes())
 }
 
 fn header_bytes(preamble: &str, line_start: usize, line_end: usize, slice: &str) -> String {
@@ -755,6 +1044,81 @@ Body two.
         assert_per_issue_file(&shown, "sample-aaaa");
     }
 
+    #[test]
+    fn a_board_note_after_the_copy_is_folded_and_a_second_run_skips() {
+        let (_dir, layout) = layout_with_fixture();
+        let board = layout.project_issues_path("sample");
+        migrate(&layout, false).unwrap();
+        let marker = marker_path(&board);
+        let sealed = fs::read_to_string(&marker).unwrap();
+        let copied = board_digest(&fs::read(&board).unwrap());
+        assert_eq!(sealed.lines().next(), Some("1"));
+        assert_eq!(sealed.lines().nth(1), Some(copied.as_str()));
+
+        ops::note(&layout, "sample-aaaa", "ledger note").unwrap();
+        insert_log_line(&board, "- Note: \"from the board\" [2026-10-04 Sun 02:00]");
+        let moved = fs::read(&board).unwrap();
+        let store = issues_dir(&board).join(file_name("sample-aaaa"));
+        let before = fs::read(&store).unwrap();
+
+        let caught = migrate(&layout, false).unwrap();
+        assert!(caught.contains("caught up 1 issue"), "{caught}");
+        assert_eq!(fs::read(&board).unwrap(), moved);
+        let after = fs::read(&store).unwrap();
+        assert!(after.starts_with(&before));
+        assert!(after.len() > before.len());
+        let (heading, _, _) = crate::store::find_by_id(&layout, "sample-aaaa")
+            .unwrap()
+            .unwrap();
+        let notes: Vec<_> = heading
+            .logbook
+            .iter()
+            .filter_map(|entry| entry.note.clone())
+            .collect();
+        assert!(notes.iter().any(|note| note == "ledger note"), "{notes:?}");
+        assert!(
+            notes.iter().any(|note| note == "from the board"),
+            "{notes:?}"
+        );
+        assert_eq!(
+            notes.iter().filter(|note| note.as_str() == "kept").count(),
+            1,
+            "{notes:?}"
+        );
+
+        let again = migrate(&layout, false).unwrap();
+        assert!(again.contains("skipped"), "{again}");
+        assert_eq!(fs::read(&store).unwrap(), after);
+        let sealed_after = board_digest(&moved);
+        assert_eq!(
+            fs::read_to_string(&marker).unwrap().lines().nth(1),
+            Some(sealed_after.as_str())
+        );
+    }
+
+    #[test]
+    fn a_field_changed_on_the_board_and_in_the_ledger_is_not_sealed() {
+        let (_dir, layout) = layout_with_fixture();
+        let board = layout.project_issues_path("sample");
+        migrate(&layout, false).unwrap();
+        let marker = fs::read_to_string(marker_path(&board)).unwrap();
+        ops::update(&layout, "sample-bbbb", Some("DONE"), None, None, None).unwrap();
+        let text = fs::read_to_string(&board).unwrap();
+        let text = text.replace("* STARTED [#A] Second", "* CANCELLED [#A] Second");
+        fs::write(&board, &text).unwrap();
+
+        let err = migrate(&layout, false).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("state changed on the board and in the ledger"),
+            "{err}"
+        );
+        assert_eq!(fs::read_to_string(marker_path(&board)).unwrap(), marker);
+        assert_eq!(fs::read_to_string(&board).unwrap(), text);
+        let shown = report::show(&layout, "sample-bbbb").unwrap();
+        assert!(shown.contains("State:    DONE"), "{shown}");
+    }
+
     fn without_file(text: &str) -> String {
         text.lines()
             .filter(|line| !line.starts_with("File:"))
@@ -804,6 +1168,18 @@ Body two.
             .collect();
         assert!(notes.iter().any(|note| note == "alpha note"), "{notes:?}");
         assert!(notes.iter().any(|note| note == "beta note"), "{notes:?}");
+    }
+
+    fn insert_log_line(path: &Path, line: &str) {
+        let text = fs::read_to_string(path).unwrap();
+        let needle = ":LOGBOOK:\n";
+        let pos = text.find(needle).unwrap() + needle.len();
+        let mut next = String::new();
+        next.push_str(&text[..pos]);
+        next.push_str(line);
+        next.push('\n');
+        next.push_str(&text[pos..]);
+        fs::write(path, next).unwrap();
     }
 
     fn snapshot(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
