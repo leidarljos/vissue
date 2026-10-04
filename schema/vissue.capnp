@@ -169,6 +169,8 @@ const operations :List(Operation) = [
       ( cli = "priority", tool = "priority", socket = "priority", note = "", toolType = "Option<String>", socketType = "Option<String>" ),
       ( cli = "block", tool = "block", socket = "block", note = "", toolType = "Option<String>", socketType = "Option<String>" ),
       ( cli = "unblock", tool = "unblock", socket = "unblock", note = "", toolType = "Option<String>", socketType = "Option<String>" ),
+      ( cli = "tag", tool = "", socket = "", note = "command line only: an agent at a shell tags with -t, as create takes tags; the remote surfaces set tags through create", toolType = "", socketType = "" ),
+      ( cli = "untag", tool = "", socket = "", note = "command line only, as tag", toolType = "", socketType = "" ),
       ( cli = "if-state", tool = "if_state", socket = "if_state", note = "", toolType = "Option<String>", socketType = "Option<String>" ),
       ( cli = "if-gen", tool = "if_gen", socket = "if_gen", note = "", toolType = "Option<u64>", socketType = "Option<u64>" ),
       ( cli = "", tool = "", socket = "agent", note = "socket only: it overrides the identity the connection was opened with, which the other surfaces take from the environment", toolType = "", socketType = "Option<String>" )

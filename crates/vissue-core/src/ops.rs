@@ -110,17 +110,22 @@ pub struct CreateOpts<'a> {
 /// cannot be locked or rewritten.
 pub fn create(layout: &Layout, project: &str, title: &str, opts: CreateOpts<'_>) -> Result<String> {
     // A board this tracker projects from another holds its issues there; a
-    // heading written here lands in a stub no seat reads.
+    // heading written here lands in a stub no seat reads. Its inbox is where
+    // work for it goes, so the issue is written there with its id, and the
+    // next fold carries it to the source under that id.
     if let Some(board) = crate::projection::boards(layout.root())
         .unwrap_or_default()
         .into_iter()
         .find(|b| b.source != "self" && b.project.eq_ignore_ascii_case(project))
     {
-        return Err(anyhow!(
-            "{project} is not created here: {}",
-            crate::projection::projected_note(&board)
-        )
-        .into());
+        let Some(inbox) = board.inbox.as_deref() else {
+            return Err(anyhow!(
+                "{project} is not created here: {}",
+                crate::projection::projected_note(&board)
+            )
+            .into());
+        };
+        return create_in_inbox(layout, &board, inbox, title, &opts);
     }
     let project = resolve_existing_project_case(layout, project)?;
     let cfg = VissueConfig::load(layout)?;
@@ -267,6 +272,168 @@ pub fn create(layout: &Layout, project: &str, title: &str, opts: CreateOpts<'_>)
     })
 }
 
+/// [`create`] for a projected board: a `* TODO` heading with its minted id,
+/// type, parent and tags appended to the board's inbox. The id is free in
+/// the mirror and the inbox, and a parent may be any id the corpus, the
+/// mirror or the inbox holds.
+fn create_in_inbox(
+    layout: &Layout,
+    board: &crate::projection::Board,
+    inbox: &Path,
+    title: &str,
+    opts: &CreateOpts<'_>,
+) -> Result<String> {
+    let project = board.project.as_str();
+    let inbox_path = layout.root().join(inbox);
+    let mirror_path = layout.root().join(&board.mirror);
+    let priority = opts.priority.unwrap_or('B');
+    if !matches!(priority, 'A' | 'B' | 'C') {
+        return Err(anyhow!("invalid priority {priority:?}; an inbox takes A, B or C").into());
+    }
+    for d in [opts.deadline, opts.scheduled].into_iter().flatten() {
+        validate_org_date(d)?;
+    }
+    let read = |p: &Path| std::fs::read_to_string(p).unwrap_or_default();
+    with_issues_locks(&[inbox_path.as_path()], || {
+        let mirror = read(&mirror_path);
+        let existing = read(&inbox_path);
+        let mut taken: Vec<String> = crate::store::org_ids(&mirror)
+            .chain(crate::store::org_ids(&existing))
+            .map(str::to_string)
+            .collect();
+        taken.extend(opts.extra_ids.iter().cloned());
+        if let Some(p) = opts.parent
+            && !taken.iter().any(|t| t == p)
+            && !collect_org_ids(layout)?.contains(p)
+        {
+            return Err(anyhow!("--parent {p} does not refer to any known id").into());
+        }
+        let id = if let Some(want) = opts.id {
+            validate_explicit_id(project, want)?;
+            if taken.iter().any(|seen| seen == want) {
+                return Err(anyhow!("--id {want} already exists").into());
+            }
+            want.to_string()
+        } else {
+            let cfg = VissueConfig::load(layout)?;
+            generate_id(project, title, &taken, cfg.issues.id_length)?
+        };
+        let mut tags: Vec<String> = Vec::new();
+        for t in opts
+            .issue_type
+            .into_iter()
+            .chain(opts.tags.unwrap_or("").split([',', ':']))
+            .map(str::trim)
+        {
+            if !t.is_empty()
+                && t.chars().all(crate::model::is_org_tag_char)
+                && !tags.iter().any(|seen| seen == t)
+            {
+                tags.push(t.to_string());
+            }
+        }
+        let mut entry = format!("* TODO [#{priority}] {title}");
+        if !tags.is_empty() {
+            let _ = write!(entry, " :{}:", tags.join(":"));
+        }
+        let _ = write!(
+            entry,
+            "\n:PROPERTIES:\n:ID:         {id}\n:CREATED:    {}\n",
+            today_inactive_bracket()
+        );
+        for (key, value) in [
+            ("TYPE", opts.issue_type),
+            ("PARENT", opts.parent),
+            ("DEADLINE", opts.deadline),
+            ("SCHEDULED", opts.scheduled),
+        ] {
+            if let Some(v) = value {
+                let _ = writeln!(entry, ":{key}:{}{v}", " ".repeat(11 - key.len()));
+            }
+        }
+        entry.push_str(":END:\n");
+        if let Some(body) = opts.body.map(str::trim).filter(|b| !b.is_empty()) {
+            let _ = writeln!(entry, "{body}");
+        }
+        let mut text = existing;
+        if !text.is_empty() && !text.ends_with('\n') {
+            text.push('\n');
+        }
+        text.push_str(&entry);
+        std::fs::write(&inbox_path, text)
+            .with_context(|| format!("write inbox {}", inbox_path.display()))?;
+        if opts.quiet {
+            Ok(format!("{id}\n"))
+        } else {
+            Ok(format!(
+                "{id}  TODO  [#{priority}]  {title}\ninbox: {} (folds into {} on its source)\n",
+                inbox_path.display(),
+                project
+            ))
+        }
+    })
+}
+
+/// The fields an inbox heading written by [`create_in_inbox`] carries: the
+/// title without its priority cookie and tags, and the drawer's properties.
+struct InboxHeading {
+    title: String,
+    priority: Option<char>,
+    tags: Vec<String>,
+    props: BTreeMap<String, String>,
+    body: String,
+}
+
+fn inbox_heading(title: &str, body: &str) -> InboxHeading {
+    let mut title = title.trim().to_string();
+    let mut priority = None;
+    if let Some(rest) = title.strip_prefix("[#")
+        && let Some((p, after)) = rest.split_once("] ")
+        && p.len() == 1
+    {
+        priority = p.chars().next();
+        title = after.trim().to_string();
+    }
+    let mut tags = Vec::new();
+    if let Some((head, last)) = title.rsplit_once(' ')
+        && last.len() > 2
+        && last.starts_with(':')
+        && last.ends_with(':')
+        && last[1..last.len() - 1]
+            .split(':')
+            .all(|t| !t.is_empty() && t.chars().all(crate::model::is_org_tag_char))
+    {
+        tags = last[1..last.len() - 1]
+            .split(':')
+            .map(str::to_string)
+            .collect();
+        title = head.trim_end().to_string();
+    }
+    let mut props = BTreeMap::new();
+    let mut rest = body;
+    if let Some(drawer) = body.strip_prefix(":PROPERTIES:")
+        && let Some((inside, after)) = drawer.split_once(":END:")
+    {
+        for line in inside.lines() {
+            if let Some((key, value)) = line
+                .trim()
+                .strip_prefix(':')
+                .and_then(|l| l.split_once(':'))
+            {
+                props.insert(key.to_string(), value.trim().to_string());
+            }
+        }
+        rest = after;
+    }
+    InboxHeading {
+        title,
+        priority,
+        tags,
+        props,
+        body: rest.trim().to_string(),
+    }
+}
+
 /// An explicit create id is `{project}-` plus one or more `0-9a-z`.
 ///
 /// # Errors
@@ -323,6 +490,73 @@ pub fn update(
         block_clear,
         &identity,
     )
+}
+
+/// Add and remove tags on an issue. A tag Org can hold goes on the heading,
+/// any other in `:VISSUE_TAGS:`, as [`create`] files them; a removal takes
+/// the tag from both. Returns one line per change, none when nothing moved.
+///
+/// # Errors
+///
+/// No such issue, or the file cannot be read or written.
+pub fn retag(layout: &Layout, id: &str, add: &[String], remove: &[String]) -> Result<Vec<String>> {
+    let (_h0, path, project) =
+        find_by_id(layout, id)?.ok_or_else(|| Error::IssueNotFound { id: id.to_string() })?;
+    with_issues_lock(&path, || {
+        let mut doc = IssueDoc::parse_file(&project, &path)?;
+        let h = doc
+            .headings
+            .iter_mut()
+            .find(|x| x.id == id)
+            .ok_or_else(|| Error::IssueNotFound { id: id.to_string() })?;
+        let split = |list: &[String]| -> Vec<String> {
+            list.iter()
+                .flat_map(|t| t.split([',', ':']))
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .map(str::to_string)
+                .collect()
+        };
+        let mut property: Vec<String> = h
+            .properties
+            .get(crate::model::TAGS_PROPERTY)
+            .map(|s| split(std::slice::from_ref(s)))
+            .unwrap_or_default();
+        let mut changed = Vec::new();
+        for tag in split(add) {
+            if h.org_tags.contains(&tag) || property.contains(&tag) {
+                continue;
+            }
+            if tag.chars().all(crate::model::is_org_tag_char) {
+                h.org_tags.push(tag.clone());
+            } else {
+                property.push(tag.clone());
+            }
+            changed.push(format!("tag +{tag}"));
+        }
+        for tag in split(remove) {
+            let before = h.org_tags.len() + property.len();
+            h.org_tags.retain(|t| t != &tag);
+            property.retain(|t| t != &tag);
+            if h.org_tags.len() + property.len() < before {
+                changed.push(format!("tag -{tag}"));
+            }
+        }
+        if changed.is_empty() {
+            return Ok(changed);
+        }
+        if property.is_empty() {
+            crate::props::remove(&mut h.properties, crate::model::TAGS_PROPERTY);
+        } else {
+            crate::props::insert(
+                &mut h.properties,
+                crate::model::TAGS_PROPERTY,
+                property.join(","),
+            );
+        }
+        doc.write()?;
+        Ok(changed)
+    })
 }
 
 /// Last-seen state or generation a write must still match.
@@ -1413,7 +1647,9 @@ fn write_ballots(h: &mut IssueHeading, ballots: &[Ballot], foreign: &[String]) {
     }
 }
 
-/// The tally, and whether it is a consensus; a plurality is reported as one.
+/// The tally, and what it shows: unanimous, a majority, a plurality, a tie
+/// or one ballot. A count is never called a consensus; that word belongs
+/// to `consensus`, which weighs the same ballots by who listens to whom.
 fn tally_text(id: &str, ballots: &[Ballot]) -> String {
     if ballots.is_empty() {
         return format!("{id}: no votes\n");
@@ -1450,8 +1686,18 @@ fn tally_text(id: &str, ballots: &[Ballot]) -> String {
             "  one ballot only: {}, which nobody has agreed with yet",
             rows[0].0
         );
+    } else if top == total {
+        let _ = writeln!(
+            out,
+            "  unanimous: {} ({top} of {total}); `vissue consensus {id}` weighs it",
+            rows[0].0
+        );
     } else if top * 2 > total {
-        let _ = writeln!(out, "  consensus: {} ({top} of {total})", rows[0].0);
+        let _ = writeln!(
+            out,
+            "  majority: {} ({top} of {total}), not a settled consensus; `vissue consensus {id}` weighs it",
+            rows[0].0
+        );
     } else {
         let _ = writeln!(
             out,
@@ -1633,17 +1879,27 @@ pub fn fold(layout: &Layout, inbox: &std::path::Path, project: &str) -> Result<S
         if e.stamped {
             continue;
         }
+        // A heading `create` wrote here keeps its id, parent, type and tags.
+        let h = inbox_heading(&e.title, &e.body);
+        let tags = h.tags.join(",");
         let printed = create(
             layout,
             &project,
-            &e.title,
+            &h.title,
             CreateOpts {
                 quiet: true,
-                body: if e.body.is_empty() {
+                body: if h.body.is_empty() {
                     None
                 } else {
-                    Some(&e.body)
+                    Some(&h.body)
                 },
+                priority: h.priority,
+                id: h.props.get("ID").map(String::as_str),
+                parent: h.props.get("PARENT").map(String::as_str),
+                issue_type: h.props.get("TYPE").map(String::as_str),
+                deadline: h.props.get("DEADLINE").map(String::as_str),
+                scheduled: h.props.get("SCHEDULED").map(String::as_str),
+                tags: (!tags.is_empty()).then_some(tags.as_str()),
                 ..CreateOpts::default()
             },
         );
@@ -2075,17 +2331,25 @@ mod tests {
     }
 
     #[test]
-    fn a_projected_board_refuses_a_create_and_names_its_inbox() {
+    fn a_projected_board_takes_a_create_into_its_inbox_and_one_without_refuses() {
         let dir = tempfile::tempdir().unwrap();
         let layout = fresh_layout(dir.path());
         fs::write(
             dir.path().join("vissue.toml"),
-            "[[projection.board]]\nproject = \"surf\"\nmirror = \"m/surf.org\"\n\n[[projection.board]]\nproject = \"ljos\"\nsource = \"vault\"\nmirror = \"m/ljos.org\"\ninbox = \"Software/ljos/inbox.org\"\n",
+            "[[projection.board]]\nproject = \"surf\"\nmirror = \"m/surf.org\"\n\n[[projection.board]]\nproject = \"ljos\"\nsource = \"vault\"\nmirror = \"m/ljos.org\"\ninbox = \"Software/ljos/inbox.org\"\n\n[[projection.board]]\nproject = \"far\"\nsource = \"vault\"\nmirror = \"m/far.org\"\n",
         )
         .unwrap();
-        let err = create(&layout, "ljos", "an audit", CreateOpts::default()).unwrap_err();
-        assert!(err.to_string().contains("Software/ljos/inbox.org"), "{err}");
+        let out = create(&layout, "ljos", "an audit", CreateOpts::default()).unwrap();
+        assert!(out.contains("Software/ljos/inbox.org"), "{out}");
+        let id = out.split_whitespace().next().unwrap();
+        assert!(id.starts_with("ljos-"), "{out}");
+        let inbox = fs::read_to_string(dir.path().join("Software/ljos/inbox.org")).unwrap();
+        assert!(inbox.contains("* TODO [#B] an audit"), "{inbox}");
+        assert!(inbox.contains(&format!(":ID:         {id}")), "{inbox}");
         assert!(!layout.project_issues_path("ljos").exists());
+        let err = create(&layout, "far", "nowhere", CreateOpts::default()).unwrap_err();
+        assert!(err.to_string().contains("far is not created here"), "{err}");
+        assert!(!layout.project_issues_path("far").exists());
         // A board this tracker is the source of takes the create.
         create(&layout, "surf", "local work", CreateOpts::default()).unwrap();
         assert_eq!(
@@ -3797,7 +4061,10 @@ mod tests {
         let out = voted(&layout, &id, "agent-c", "hold");
 
         assert!(out.contains("3 votes from 2 options"), "{out}");
-        assert!(out.contains("consensus: ship (2 of 3)"), "{out}");
+        assert!(
+            out.contains("majority: ship (2 of 3), not a settled consensus"),
+            "{out}"
+        );
     }
 
     /// A tie is the case a tally exists to surface, so it must not report the
@@ -3833,6 +4100,42 @@ mod tests {
         // 2 of 4 leads but does not carry.
         assert!(out.contains("plurality only: ship (2 of 4)"), "{out}");
         assert!(!out.contains("consensus: ship"), "{out}");
+    }
+
+    #[test]
+    fn tags_are_added_and_removed_where_create_files_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = fresh_layout(dir.path());
+        create(&layout, "sample", "what to do", CreateOpts::default()).unwrap();
+        let id = only_id(&layout, "sample");
+        let got = retag(
+            &layout,
+            &id,
+            &["decision".into(), "needs-review,bug".into()],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(got, ["tag +decision", "tag +needs-review", "tag +bug"]);
+        let text = std::fs::read_to_string(layout.project_issues_path("sample")).unwrap();
+        assert!(
+            text.contains(":decision:bug:") || text.contains(":bug:decision:"),
+            "{text}"
+        );
+        assert!(text.contains("needs-review"), "{text}");
+        assert!(
+            retag(&layout, &id, &["decision".into()], &[])
+                .unwrap()
+                .is_empty(),
+            "a tag held is no change"
+        );
+        let got = retag(&layout, &id, &[], &["needs-review".into(), "bug".into()]).unwrap();
+        assert_eq!(got, ["tag -needs-review", "tag -bug"]);
+        let text = std::fs::read_to_string(layout.project_issues_path("sample")).unwrap();
+        assert!(
+            !text.contains("needs-review") && !text.contains(":bug:"),
+            "{text}"
+        );
+        assert!(text.contains(":decision:"), "{text}");
     }
 
     #[test]
@@ -3988,9 +4291,10 @@ mod tests {
         assert!(out.contains("one ballot only: ship"), "{out}");
         assert!(!out.contains("consensus: ship"), "{out}");
 
-        // A second agent agreeing makes it one.
+        // A second agent agreeing makes it unanimous, which is still a count.
         let out = voted(&layout, &id, "agent-b", "ship");
-        assert!(out.contains("consensus: ship (2 of 2)"), "{out}");
+        assert!(out.contains("unanimous: ship (2 of 2)"), "{out}");
+        assert!(!out.contains("consensus: ship"), "{out}");
     }
 
     /// An identity holding ": " is refused: the ballot line splits there.

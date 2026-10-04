@@ -177,6 +177,12 @@ enum Command {
         /// Remove a blocker edge
         #[arg(long)]
         unblock: Option<String>,
+        /// Add a tag; repeat it, or give several with commas
+        #[arg(short = 't', long = "tag")]
+        tag: Vec<String>,
+        /// Remove a tag; repeat it, or give several with commas
+        #[arg(long)]
+        untag: Vec<String>,
         /// Refuse unless the heading is still this state
         #[arg(long)]
         if_state: Option<String>,
@@ -350,6 +356,9 @@ enum Command {
     /// event, so a written report belongs here instead. Markdown is safe.
     Append {
         id: String,
+        /// The text to append, as words after the id (`vissue append ID "..."`).
+        #[arg(conflicts_with_all = ["text", "file"])]
+        words: Vec<String>,
         /// The text to append.
         #[arg(long, conflicts_with = "file")]
         text: Option<String>,
@@ -1468,10 +1477,26 @@ fn run() -> Result<()> {
             priority,
             block,
             unblock,
+            tag,
+            untag,
             if_state,
             if_gen,
         } => {
             let found = layout_for_id(&router, &id)?;
+            if !tag.is_empty() || !untag.is_empty() {
+                let changed = ops::retag(&found, &id, &tag, &untag)?;
+                emit!(
+                    "{id}: {}\n",
+                    if changed.is_empty() {
+                        "tags unchanged".to_string()
+                    } else {
+                        changed.join(", ")
+                    }
+                );
+                if state.is_none() && priority.is_none() && block.is_none() && unblock.is_none() {
+                    return Ok(());
+                }
+            }
             let outcome = ops::update_pred(
                 &found,
                 &id,
@@ -1657,7 +1682,13 @@ fn run() -> Result<()> {
                 )
             }
         }
-        Command::Append { id, text, file } => {
+        Command::Append {
+            id,
+            words,
+            text,
+            file,
+        } => {
+            let text = text.or_else(|| (!words.is_empty()).then(|| words.join(" ")));
             let body = match (text, file) {
                 (Some(t), None) => t,
                 (None, Some(path)) => read_body_file(&path)?,

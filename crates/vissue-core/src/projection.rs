@@ -378,6 +378,85 @@ mod tests {
     }
 
     #[test]
+    fn a_create_on_a_projected_board_lands_in_its_inbox_and_folds_with_its_id() {
+        let source = tempfile::tempdir().unwrap();
+        let src = Layout::new(source.path(), "Issues");
+        fs::create_dir_all(src.projects_dir()).unwrap();
+        let quiet = crate::ops::CreateOpts {
+            quiet: true,
+            ..Default::default()
+        };
+        let parent = crate::ops::create(&src, "gamma", "the parent", quiet)
+            .unwrap()
+            .trim()
+            .to_string();
+
+        let seat = tempfile::tempdir().unwrap();
+        let here = Layout::new(seat.path(), "Issues");
+        fs::create_dir_all(here.projects_dir()).unwrap();
+        fs::write(
+            seat.path().join("vissue.toml"),
+            "prefix = \"Issues\"\n\n[[projection.board]]\nproject = \"gamma\"\nsource = \"vault\"\nmirror = \"share/gamma-mirror.org\"\ninbox = \"share/inbox.org\"\n",
+        )
+        .unwrap();
+        let share = seat.path().join("share");
+        fs::create_dir_all(&share).unwrap();
+        fs::write(
+            share.join("gamma-mirror.org"),
+            format!("* TODO the parent\n:PROPERTIES:\n:ID:         {parent}\n:END:\n"),
+        )
+        .unwrap();
+        let child = crate::ops::create(
+            &here,
+            "gamma",
+            "a child found on the seat",
+            crate::ops::CreateOpts {
+                quiet: true,
+                parent: Some(&parent),
+                issue_type: Some("bug"),
+                priority: Some('A'),
+                tags: Some("plugin"),
+                body: Some("Found while reading."),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .trim()
+        .to_string();
+        assert!(child.starts_with("gamma-"), "{child}");
+        let inbox = fs::read_to_string(share.join("inbox.org")).unwrap();
+        assert!(
+            inbox.contains("* TODO [#A] a child found on the seat :bug:plugin:"),
+            "{inbox}"
+        );
+        assert!(inbox.contains(&format!(":PARENT:     {parent}")), "{inbox}");
+
+        let folded = crate::ops::fold(&src, &share.join("inbox.org"), "gamma").unwrap();
+        assert!(folded.contains(&child), "{folded}");
+        let issues = fs::read_to_string(src.project_issues_path("gamma")).unwrap();
+        let at = issues.find("a child found on the seat").expect("folded");
+        let heading = &issues[at..];
+        assert!(
+            heading.contains(&format!(":ID:         {child}")),
+            "{heading}"
+        );
+        assert!(
+            heading.contains(&format!(":PARENT:     {parent}")),
+            "{heading}"
+        );
+        assert!(heading.contains("Found while reading."), "{heading}");
+        assert!(
+            issues.contains("[#A] a child found on the seat"),
+            "{issues}"
+        );
+        let stamped = fs::read_to_string(share.join("inbox.org")).unwrap();
+        assert!(
+            stamped.contains(&format!(":VISSUE_ID: {child}")),
+            "{stamped}"
+        );
+    }
+
+    #[test]
     fn a_projection_folds_claims_and_mirrors_then_checks_fresh() {
         let dir = tempfile::tempdir().unwrap();
         let layout = Layout::new(dir.path(), "Software");

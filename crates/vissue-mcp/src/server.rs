@@ -1189,6 +1189,11 @@ const SCHEME: &str = "vissue";
 /// Org text, which is what every resource here is.
 const ORG: &str = "text/x-org";
 
+/// How long a resource result stays fresh. Issues change with every note, so
+/// nothing is cached; MCP protocol 2026-07-28 requires the caching fields on
+/// every cacheable result.
+const RESOURCE_TTL_MS: u64 = 0;
+
 impl VissueServer {
     /// One issue's org text, addressed rather than queried.
     fn read_issue(&self, id: &str) -> Result<String, McpError> {
@@ -1303,7 +1308,9 @@ impl ServerHandler for VissueServer {
                     resource
                 })
                 .collect(),
-        ))
+        )
+        .with_ttl_ms(RESOURCE_TTL_MS)
+        .with_cache_scope(CacheScope::Private))
     }
 
     /// The pattern one issue is addressed by.
@@ -1318,7 +1325,9 @@ impl ServerHandler for VissueServer {
         template.description =
             Some("The org text of one issue, by id, with secrets screened out.".to_string());
         template.mime_type = Some(ORG.to_string());
-        Ok(ListResourceTemplatesResult::with_all_items(vec![template]))
+        Ok(ListResourceTemplatesResult::with_all_items(vec![template])
+            .with_ttl_ms(RESOURCE_TTL_MS)
+            .with_cache_scope(CacheScope::Private))
     }
 
     /// Complete the id or project a template or prompt asks for: id prefix,
@@ -1382,6 +1391,8 @@ impl ServerHandler for VissueServer {
                 text,
                 meta: None,
             }])
+            .with_ttl_ms(RESOURCE_TTL_MS)
+            .with_cache_scope(CacheScope::Private)
             .into(),
         )
     }

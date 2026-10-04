@@ -33,10 +33,11 @@ sed -i "s/^release = \".*\"/release = \"$version\"/" docs/source/conf.py
 sed -i "s/^version = \".*\"/version = \"$minor\"/" docs/source/conf.py
 sed -i "0,/^version = /s/^version = \".*\"/version = \"$version\"/" towncrier.toml
 
-# The lockfile records the workspace members' own versions. Offline first, so
-# a bump does not quietly drag every transitive dependency to a newer patch
-# release along the way; the online run is the fallback for a cold cache.
-cargo generate-lockfile --offline >/dev/null 2>&1 || cargo generate-lockfile
+# The lockfile records the workspace members' own versions. `update
+# --workspace` moves only those; `generate-lockfile` re-resolves every
+# dependency, offline to the newest cached release, so a bump would ship
+# upgrades no test ran against.
+cargo update --workspace --offline >/dev/null 2>&1 || cargo update --workspace
 
 # And check it took. A member whose name does not match the `vissue-` pattern
 # the rest of this script keys on is exactly the one that gets left behind, and
