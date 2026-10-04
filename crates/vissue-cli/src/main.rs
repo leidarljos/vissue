@@ -148,7 +148,12 @@ enum Command {
     },
     /// Show one issue: metadata, then the body.
     Show {
-        id: String,
+        /// Issue id. Omit with `--all`.
+        #[arg(required_unless_present = "all")]
+        id: Option<String>,
+        /// Print `show` for every id, loading each project once.
+        #[arg(long, conflicts_with_all = ["json", "org"])]
+        all: bool,
         /// Emit a JSON object instead of text
         #[arg(long)]
         json: bool,
@@ -321,6 +326,16 @@ enum Command {
         /// `{"agent": s}` with s in [0, 1]; 0 holds the agent to its ballot.
         #[arg(long, value_name = "JSON")]
         susceptibility_of: Option<String>,
+    },
+    /// Split each `issues.org` into one append-only file per issue.
+    ///
+    /// After this, a note or a field change appends to `PROJECT/issues/ID.org`
+    /// and `issues.org` is not written. `--dry-run` reports the split and
+    /// writes nothing.
+    MigrateLedger {
+        /// Report the split and do not write.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Add a dated note to the top of an issue's logbook; state and claim untouched.
     Note {
@@ -1437,8 +1452,15 @@ fn run() -> Result<()> {
                 );
             }
         }
-        Command::Show { id, json, org } => {
-            run_show(&router, &id, json, org)?;
+        Command::Show { id, all, json, org } => {
+            if all {
+                for one in router.unique_layouts() {
+                    emit!("{}", report::show_all(one)?);
+                }
+            } else {
+                let id = id.ok_or_else(|| anyhow::anyhow!("show needs an id or --all"))?;
+                run_show(&router, &id, json, org)?;
+            }
         }
         Command::Update {
             id,
@@ -1644,6 +1666,13 @@ fn run() -> Result<()> {
             };
             let found = layout_for_id(&router, &id)?;
             emit!("{}", ops::append_body(&found, &id, &body)?)
+        }
+        Command::MigrateLedger { dry_run } => {
+            let mut out = String::new();
+            for one in router.unique_layouts() {
+                out.push_str(&vissue_core::ledger::migrate(one, dry_run)?);
+            }
+            emit!("{out}");
         }
         Command::Note { id, text } => {
             let found = layout_for_id(&router, &id)?;

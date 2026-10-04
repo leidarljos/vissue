@@ -1,4 +1,5 @@
-//! The on-disk store: one `issues.org` per project, parsed and rewritten whole.
+//! The on-disk store: one `issues.org` per project, or one append-only file
+//! per issue after `migrate-ledger`.
 
 use anyhow::{Context, anyhow};
 
@@ -247,6 +248,9 @@ impl IssueDoc {
     ///
     /// Returns an error if the file exists but cannot be read or parsed.
     pub fn parse_file(project: &str, path: &Path) -> Result<Self> {
+        if crate::ledger::is_ledger(path) {
+            return crate::ledger::load(project, path);
+        }
         if !path.exists() {
             return Ok(Self::empty(project, path.to_path_buf()));
         }
@@ -444,6 +448,11 @@ impl IssueDoc {
     /// Returns an error if the parent directory cannot be created, the
     /// temporary cannot be written, or the rename cannot publish it.
     pub fn write(&self) -> Result<()> {
+        if crate::ledger::is_ledger(&self.path) {
+            crate::ledger::commit(self)?;
+            self.announce_write();
+            return Ok(());
+        }
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent)?;
         }

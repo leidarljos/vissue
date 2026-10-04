@@ -181,6 +181,35 @@ pub fn ready_in(recs: &[IssueRec], project_filter: Option<&str>) -> Result<Strin
 pub fn show(layout: &Layout, id: &str) -> Result<String> {
     let (h, path, project) =
         find_by_id(layout, id)?.ok_or_else(|| Error::IssueNotFound { id: id.to_string() })?;
+    let preamble = IssueDoc::parse_file(&project, &path)
+        .map(|doc| doc.preamble)
+        .unwrap_or_default();
+    format_show(&preamble, &path, &project, &h)
+}
+
+/// `show` for every issue, one project file at a time.
+///
+/// # Errors
+///
+/// Returns an error if a project file cannot be read.
+pub fn show_all(layout: &Layout) -> Result<String> {
+    let mut out = String::new();
+    for project in list_projects(layout)? {
+        let path = layout.project_issues_path(&project);
+        let doc = IssueDoc::parse_file(&project, &path)?;
+        for heading in &doc.headings {
+            out.push_str(&format_show(&doc.preamble, &path, &project, heading)?);
+        }
+    }
+    Ok(out)
+}
+
+fn format_show(
+    preamble: &str,
+    path: &std::path::Path,
+    project: &str,
+    h: &crate::model::IssueHeading,
+) -> Result<String> {
     let mut out = String::new();
     writeln!(out, "ID:       {}", h.id)?;
     writeln!(out, "Project:  {project}")?;
@@ -197,11 +226,7 @@ pub fn show(layout: &Layout, id: &str) -> Result<String> {
             None => writeln!(out, "Claimed:  {who}")?,
         }
     }
-    let settings = crate::org::tag_settings_from_preamble(
-        &IssueDoc::parse_file(&project, &path)
-            .map(|d| d.preamble)
-            .unwrap_or_default(),
-    );
+    let settings = crate::org::tag_settings_from_preamble(preamble);
     let tags = settings.all_tags(&h.tags());
     if !tags.is_empty() {
         writeln!(out, "Tags:     {}", tags.join(", "))?;

@@ -393,7 +393,8 @@ const operations :List(Operation) = [
     note = "",
     fields = [
       ( cli = "json", tool = "", socket = "", note = "the remote surfaces answer in structure already, so they need no flag to ask for it", toolType = "", socketType = "" ),
-      ( cli = "org", tool = "", socket = "", note = "the tool list spells this vissue_org, which is its own row", toolType = "", socketType = "" )
+      ( cli = "org", tool = "", socket = "", note = "the tool list spells this vissue_org, which is its own row", toolType = "", socketType = "" ),
+      ( cli = "all", tool = "", socket = "", note = "command line only: print show for every id, loading each project once", toolType = "", socketType = "" )
     ] ),
   ( cli = "tree", socket = "issue/tree", mcp = "vissue_tree", mutates = false, local = false,
     note = "",
@@ -498,6 +499,11 @@ const operations :List(Operation) = [
   ( cli = "merge-driver", socket = "", mcp = "", mutates = false, local = true,
     note = "local only: git runs it on three versions of one file and it writes the merge into ours; it reads no corpus",
     fields = [] ),
+  ( cli = "migrate-ledger", socket = "", mcp = "", mutates = false, local = true,
+    note = "one-time local migration: copies each issues.org into append-only per-issue files and stops writing the project file. A remote caller has no checkout to split, so it is not a socket method.",
+    fields = [
+      ( cli = "dry-run", tool = "", socket = "", note = "report the split and write nothing", toolType = "", socketType = "" )
+    ] ),
   ( cli = "keys", socket = "", mcp = "", mutates = false, local = true,
     note = "local only: it acts on this process rather than on the corpus",
     fields = [] ),

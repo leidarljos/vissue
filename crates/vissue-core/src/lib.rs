@@ -1,8 +1,8 @@
 //! Plain-text issue tracking over per-project orgmode files.
 //!
 //! An issue is one top-level org heading in `<root>/<prefix>/<project>/issues.org`,
-//! where `prefix` defaults to `Software`. The file is the database: every verb
-//! parses it, and every mutation rewrites it under a lock. Reports never print;
+//! where `prefix` defaults to `Software`. After `migrate-ledger` each issue is
+//! its own append-only file under `<project>/issues/`. Reports never print;
 //! they return `String`, so a CLI, an MCP server, and a library caller all share
 //! one code path.
 
@@ -15,6 +15,7 @@ pub mod error;
 pub mod events;
 pub mod graph;
 pub mod keys;
+pub mod ledger;
 pub mod merge;
 pub mod mirror;
 pub mod model;
