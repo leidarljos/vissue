@@ -707,6 +707,52 @@ pub fn tally(ballots: &[Ballot]) -> BTreeMap<String, Vec<String>> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn dissent_is_every_lead_except_a_unique_plurality() {
+        let outcome = Outcome {
+            choices: vec!["hold".into(), "ship".into()],
+            agents: vec![
+                AgentLimit {
+                    agent: "a".into(),
+                    voted: "ship".into(),
+                    limit: vec![0.1, 0.9],
+                    power: None,
+                    susceptibility: 0.3,
+                },
+                AgentLimit {
+                    agent: "b".into(),
+                    voted: "ship".into(),
+                    limit: vec![0.2, 0.8],
+                    power: None,
+                    susceptibility: 0.3,
+                },
+                AgentLimit {
+                    agent: "rock".into(),
+                    voted: "hold".into(),
+                    limit: vec![1.0, 0.0],
+                    power: None,
+                    susceptibility: 0.0,
+                },
+            ],
+            settling: Settling::Anchored,
+            consensus: None,
+            factions: Vec::new(),
+            rounds: 4,
+            budget_reached: false,
+            trust: TrustSource::Default,
+            susceptibility: 0.5,
+            spread: 0.9,
+        };
+        assert_eq!(
+            dissent_claims(&outcome),
+            vec![("hold".into(), vec!["rock".into()])]
+        );
+        let mut agreed = outcome.clone();
+        agreed.settling = Settling::Agreed;
+        agreed.spread = 0.0;
+        assert!(dissent_claims(&agreed).is_empty());
+    }
+
     /// Anchors parse as an object of agent to a number in [0, 1]; anything
     /// else is refused with the agent named.
     #[test]
@@ -1116,10 +1162,6 @@ mod tests {
             (rock.limit[hold] - 1.0).abs() < 1e-9,
             "it voted hold and never moved: {outcome:?}"
         );
-        let dissent = dissent_claims(&outcome);
-        assert_eq!(dissent.len(), 1, "{dissent:?}");
-        assert_eq!(dissent[0].0, "hold");
-        assert_eq!(dissent[0].1, ["rock"]);
         // And the others still moved toward it, so this is not a frozen run.
         let a = outcome.agents.iter().find(|x| x.agent == "a").expect("a");
         assert!(a.limit[hold] > 0.0, "{outcome:?}");
