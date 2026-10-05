@@ -955,8 +955,9 @@ fn file_dissent(
             eprintln!("{id}: dissent {option} already filed");
             continue;
         }
+        let verb = if agents.len() == 1 { "holds" } else { "hold" };
         let body = format!(
-            "The settle of {id} did not reach one position. {} still hold {option}. Work this claim. The mean is not a stop.",
+            "The settle of {id} did not reach one position. {} still {verb} {option}. Work this claim. The mean is not a stop.",
             agents.join(", ")
         );
         let text = create_routed(
