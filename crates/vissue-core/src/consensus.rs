@@ -645,6 +645,51 @@ fn group_by_limit(names: &[&str], opinion: &[Vec<f64>], tolerance: f64) -> Vec<V
     groups.into_iter().map(|(_, members)| members).collect()
 }
 
+/// Options an agent still leads with when the settle did not reach one
+/// position, and that option is not the unique plurality. Each pair is the
+/// option and the agents who still lead with it. Empty when the group
+/// agreed, or when the spread has closed, or when every agent leads the
+/// same option.
+#[must_use]
+pub fn dissent_claims(outcome: &Outcome) -> Vec<(String, Vec<String>)> {
+    if outcome.spread < 1e-6 || outcome.agents.is_empty() || outcome.settling == Settling::Agreed
+    {
+        return Vec::new();
+    }
+    let mut leads: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for agent in &outcome.agents {
+        let Some((at, max)) = agent
+            .limit
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.total_cmp(b.1).then(a.0.cmp(&b.0)))
+        else {
+            continue;
+        };
+        let tied = agent
+            .limit
+            .iter()
+            .filter(|value| (**value - max).abs() < 1e-9)
+            .count();
+        if tied != 1 {
+            continue;
+        }
+        leads
+            .entry(outcome.choices[at].clone())
+            .or_default()
+            .push(agent.agent.clone());
+    }
+    if leads.len() <= 1 {
+        return Vec::new();
+    }
+    let plurality = leads.values().map(Vec::len).max().unwrap_or(0);
+    let winners = leads.values().filter(|agents| agents.len() == plurality).count();
+    leads
+        .into_iter()
+        .filter(|(_, agents)| winners > 1 || agents.len() != plurality)
+        .collect()
+}
+
 /// The plain count, for the line that shows what the weighting changed.
 #[must_use]
 pub fn tally(ballots: &[Ballot]) -> BTreeMap<String, Vec<String>> {
@@ -1071,6 +1116,10 @@ mod tests {
             (rock.limit[hold] - 1.0).abs() < 1e-9,
             "it voted hold and never moved: {outcome:?}"
         );
+        let dissent = dissent_claims(&outcome);
+        assert_eq!(dissent.len(), 1, "{dissent:?}");
+        assert_eq!(dissent[0].0, "hold");
+        assert_eq!(dissent[0].1, ["rock"]);
         // And the others still moved toward it, so this is not a frozen run.
         let a = outcome.agents.iter().find(|x| x.agent == "a").expect("a");
         assert!(a.limit[hold] > 0.0, "{outcome:?}");
