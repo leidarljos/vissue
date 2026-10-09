@@ -33,6 +33,21 @@ duplicate id, which =check= reports, rather than a hole if it fails. Two
 writers are serialised by a lock rather than merged. Each is a deliberate
 trade for the file staying readable by anything.
 
+* What scores and lines do instead
+
+Taskwarrior prints a score. Its urgency is a weighted sum over
+priority, project, due date, age, tags, and annotations, and its sync
+merges through a server by timestamps. vissue does not score the ready
+set. Readiness is the antichain of minimal open elements, priority is a
+cookie =[#A]= to =[#C]=, and the order past =BLOCKED_BY= is not an
+urgency. =related= is a separate sum, printed with the terms that
+fired, and it is not the ready order. Sync is git, on the same files a
+person edits. todo.txt puts a task on one line (=x 2016-05-20 (A) Call
+Mom +Family @phone=). The line is flat and greppable, and it has no
+identity past the text. vissue puts the task under a heading with a
+property drawer, so =:ID:=, =:BLOCKED_BY:= and the logbook survive an
+edit that changes the words.
+
 * Why HTN, work stealing, and citation graphs all fit
 A markdown task list is a total order dressed as a document.
 Hierarchical task-network planning [3], [4] is how a plan becomes a
@@ -650,7 +665,9 @@ a relation in the audit table above.
 See also the [[https://orgmode.org/manual/][Org mode manual]], the
 [[https://modelcontextprotocol.io/][Model Context Protocol]],
 [[https://github.com/petgraph/petgraph][petgraph]],
-[[https://github.com/mitchmindtree/daggy][daggy]], and the
+[[https://github.com/mitchmindtree/daggy][daggy]], the
+[[https://taskwarrior.org/docs/][Taskwarrior docs]], the
+[[https://github.com/todotxt/todo.txt][todo.txt format]], and the
 [[https://github.com/in-toto/attestation][in-toto attestation framework]], whose
 functionaries, links, and layout are the vocabulary a deed is built on. That last
 one is a link rather than a numbered entry because its paper is in USENIX
