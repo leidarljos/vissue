@@ -38,11 +38,13 @@ trade for the file staying readable by anything.
 Taskwarrior prints a score. Its urgency is a weighted sum over
 priority, project, due date, age, tags, and annotations, and its sync
 merges through a server by timestamps. vissue does not score the ready
-set. Readiness is the antichain of minimal open elements, priority is a
-cookie =[#A]= to =[#C]=, and the order past =BLOCKED_BY= is not an
-urgency. =related= is a separate sum, printed with the terms that
-fired, and it is not the ready order. Sync is git, on the same files a
-person edits. todo.txt puts a task on one line (=x 2016-05-20 (A) Call
+set. =ready= keeps a TODO or STARTED issue when no open =BLOCKED_BY=
+target holds it, and when no earlier unfinished sibling holds it under
+an =ORDERED= parent. An issue left =BLOCKED= stays out after its
+blockers close. Priority is an Org cookie. The house range is =[#A]= to
+=[#C]=, and a file may name another range. =related= is a separate sum,
+printed with the terms that fired, and it is not the ready order. Sync
+is git on the org files a person edits, merged by heading. todo.txt puts a task on one line (=x 2016-05-20 (A) Call
 Mom +Family @phone=). The line is flat and greppable, and it has no
 identity past the text. vissue puts the task under a heading with a
 property drawer, so =:ID:=, =:BLOCKED_BY:= and the logbook survive an
@@ -103,9 +105,10 @@ refuses an edge that would close a cycle.
 The alternative is a total order, the shape of a numbered list or a sprint
 backlog. A total order over-specifies: it asserts that the terminal UI
 comes after the schema *and* that the docs pass comes after the catalog, when
-only the first is true. The partial order says exactly what is known, and
-=ready= is the antichain of currently-minimal open elements, which is the set
-that can proceed in parallel.
+only the first is true. The partial order says exactly what is known.
+=ready= is the TODO and STARTED issues that no open blocker holds, and
+that no earlier unfinished sibling holds when the parent is =ORDERED=.
+That is the set that can proceed in parallel.
 
 Acyclicity is checked at two moments and they are not the same check.
 =update --block= tests the prospective edge against the corpus read inside the
