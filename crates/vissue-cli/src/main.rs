@@ -931,6 +931,53 @@ fn build_router(cli: &Cli) -> Result<Router> {
     Ok(routed)
 }
 
+/// File one child per option a voter still leads with when the settle did
+/// not reach one position, skipping the unique plurality and any child
+/// already filed for that option.
+fn file_dissent(
+    router: &Router,
+    layout: &Layout,
+    id: &str,
+    outcome: &vissue_core::consensus::Outcome,
+) -> Result<()> {
+    let claims = vissue_core::consensus::dissent_claims(outcome);
+    if claims.is_empty() {
+        return Ok(());
+    }
+    let recs = vissue_core::catalog::load_recs(layout)?;
+    let Some(parent) = recs.iter().find(|rec| rec.heading.id == id) else {
+        return Ok(());
+    };
+    let kids = vissue_core::catalog::children_from(&recs, id)?;
+    for (option, agents) in claims {
+        let title = format!("Dissent holds {option}");
+        if kids.iter().any(|hit| hit.title == title) {
+            eprintln!("{id}: dissent {option} already filed");
+            continue;
+        }
+        let verb = if agents.len() == 1 { "holds" } else { "hold" };
+        let body = format!(
+            "The settle of {id} did not reach one position. {} still {verb} {option}. Work this claim. The mean is not a stop.",
+            agents.join(", ")
+        );
+        let text = create_routed(
+            router,
+            &parent.project,
+            &title,
+            CreateOpts {
+                parent: Some(id),
+                issue_type: Some("task"),
+                priority: Some('B'),
+                tags: Some("dissent"),
+                body: Some(&body),
+                ..CreateOpts::default()
+            },
+        )?;
+        eprintln!("{text}");
+    }
+    Ok(())
+}
+
 fn create_routed(
     router: &Router,
     project: &str,
@@ -1639,6 +1686,7 @@ fn run() -> Result<()> {
                     || vissue_core::Result::Ok(outcome.clone()),
                     || report::consensus_anchored(&found, &id, &rows, &anchors),
                 )?;
+                file_dissent(&router, &found, &id, &outcome)?;
                 outcome.settled()
             };
             if gate && !settled {

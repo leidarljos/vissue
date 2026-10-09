@@ -645,6 +645,51 @@ fn group_by_limit(names: &[&str], opinion: &[Vec<f64>], tolerance: f64) -> Vec<V
     groups.into_iter().map(|(_, members)| members).collect()
 }
 
+/// Options an agent still leads with when the settle did not reach one
+/// position, and that option is not the unique plurality. Each pair is the
+/// option and the agents who still lead with it. Empty when the group
+/// agreed, or when the spread has closed, or when every agent leads the
+/// same option.
+#[must_use]
+pub fn dissent_claims(outcome: &Outcome) -> Vec<(String, Vec<String>)> {
+    if outcome.spread < 1e-6 || outcome.agents.is_empty() || outcome.settling == Settling::Agreed
+    {
+        return Vec::new();
+    }
+    let mut leads: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for agent in &outcome.agents {
+        let Some((at, max)) = agent
+            .limit
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.total_cmp(b.1).then(a.0.cmp(&b.0)))
+        else {
+            continue;
+        };
+        let tied = agent
+            .limit
+            .iter()
+            .filter(|value| (**value - max).abs() < 1e-9)
+            .count();
+        if tied != 1 {
+            continue;
+        }
+        leads
+            .entry(outcome.choices[at].clone())
+            .or_default()
+            .push(agent.agent.clone());
+    }
+    if leads.len() <= 1 {
+        return Vec::new();
+    }
+    let plurality = leads.values().map(Vec::len).max().unwrap_or(0);
+    let winners = leads.values().filter(|agents| agents.len() == plurality).count();
+    leads
+        .into_iter()
+        .filter(|(_, agents)| winners > 1 || agents.len() != plurality)
+        .collect()
+}
+
 /// The plain count, for the line that shows what the weighting changed.
 #[must_use]
 pub fn tally(ballots: &[Ballot]) -> BTreeMap<String, Vec<String>> {
@@ -661,6 +706,52 @@ pub fn tally(ballots: &[Ballot]) -> BTreeMap<String, Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dissent_is_every_lead_except_a_unique_plurality() {
+        let outcome = Outcome {
+            choices: vec!["hold".into(), "ship".into()],
+            agents: vec![
+                AgentLimit {
+                    agent: "a".into(),
+                    voted: "ship".into(),
+                    limit: vec![0.1, 0.9],
+                    power: None,
+                    susceptibility: 0.3,
+                },
+                AgentLimit {
+                    agent: "b".into(),
+                    voted: "ship".into(),
+                    limit: vec![0.2, 0.8],
+                    power: None,
+                    susceptibility: 0.3,
+                },
+                AgentLimit {
+                    agent: "rock".into(),
+                    voted: "hold".into(),
+                    limit: vec![1.0, 0.0],
+                    power: None,
+                    susceptibility: 0.0,
+                },
+            ],
+            settling: Settling::Anchored,
+            consensus: None,
+            factions: Vec::new(),
+            rounds: 4,
+            budget_reached: false,
+            trust: TrustSource::Default,
+            susceptibility: 0.5,
+            spread: 0.9,
+        };
+        assert_eq!(
+            dissent_claims(&outcome),
+            vec![("hold".into(), vec!["rock".into()])]
+        );
+        let mut agreed = outcome.clone();
+        agreed.settling = Settling::Agreed;
+        agreed.spread = 0.0;
+        assert!(dissent_claims(&agreed).is_empty());
+    }
 
     /// Anchors parse as an object of agent to a number in [0, 1]; anything
     /// else is refused with the agent named.
