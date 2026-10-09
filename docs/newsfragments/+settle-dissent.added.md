@@ -1,1 +1,0 @@
-`vissue consensus` files a child for each option a voter still leads with when the settle did not reach one position. The unique plurality is not filed again, and a child already titled for that option is left as it is.

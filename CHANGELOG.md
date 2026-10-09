@@ -6,6 +6,13 @@ All notable changes to vissue are recorded here. The format follows
 
 <!-- towncrier release notes start -->
 
+## [0.21.0](https://github.com/leidarljos/vissue/releases/tag/v0.21.0) - 2026-10-09
+
+### Added
+
+- `vissue consensus` files a child for each option a voter still leads with when the settle did not reach one position. The unique plurality is not filed again, and a child already titled for that option is left as it is.
+
+
 ## [0.20.0](https://github.com/leidarljos/vissue/releases/tag/v0.20.0) - 2026-10-04
 
 ### Added
