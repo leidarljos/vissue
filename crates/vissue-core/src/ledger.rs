@@ -232,6 +232,75 @@ pub fn commit(doc: &IssueDoc) -> Result<()> {
     Ok(())
 }
 
+/// Merge three versions of one per-issue ledger file, for git's merge driver.
+///
+/// Each side is folded to its heading and the headings merge field by field
+/// as a board does (see [`crate::merge`]). The result is ours as written plus
+/// the records that turn ours into the merged heading, so the file stays
+/// append-only and ours is a prefix of it.
+///
+/// # Errors
+///
+/// A side that does not fold, a side that removed the issue, an empty base
+/// (the same id added on both sides), or a result that does not fold back to
+/// the merged heading.
+pub fn merge_file(base: &str, ours: &str, theirs: &str) -> Result<crate::merge::Merged> {
+    let fold = |label: &str, text: &str| -> Result<IssueHeading> {
+        let (left, log) = split_log(text);
+        let doc = IssueDoc::parse("ledger", PathBuf::from("issues.org"), left)
+            .map_err(|e| anyhow!("merge: the {label} side does not parse: {e}"))?;
+        let mut heading = doc
+            .headings
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow!("merge: the {label} side has no heading"))?;
+        if apply_records(&mut heading, log, &doc.preamble)
+            .map_err(|e| anyhow!("merge: the {label} side does not fold: {e}"))?
+        {
+            return Err(anyhow!("merge: the {label} side removed the issue").into());
+        }
+        Ok(heading)
+    };
+    if base.trim().is_empty() {
+        return Err(
+            anyhow!("merge: no common base; the same issue file was added on both sides").into(),
+        );
+    }
+    let o = fold("base", base)?;
+    let a = fold("ours", ours)?;
+    let b = fold("theirs", theirs)?;
+    if o.id != a.id || o.id != b.id {
+        return Err(anyhow!("merge: the three sides name different issues").into());
+    }
+    let (merged, conflicts) = crate::merge::merge_one(&o, &a, &b);
+    let mut text = ours.to_string();
+    if !text.ends_with('\n') {
+        text.push('\n');
+    }
+    if !text.contains(&format!("\n{LOG_MARK}\n")) {
+        text.push_str(LOG_MARK);
+        text.push('\n');
+    }
+    let mut buf = Vec::new();
+    push_diff(&mut buf, &a, &merged);
+    text.push_str(
+        std::str::from_utf8(&buf).map_err(|e| anyhow!("merge: record is not text: {e}"))?,
+    );
+    let back = fold("merged", &text)?;
+    if back.render() != merged.render() {
+        return Err(
+            anyhow!("merge: the merged file does not fold back to the merged issue").into(),
+        );
+    }
+    Ok(crate::merge::Merged { text, conflicts })
+}
+
+/// Whether `text` is a per-issue ledger file rather than a project board.
+#[must_use]
+pub fn is_ledger_text(text: &str) -> bool {
+    text.lines().any(|line| line.trim_end() == LEDGER_MARK)
+}
+
 struct Loaded {
     file: PathBuf,
     source: String,
@@ -703,7 +772,21 @@ fn apply_records(heading: &mut IssueHeading, log: &str, preamble: &str) -> Resul
             break;
         }
         if !bytes[index..].starts_with(b"%% ") {
-            break;
+            // A line that is not a record is never skipped: stopping here
+            // would fold the issue to whatever came before it and drop every
+            // later record without a word. Git's conflict markers are the
+            // usual cause.
+            let line = log[index..].lines().next().unwrap_or_default();
+            return Err(anyhow!(
+                "ledger log holds a line that is not a record: {:?}{}",
+                line.chars().take(40).collect::<String>(),
+                if line.starts_with("<<<<<<<") || line.starts_with("=======") || line.starts_with(">>>>>>>") {
+                    " (a git conflict marker; install the merge driver with `vissue merge-driver --install` and redo the merge)"
+                } else {
+                    ""
+                }
+            )
+            .into());
         }
         let Some(relative_end) = bytes[index..].iter().position(|byte| *byte == b'\n') else {
             break;
