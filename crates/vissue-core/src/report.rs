@@ -1722,9 +1722,28 @@ fn check_project(project: &str, layout: &Layout, f: &mut Findings) -> Result<()>
     // hold one and counting them there counted nothing. The heading is still in the
     // file, and one the tracker will not touch is the surprise worth reporting, so the
     // file is what gets counted.
-    let gcal_ids = crate::store::org_ids(&std::fs::read_to_string(&path)?)
+    let raw = std::fs::read_to_string(&path)?;
+    let gcal_ids = crate::store::org_ids(&raw)
         .filter(|id| crate::org::is_gcal_event_id(id))
         .count();
+    // Git's conflict markers parse as body text, so a half-merged board reads
+    // as a tracker that lost one side's edits. Naming them is what stops a
+    // reader trusting it.
+    let markers: Vec<usize> = raw
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| {
+            line.starts_with("<<<<<<< ") || line.starts_with(">>>>>>> ") || *line == "======="
+        })
+        .map(|(n, _)| n + 1)
+        .collect();
+    if let Some(first) = markers.first() {
+        f.err(format_args!(
+            "{project}: {} git conflict marker line(s) in {}, the first at line {first}; resolve the merge (`vissue merge-driver --install` merges by heading)",
+            markers.len(),
+            path.display()
+        ));
+    }
     if gcal_ids > 0 {
         f.err(format_args!(
             "{project}: {gcal_ids} heading(s) use an org-gcal event id as :ID:"
