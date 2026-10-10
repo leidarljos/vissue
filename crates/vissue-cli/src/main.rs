@@ -332,6 +332,10 @@ enum Command {
         /// `{"agent": s}` with s in [0, 1]; 0 holds the agent to its ballot.
         #[arg(long, value_name = "JSON")]
         susceptibility_of: Option<String>,
+        /// File a `Dissent holds OPTION` child for each option a voter still
+        /// leads with after an anchored settle. Without it the verb only reads.
+        #[arg(long, conflicts_with = "children")]
+        file_dissent: bool,
     },
     /// Split each `issues.org` into one append-only file per issue.
     ///
@@ -939,7 +943,13 @@ fn file_dissent(
     layout: &Layout,
     id: &str,
     outcome: &vissue_core::consensus::Outcome,
+    asked: bool,
 ) -> Result<()> {
+    // A read, a gate and a JSON dump write nothing: a push check that asks
+    // whether an issue settles must not file tickets.
+    if !asked {
+        return Ok(());
+    }
     let claims = vissue_core::consensus::dissent_claims(outcome);
     if claims.is_empty() {
         return Ok(());
@@ -1652,6 +1662,7 @@ fn run() -> Result<()> {
             json,
             trust,
             susceptibility_of,
+            file_dissent: file,
         } => {
             let found = layout_for_id(&router, &id)?;
             let rows = match trust.as_deref() {
@@ -1686,7 +1697,7 @@ fn run() -> Result<()> {
                     || vissue_core::Result::Ok(outcome.clone()),
                     || report::consensus_anchored(&found, &id, &rows, &anchors),
                 )?;
-                file_dissent(&router, &found, &id, &outcome)?;
+                file_dissent(&router, &found, &id, &outcome, file)?;
                 outcome.settled()
             };
             if gate && !settled {

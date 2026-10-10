@@ -2657,3 +2657,69 @@ fn a_known_issue_id_wins_over_the_accession_shape() {
         "a known id is an issue whatever it looks like: {links}"
     );
 }
+
+/// `consensus` reads unless asked to file: a gate or a JSON dump of an
+/// anchored split writes no dissent child, and `--file-dissent` files one.
+#[test]
+fn consensus_files_dissent_only_when_asked() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let own = |agent: &str, args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd()
+            .env("VISSUE_AGENT", agent)
+            .args(argv)
+            .output()
+            .unwrap()
+    };
+    let id = stdout(&own("alice", &["create", "-p", "atlas", "Pick one", "-q"]))
+        .trim()
+        .to_string();
+    for (agent, choice) in [("alice", "ship"), ("bob", "ship"), ("carol", "hold")] {
+        let out = own(agent, &["vote", &id, "--for", choice]);
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    let anchors = r#"{"alice":0.5,"bob":0.5,"carol":0.5}"#;
+    let kids = || {
+        let out = own("alice", &["list", "--json"]);
+        let rows: Vec<serde_json::Value> = serde_json::from_str(&stdout(&out)).unwrap();
+        rows.iter()
+            .filter(|r| {
+                r["title"]
+                    .as_str()
+                    .is_some_and(|t| t.starts_with("Dissent holds"))
+            })
+            .count()
+    };
+    own("alice", &["consensus", &id, "--susceptibility-of", anchors]);
+    own(
+        "alice",
+        &["consensus", &id, "--gate", "--susceptibility-of", anchors],
+    );
+    own(
+        "alice",
+        &["consensus", &id, "--json", "--susceptibility-of", anchors],
+    );
+    assert_eq!(kids(), 0, "a read filed a dissent child");
+    let out = own(
+        "alice",
+        &[
+            "consensus",
+            &id,
+            "--file-dissent",
+            "--susceptibility-of",
+            anchors,
+        ],
+    );
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(kids(), 1, "--file-dissent filed none");
+}
