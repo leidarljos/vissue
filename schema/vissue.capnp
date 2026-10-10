@@ -362,7 +362,12 @@ const operations :List(Operation) = [
     fields = [
       ( cli = "json", tool = "", socket = "", note = "the remote surfaces answer in structure already, so they need no flag to ask for it", toolType = "", socketType = "" ),
       ( cli = "project", tool = "project", socket = "project", note = "", toolType = "Option<String>", socketType = "Option<String>" ),
-      ( cli = "state", tool = "state", socket = "state", note = "", toolType = "Option<String>", socketType = "Option<String>" )
+      ( cli = "state", tool = "state", socket = "state", note = "", toolType = "Option<String>", socketType = "Option<String>" ),
+      ( cli = "unclaimed", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" ),
+      ( cli = "claimed-by", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" ),
+      ( cli = "parent", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" ),
+      ( cli = "tag", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" ),
+      ( cli = "limit", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" )
     ] ),
   ( cli = "projects", socket = "project/list", mcp = "vissue_projects", mutates = false, local = false,
     note = "",
@@ -373,7 +378,12 @@ const operations :List(Operation) = [
     note = "",
     fields = [
       ( cli = "json", tool = "", socket = "", note = "the remote surfaces answer in structure already, so they need no flag to ask for it", toolType = "", socketType = "" ),
-      ( cli = "project", tool = "project", socket = "project", note = "", toolType = "Option<String>", socketType = "Option<String>" )
+      ( cli = "project", tool = "project", socket = "project", note = "", toolType = "Option<String>", socketType = "Option<String>" ),
+      ( cli = "unclaimed", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" ),
+      ( cli = "claimed-by", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" ),
+      ( cli = "parent", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" ),
+      ( cli = "tag", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" ),
+      ( cli = "limit", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" )
     ] ),
   ( cli = "related", socket = "issue/related", mcp = "vissue_related", mutates = false, local = false,
     note = "",
