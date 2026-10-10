@@ -652,8 +652,7 @@ fn group_by_limit(names: &[&str], opinion: &[Vec<f64>], tolerance: f64) -> Vec<V
 /// same option.
 #[must_use]
 pub fn dissent_claims(outcome: &Outcome) -> Vec<(String, Vec<String>)> {
-    if outcome.spread < 1e-6 || outcome.agents.is_empty() || outcome.settling == Settling::Agreed
-    {
+    if outcome.spread < 1e-6 || outcome.agents.is_empty() || outcome.settling == Settling::Agreed {
         return Vec::new();
     }
     let mut leads: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -683,7 +682,10 @@ pub fn dissent_claims(outcome: &Outcome) -> Vec<(String, Vec<String>)> {
         return Vec::new();
     }
     let plurality = leads.values().map(Vec::len).max().unwrap_or(0);
-    let winners = leads.values().filter(|agents| agents.len() == plurality).count();
+    let winners = leads
+        .values()
+        .filter(|agents| agents.len() == plurality)
+        .count();
     leads
         .into_iter()
         .filter(|(_, agents)| winners > 1 || agents.len() != plurality)
