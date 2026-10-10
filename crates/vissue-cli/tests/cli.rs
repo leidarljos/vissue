@@ -2376,6 +2376,42 @@ fn the_consensus_gate_carries_the_verdict_in_the_exit_status() {
     assert!(stdout(&led).contains("holds: ship"), "{}", stdout(&led));
 }
 
+/// One ballot settles on itself, so a gate with no quorum passes on whoever
+/// voted first. `--quorum` makes the count part of the verdict.
+#[test]
+fn a_gate_with_a_quorum_refuses_a_lone_ballot() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let own = |agent: &str, args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd()
+            .env("VISSUE_AGENT", agent)
+            .args(argv)
+            .output()
+            .unwrap()
+    };
+    let issue = stdout(&own("a", &["create", "-p", "api", "Ship it?", "-q"]))
+        .trim()
+        .to_string();
+
+    own("a", &["vote", &issue, "--for", "ship"]);
+    let lone = own("a", &["consensus", &issue, "--gate"]);
+    assert!(lone.status.success(), "no quorum keeps the old verdict");
+    let short = own("a", &["consensus", &issue, "--gate", "--quorum", "2"]);
+    assert!(!short.status.success(), "{}", stdout(&short));
+    let complaint = String::from_utf8(short.stderr).unwrap();
+    assert!(complaint.contains("1 of 2 ballots"), "{complaint}");
+
+    own("b", &["vote", &issue, "--for", "ship"]);
+    let met = own("a", &["consensus", &issue, "--gate", "--quorum", "2"]);
+    assert!(met.status.success(), "{}", stdout(&met));
+
+    // A quorum is a condition on the gate, not a report of its own.
+    let bare = own("a", &["consensus", &issue, "--quorum", "2"]);
+    assert!(!bare.status.success(), "--quorum without --gate is refused");
+}
+
 /// Over a plan the rule is different and the design note says why: a split
 /// child has no position to fold in and an unvoted child is absent rather than
 /// neutral, so either one is a row a person has to read.
