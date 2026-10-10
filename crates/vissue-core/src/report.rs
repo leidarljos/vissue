@@ -257,8 +257,31 @@ fn format_show(
         writeln!(out, "Body:")?;
         writeln!(out, "{body}")?;
     }
+    // Notes are where the work reports progress. A reader that only gets the
+    // body above never learns what the last holder found, so the newest lines
+    // print here and the rest stay one flag away.
+    if !h.logbook.is_empty() {
+        let total = h.logbook.len();
+        let shown = total.min(SHOW_LOG_LINES);
+        writeln!(out)?;
+        if shown == total {
+            writeln!(out, "Log (newest first):")?;
+        } else {
+            writeln!(
+                out,
+                "Log (newest {shown} of {total}; `vissue show {} --json` has all):",
+                h.id
+            )?;
+        }
+        for entry in h.logbook.iter().take(shown) {
+            writeln!(out, "  {}", entry.render().trim_start_matches("- "))?;
+        }
+    }
     Ok(out)
 }
+
+/// Logbook lines `show` prints before pointing at `--json`.
+const SHOW_LOG_LINES: usize = 8;
 
 /// What a plan's children settled on, child by child; never folded into one
 /// number, since a split child has no position and an unvoted one is absent.

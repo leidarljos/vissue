@@ -1049,22 +1049,14 @@ Body two.
         let files_before = snapshot(&issues_dir(&path));
         ops::note(&layout, "sample-aaaa", "ledger note").unwrap();
         assert_eq!(fs::read(&path).unwrap(), original);
-        let files_after = snapshot(&issues_dir(&path));
-        let mut changed = Vec::new();
-        for (file, bytes) in &files_after {
-            let previous = files_before.get(file).map(Vec::as_slice).unwrap_or(b"");
-            if previous != bytes.as_slice() {
-                assert!(
-                    bytes.starts_with(previous),
-                    "{} rewrote existing bytes",
-                    file.display()
-                );
-                changed.push(file.clone());
-            }
-        }
+        let changed = appended_files(&files_before, &snapshot(&issues_dir(&path)));
         assert_eq!(changed.len(), 1, "note touched {changed:?}");
         let noted = report::show(&layout, "sample-aaaa").unwrap();
-        assert_eq!(without_file(&noted), without_file(&after_a));
+        assert!(noted.contains("ledger note"), "{noted}");
+        assert_eq!(
+            without_log(&without_file(&noted)),
+            without_log(&without_file(&after_a))
+        );
         assert_per_issue_file(&noted, "sample-aaaa");
 
         let (heading, _, _) = crate::store::find_by_id(&layout, "sample-aaaa")
@@ -1253,6 +1245,32 @@ Body two.
             .filter(|line| !line.starts_with("File:"))
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    /// The files that changed between two snapshots, each checked to have
+    /// grown by an append rather than been rewritten.
+    fn appended_files(
+        before: &BTreeMap<PathBuf, Vec<u8>>,
+        after: &BTreeMap<PathBuf, Vec<u8>>,
+    ) -> Vec<PathBuf> {
+        let mut changed = Vec::new();
+        for (file, bytes) in after {
+            let previous = before.get(file).map(Vec::as_slice).unwrap_or(b"");
+            if previous != bytes.as_slice() {
+                assert!(
+                    bytes.starts_with(previous),
+                    "{} rewrote existing bytes",
+                    file.display()
+                );
+                changed.push(file.clone());
+            }
+        }
+        changed
+    }
+
+    /// `show` up to its logbook section, which a note is meant to change.
+    fn without_log(text: &str) -> String {
+        text.split("\n\nLog (").next().unwrap_or(text).to_string()
     }
 
     fn assert_per_issue_file(text: &str, id: &str) {
