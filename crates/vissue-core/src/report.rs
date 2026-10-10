@@ -117,6 +117,12 @@ pub fn list_in(
     Ok(format_issue_rows(recs, &rows))
 }
 
+/// The text rows `list` and `ready` print, for rows a caller already narrowed.
+#[must_use]
+pub fn format_rows(recs: &[IssueRec], rows: &[IssueRow]) -> String {
+    format_issue_rows(recs, rows)
+}
+
 fn format_issue_rows(recs: &[IssueRec], rows: &[IssueRow]) -> String {
     // Indexed once. Looking each row's record up by scanning the corpus made
     // rendering quadratic in the number of issues, which is the whole cost of
