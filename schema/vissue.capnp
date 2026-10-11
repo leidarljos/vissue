@@ -280,7 +280,8 @@ const operations :List(Operation) = [
       ( cli = "gate", tool = "", socket = "", note = "an exit status for a shell hook; the remote surfaces answer with the settling in the structure and a caller there decides for itself", toolType = "", socketType = "" ),
       ( cli = "json", tool = "", socket = "", note = "the socket answers in structure already and the tool answers the prose a reader needs, so neither takes a flag to ask", toolType = "", socketType = "" ),
       ( cli = "trust", tool = "", socket = "", note = "trust rows laid over the configuration, as the seat passes them from its pack; the remote surfaces settle under the tracker's own rows", toolType = "", socketType = "" ),
-      ( cli = "susceptibility-of", tool = "", socket = "", note = "per-agent susceptibility laid over the configuration, as the seat passes a persona's anchor; the remote surfaces settle under the tracker's own", toolType = "", socketType = "" )
+      ( cli = "susceptibility-of", tool = "", socket = "", note = "per-agent susceptibility laid over the configuration, as the seat passes a persona's anchor; the remote surfaces settle under the tracker's own", toolType = "", socketType = "" ),
+      ( cli = "file-dissent", tool = "", socket = "", note = "the one write this verb can make, asked for by name on the command line; the remote surfaces only read", toolType = "", socketType = "" )
     ] ),
   ( cli = "fold", socket = "issue/fold", mcp = "vissue_fold", mutates = true, local = false,
     note = "",

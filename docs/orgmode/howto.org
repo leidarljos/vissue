@@ -257,6 +257,10 @@ fraction. Configure the rows and the report says where the two differ, which
 agent carried how much of the result, and whether the group can reach an
 agreement at all.
 
+=consensus= only reads. When an anchored settle leaves a
+voter leading with its own option, =--file-dissent= files a =Dissent holds
+OPTION= child for it, once per option.
+
 * Follow the graph
 
 =tree= walks children and blockers below an id; =graph= emits the whole thing
