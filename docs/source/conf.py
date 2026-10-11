@@ -10,8 +10,8 @@ _ROOT = _DOCS.parent.parent
 project = "vissue"
 copyright = "2026, Rohit Goswami"
 author = "Rohit Goswami"
-release = "0.20.0"
-version = "0.20"
+release = "0.21.0"
+version = "0.21"
 
 extensions = [
     "sphinx.ext.mathjax",
