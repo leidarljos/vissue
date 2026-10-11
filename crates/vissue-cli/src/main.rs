@@ -326,6 +326,11 @@ enum Command {
         /// Exit non-zero when there is nothing settled to act on.
         #[arg(long)]
         gate: bool,
+        /// With `--gate`, also exit non-zero when fewer than N identities voted.
+        /// One ballot settles on itself, so a gate without a quorum passes on
+        /// whoever voted first.
+        #[arg(long, value_name = "N", requires = "gate", conflicts_with = "children")]
+        quorum: Option<usize>,
         /// Emit a JSON object instead of text
         #[arg(long)]
         json: bool,
@@ -1444,6 +1449,17 @@ fn reads_the_corpus(command: &Command) -> bool {
     }
 }
 
+/// Whether `cast` ballots meet the gate's quorum, saying on stderr when not.
+fn quorum_met(id: &str, cast: usize, quorum: Option<usize>) -> bool {
+    match quorum {
+        Some(n) if cast < n => {
+            eprintln!("{id}: {cast} of {n} ballots needed for a quorum");
+            false
+        }
+        _ => true,
+    }
+}
+
 fn run() -> Result<()> {
     let cli = Cli::parse();
     // git runs the merge driver in any repository, tracker or not.
@@ -1674,6 +1690,7 @@ fn run() -> Result<()> {
             id,
             children,
             gate,
+            quorum,
             json,
             trust,
             susceptibility_of,
@@ -1713,7 +1730,7 @@ fn run() -> Result<()> {
                     || report::consensus_anchored(&found, &id, &rows, &anchors),
                 )?;
                 file_dissent(&router, &found, &id, &outcome, file)?;
-                outcome.settled()
+                outcome.settled() && quorum_met(&id, outcome.agents.len(), quorum)
             };
             if gate && !settled {
                 std::process::exit(1);

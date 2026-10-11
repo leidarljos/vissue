@@ -829,6 +829,11 @@ agreement that is not there. Over =--children= it exits non-zero when any child
 settled split or carries no ballots, which are the two rows a parent cannot
 decide on a child's behalf.
 
+=consensus ID --gate --quorum N= also exits non-zero when fewer than N
+identities voted. One ballot settles on itself, so without a quorum the gate
+passes on whoever voted first. The report still prints, and the shortfall goes
+to stderr.
+
 =consensus --json= gives the same result as structure: the choice set, each
 agent's limit and social power, the settling (=agreed=, =split=, =oscillating=),
 whether the iteration ran out of rounds, and the factions when there are any.
