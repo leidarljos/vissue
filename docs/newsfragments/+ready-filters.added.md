@@ -1,0 +1,1 @@
+`vissue ready` and `vissue list` take `--unclaimed`, `--claimed-by WHO`, `--parent ID`, `--tag TAG` (repeatable) and `--limit N`. The frontier is still worked out over the whole tracker, so a blocker outside the filter keeps its issue off `ready`, and a cap across projects keeps the most urgent rows.

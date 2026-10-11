@@ -160,6 +160,24 @@ pub fn merge_tracker(project: &str, base: &str, ours: &str, theirs: &str) -> Res
     Ok(Merged { text, conflicts })
 }
 
+/// Merge three versions of one heading, for a tracker kept as one file per
+/// issue. The same field rules as [`merge_tracker`] apply; returns the merged
+/// heading and how many clashes it recorded.
+pub(crate) fn merge_one(
+    base: &IssueHeading,
+    ours: &IssueHeading,
+    theirs: &IssueHeading,
+) -> (IssueHeading, usize) {
+    let mut conflicts = 0;
+    let (h, _) = merge_heading(
+        &(base.clone(), String::new()),
+        &(ours.clone(), String::new()),
+        &(theirs.clone(), String::new()),
+        &mut conflicts,
+    );
+    (h, conflicts)
+}
+
 /// The newest logbook stamp on a heading; org stamps sort as text.
 fn newest(h: &IssueHeading) -> String {
     h.logbook

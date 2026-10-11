@@ -25,6 +25,9 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 root=$work/tracker
 issues=$root/Software/demo/issues.org
+# A create refuses a named root that does not exist, so the tracker directory
+# is made first, as a person starting one would.
+mkdir -p "$root"
 
 fail() {
   echo "org interop: $*" >&2

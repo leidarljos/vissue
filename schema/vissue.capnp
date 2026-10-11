@@ -169,6 +169,8 @@ const operations :List(Operation) = [
       ( cli = "priority", tool = "priority", socket = "priority", note = "", toolType = "Option<String>", socketType = "Option<String>" ),
       ( cli = "block", tool = "block", socket = "block", note = "", toolType = "Option<String>", socketType = "Option<String>" ),
       ( cli = "unblock", tool = "unblock", socket = "unblock", note = "", toolType = "Option<String>", socketType = "Option<String>" ),
+      ( cli = "tag", tool = "", socket = "", note = "command line only: an agent at a shell tags with -t, as create takes tags; the remote surfaces set tags through create", toolType = "", socketType = "" ),
+      ( cli = "untag", tool = "", socket = "", note = "command line only, as tag", toolType = "", socketType = "" ),
       ( cli = "if-state", tool = "if_state", socket = "if_state", note = "", toolType = "Option<String>", socketType = "Option<String>" ),
       ( cli = "if-gen", tool = "if_gen", socket = "if_gen", note = "", toolType = "Option<u64>", socketType = "Option<u64>" ),
       ( cli = "", tool = "", socket = "agent", note = "socket only: it overrides the identity the connection was opened with, which the other surfaces take from the environment", toolType = "", socketType = "Option<String>" )
@@ -251,7 +253,8 @@ const operations :List(Operation) = [
       ( cli = "", tool = "", socket = "agent", note = "socket only: it overrides the identity the connection was opened with, which the other surfaces take from the environment", toolType = "", socketType = "Option<String>" ),
       ( cli = "json", tool = "", socket = "", note = "the ballot rows as JSON, reads only; the remote surfaces answer in structure already", toolType = "", socketType = "" ),
       ( cli = "used", tool = "", socket = "", note = "command line only: the deeds this ballot drew on, or none", toolType = "", socketType = "" ),
-      ( cli = "confidence", tool = "", socket = "", note = "command line only: the probability in (0, 1] that the choice is the outcome", toolType = "", socketType = "" )
+      ( cli = "confidence", tool = "", socket = "", note = "command line only: the probability in (0, 1] that the choice is the outcome", toolType = "", socketType = "" ),
+      ( cli = "withdraw", tool = "", socket = "", note = "command line only: take back this identity's ballot; the logbook keeps what it was", toolType = "", socketType = "" )
     ] ),
   ( cli = "deed", socket = "issue/deed", mcp = "vissue_deed", mutates = true, local = false,
     note = "",
@@ -359,7 +362,12 @@ const operations :List(Operation) = [
     fields = [
       ( cli = "json", tool = "", socket = "", note = "the remote surfaces answer in structure already, so they need no flag to ask for it", toolType = "", socketType = "" ),
       ( cli = "project", tool = "project", socket = "project", note = "", toolType = "Option<String>", socketType = "Option<String>" ),
-      ( cli = "state", tool = "state", socket = "state", note = "", toolType = "Option<String>", socketType = "Option<String>" )
+      ( cli = "state", tool = "state", socket = "state", note = "", toolType = "Option<String>", socketType = "Option<String>" ),
+      ( cli = "unclaimed", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" ),
+      ( cli = "claimed-by", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" ),
+      ( cli = "parent", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" ),
+      ( cli = "tag", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" ),
+      ( cli = "limit", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" )
     ] ),
   ( cli = "projects", socket = "project/list", mcp = "vissue_projects", mutates = false, local = false,
     note = "",
@@ -370,7 +378,12 @@ const operations :List(Operation) = [
     note = "",
     fields = [
       ( cli = "json", tool = "", socket = "", note = "the remote surfaces answer in structure already, so they need no flag to ask for it", toolType = "", socketType = "" ),
-      ( cli = "project", tool = "project", socket = "project", note = "", toolType = "Option<String>", socketType = "Option<String>" )
+      ( cli = "project", tool = "project", socket = "project", note = "", toolType = "Option<String>", socketType = "Option<String>" ),
+      ( cli = "unclaimed", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" ),
+      ( cli = "claimed-by", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" ),
+      ( cli = "parent", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" ),
+      ( cli = "tag", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" ),
+      ( cli = "limit", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" )
     ] ),
   ( cli = "related", socket = "issue/related", mcp = "vissue_related", mutates = false, local = false,
     note = "",
@@ -385,13 +398,15 @@ const operations :List(Operation) = [
     fields = [
       ( cli = "", tool = "query", socket = "query", note = "no flag: the command line takes it as a positional argument, which is why the schema recorded every flag of this verb and not the parameter it is about", toolType = "String", socketType = "String" ),
       ( cli = "json", tool = "", socket = "", note = "the remote surfaces answer in structure already, so they need no flag to ask for it", toolType = "", socketType = "" ),
-      ( cli = "limit", tool = "limit", socket = "limit", note = "", toolType = "Option<usize>", socketType = "Option<usize>" )
+      ( cli = "limit", tool = "limit", socket = "limit", note = "", toolType = "Option<usize>", socketType = "Option<usize>" ),
+      ( cli = "project", tool = "", socket = "", note = "command line only: search one project's issues, on the tracker that project routes to", toolType = "", socketType = "" )
     ] ),
   ( cli = "show", socket = "issue/show", mcp = "vissue_show", mutates = false, local = false,
     note = "",
     fields = [
       ( cli = "json", tool = "", socket = "", note = "the remote surfaces answer in structure already, so they need no flag to ask for it", toolType = "", socketType = "" ),
-      ( cli = "org", tool = "", socket = "", note = "the tool list spells this vissue_org, which is its own row", toolType = "", socketType = "" )
+      ( cli = "org", tool = "", socket = "", note = "the tool list spells this vissue_org, which is its own row", toolType = "", socketType = "" ),
+      ( cli = "all", tool = "", socket = "", note = "command line only: print show for every id, loading each project once", toolType = "", socketType = "" )
     ] ),
   ( cli = "tree", socket = "issue/tree", mcp = "vissue_tree", mutates = false, local = false,
     note = "",
@@ -496,6 +511,11 @@ const operations :List(Operation) = [
   ( cli = "merge-driver", socket = "", mcp = "", mutates = false, local = true,
     note = "local only: git runs it on three versions of one file and it writes the merge into ours; it reads no corpus",
     fields = [] ),
+  ( cli = "migrate-ledger", socket = "", mcp = "", mutates = false, local = true,
+    note = "one-time local migration: copies each issues.org into append-only per-issue files and stops writing the project file. A remote caller has no checkout to split, so it is not a socket method.",
+    fields = [
+      ( cli = "dry-run", tool = "", socket = "", note = "report the split and write nothing", toolType = "", socketType = "" )
+    ] ),
   ( cli = "keys", socket = "", mcp = "", mutates = false, local = true,
     note = "local only: it acts on this process rather than on the corpus",
     fields = [] ),

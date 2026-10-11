@@ -117,6 +117,12 @@ pub fn list_in(
     Ok(format_issue_rows(recs, &rows))
 }
 
+/// The text rows `list` and `ready` print, for rows a caller already narrowed.
+#[must_use]
+pub fn format_rows(recs: &[IssueRec], rows: &[IssueRow]) -> String {
+    format_issue_rows(recs, rows)
+}
+
 fn format_issue_rows(recs: &[IssueRec], rows: &[IssueRow]) -> String {
     // Indexed once. Looking each row's record up by scanning the corpus made
     // rendering quadratic in the number of issues, which is the whole cost of
@@ -179,8 +185,37 @@ pub fn ready_in(recs: &[IssueRec], project_filter: Option<&str>) -> Result<Strin
 ///
 /// Returns an error if the corpus cannot be read, or `id` is not in it.
 pub fn show(layout: &Layout, id: &str) -> Result<String> {
-    let (h, path, project) =
+    let (h, board, project) =
         find_by_id(layout, id)?.ok_or_else(|| Error::IssueNotFound { id: id.to_string() })?;
+    let doc = IssueDoc::parse_file(&project, &board)?;
+    let file = doc.heading_path(&h.id);
+    format_show(&doc.preamble, file, &project, &h)
+}
+
+/// `show` for every issue, one project file at a time.
+///
+/// # Errors
+///
+/// Returns an error if a project file cannot be read.
+pub fn show_all(layout: &Layout) -> Result<String> {
+    let mut out = String::new();
+    for project in list_projects(layout)? {
+        let board = layout.project_issues_path(&project);
+        let doc = IssueDoc::parse_file(&project, &board)?;
+        for heading in &doc.headings {
+            let file = doc.heading_path(&heading.id);
+            out.push_str(&format_show(&doc.preamble, file, &project, heading)?);
+        }
+    }
+    Ok(out)
+}
+
+fn format_show(
+    preamble: &str,
+    path: &std::path::Path,
+    project: &str,
+    h: &crate::model::IssueHeading,
+) -> Result<String> {
     let mut out = String::new();
     writeln!(out, "ID:       {}", h.id)?;
     writeln!(out, "Project:  {project}")?;
@@ -197,11 +232,7 @@ pub fn show(layout: &Layout, id: &str) -> Result<String> {
             None => writeln!(out, "Claimed:  {who}")?,
         }
     }
-    let settings = crate::org::tag_settings_from_preamble(
-        &IssueDoc::parse_file(&project, &path)
-            .map(|d| d.preamble)
-            .unwrap_or_default(),
-    );
+    let settings = crate::org::tag_settings_from_preamble(preamble);
     let tags = settings.all_tags(&h.tags());
     if !tags.is_empty() {
         writeln!(out, "Tags:     {}", tags.join(", "))?;
@@ -232,8 +263,31 @@ pub fn show(layout: &Layout, id: &str) -> Result<String> {
         writeln!(out, "Body:")?;
         writeln!(out, "{body}")?;
     }
+    // Notes are where the work reports progress. A reader that only gets the
+    // body above never learns what the last holder found, so the newest lines
+    // print here and the rest stay one flag away.
+    if !h.logbook.is_empty() {
+        let total = h.logbook.len();
+        let shown = total.min(SHOW_LOG_LINES);
+        writeln!(out)?;
+        if shown == total {
+            writeln!(out, "Log (newest first):")?;
+        } else {
+            writeln!(
+                out,
+                "Log (newest {shown} of {total}; `vissue show {} --json` has all):",
+                h.id
+            )?;
+        }
+        for entry in h.logbook.iter().take(shown) {
+            writeln!(out, "  {}", entry.render().trim_start_matches("- "))?;
+        }
+    }
     Ok(out)
 }
+
+/// Logbook lines `show` prints before pointing at `--json`.
+const SHOW_LOG_LINES: usize = 8;
 
 /// What a plan's children settled on, child by child; never folded into one
 /// number, since a split child has no position and an unvoted one is absent.
@@ -656,7 +710,26 @@ fn consensus_text(
 ///
 /// Returns an error if the corpus cannot be read.
 pub fn search(layout: &Layout, query: &str, limit: usize) -> Result<String> {
-    let recs = load_recs(layout)?;
+    search_in(layout, query, limit, None)
+}
+
+/// [`search`] over one project's issues when `project` names one; the limit
+/// applies after the narrowing, so a busy project elsewhere cannot crowd
+/// the asked one out.
+///
+/// # Errors
+///
+/// As [`search`].
+pub fn search_in(
+    layout: &Layout,
+    query: &str,
+    limit: usize,
+    project: Option<&str>,
+) -> Result<String> {
+    let mut recs = load_recs(layout)?;
+    if let Some(p) = project {
+        recs.retain(|r| r.project == p);
+    }
     let hits = CatalogService::from_recs(&recs).search(query, limit)?;
     let mut out = String::new();
     for h in hits {
@@ -1678,9 +1751,28 @@ fn check_project(project: &str, layout: &Layout, f: &mut Findings) -> Result<()>
     // hold one and counting them there counted nothing. The heading is still in the
     // file, and one the tracker will not touch is the surprise worth reporting, so the
     // file is what gets counted.
-    let gcal_ids = crate::store::org_ids(&std::fs::read_to_string(&path)?)
+    let raw = std::fs::read_to_string(&path)?;
+    let gcal_ids = crate::store::org_ids(&raw)
         .filter(|id| crate::org::is_gcal_event_id(id))
         .count();
+    // Git's conflict markers parse as body text, so a half-merged board reads
+    // as a tracker that lost one side's edits. Naming them is what stops a
+    // reader trusting it.
+    let markers: Vec<usize> = raw
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| {
+            line.starts_with("<<<<<<< ") || line.starts_with(">>>>>>> ") || *line == "======="
+        })
+        .map(|(n, _)| n + 1)
+        .collect();
+    if let Some(first) = markers.first() {
+        f.err(format_args!(
+            "{project}: {} git conflict marker line(s) in {}, the first at line {first}; resolve the merge (`vissue merge-driver --install` merges by heading)",
+            markers.len(),
+            path.display()
+        ));
+    }
     if gcal_ids > 0 {
         f.err(format_args!(
             "{project}: {gcal_ids} heading(s) use an org-gcal event id as :ID:"
