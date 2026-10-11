@@ -9,6 +9,7 @@ use iced::window;
 use iced::{Element, Font, Pixels, Subscription, Task, time};
 
 use vissue_core::config::Layout;
+use vissue_core::process_env;
 
 use crate::attach;
 use crate::keys::ActionId;
@@ -18,6 +19,9 @@ use crate::theme;
 
 const HUD_W: f32 = 960.0;
 const HUD_H: f32 = 760.0;
+/// Guest-activate attempts after a show. Attempt 0 often runs before
+/// iced has Wayland handles.
+const ACTIVATE_TRIES: u8 = 6;
 
 /// First-paint inputs for the board.
 #[derive(Clone, Debug)]
@@ -109,6 +113,8 @@ pub enum Message {
     CommandRun(ActionId),
     /// Pixel offset of the issue-body preview scroller.
     PreviewScrolled(f32),
+    /// Guest xdg-activation finished. `true` consumed the token.
+    ActivationApplied(bool),
 }
 
 /// iced application state.
@@ -130,10 +136,19 @@ pub struct HudApp {
     /// Remaining Sway IPC attempts after a show. Zero when placed or
     /// Sway is absent.
     place_tries: u8,
+    /// Remaining guest-activate attempts while a token is pending.
+    activate_tries: u8,
+    /// True while `window::run` for activation is in flight.
+    activating: bool,
 }
 
 impl HudApp {
     fn from_palette(palette: Palette) -> Self {
+        let activate_tries = if palette.pending_token().is_some() {
+            ACTIVATE_TRIES
+        } else {
+            0
+        };
         Self {
             palette,
             window_id: None,
@@ -142,6 +157,8 @@ impl HudApp {
             opening_popout: None,
             tray_quit: None,
             place_tries: 0,
+            activate_tries,
+            activating: false,
         }
     }
 
@@ -165,6 +182,7 @@ impl HudApp {
                 if self.palette.visible() {
                     self.place_tries = 20;
                     self.try_place();
+                    return self.activate_if_ready();
                 }
                 Task::none()
             }
@@ -181,16 +199,25 @@ impl HudApp {
                 if let Some(req) = summon::try_recv() {
                     let was = self.palette.visible();
                     self.palette.apply_summon(&req);
-                    let token = self.palette.take_pending_token();
+                    if self.palette.pending_token().is_some() {
+                        self.activate_tries = ACTIVATE_TRIES;
+                    } else {
+                        self.activate_tries = 0;
+                    }
                     if was != self.palette.visible() {
                         let place = self.sync_window();
-                        if let Some(tok) = token.filter(|_| self.palette.visible()) {
-                            let _ = tok;
-                            // Token is on the summon wire; compositor activation
-                            // is applied when the overlay maps (k9f1).
-                        }
-                        return place;
+                        return Task::batch([place, self.activate_if_ready()]);
                     }
+                    return self.activate_if_ready();
+                }
+                self.activate_if_ready()
+            }
+            Message::ActivationApplied(ok) => {
+                self.activating = false;
+                if ok {
+                    self.palette.take_pending_token();
+                    self.activate_tries = 0;
+                    return Task::none();
                 }
                 Task::none()
             }
@@ -433,6 +460,15 @@ impl HudApp {
         open.map(|id| Message::WindowId(Some(id)))
     }
 
+    /// First mapped surface: pop-out when `VISSUE_HUD_WINDOW=1`, else overlay.
+    fn boot_window(&mut self) -> Task<Message> {
+        if window_mode() {
+            self.pop_out()
+        } else {
+            self.open_window()
+        }
+    }
+
     fn mapped(&self) -> bool {
         self.window_id.is_some()
     }
@@ -467,11 +503,43 @@ impl HudApp {
             self.place_tries = self.place_tries.saturating_sub(1);
         }
     }
+
+    fn activate_if_ready(&mut self) -> Task<Message> {
+        if self.activating
+            || self.activate_tries == 0
+            || self.opening.is_some()
+            || self.popout_id.is_some()
+        {
+            return Task::none();
+        }
+        let Some(tok) = self.palette.pending_token().map(str::to_string) else {
+            return Task::none();
+        };
+        let Some(id) = self.window_id else {
+            return Task::none();
+        };
+        self.activating = true;
+        self.activate_tries = self.activate_tries.saturating_sub(1);
+        window::run(id, move |win| crate::wlactivate::activate(win, &tok))
+            .map(Message::ActivationApplied)
+    }
 }
 
 /// The app id of the pop-out, so a compositor rule on the overlay's id
 /// leaves it a normal window.
 pub const POPOUT_APP_ID: &str = "me.rgoswami.vissue-hud.window";
+
+/// `VISSUE_HUD_WINDOW=1` boots [`popout_window`] instead of the overlay.
+pub const HUD_WINDOW_ENV: &str = "VISSUE_HUD_WINDOW";
+
+/// True when the process asked for a decorated window at boot.
+#[must_use]
+pub fn window_mode() -> bool {
+    match process_env::var(HUD_WINDOW_ENV) {
+        Ok(v) => v.trim() == "1",
+        Err(_) => false,
+    }
+}
 
 /// The pop-out: a decorated window at the compositor's own level, the size
 /// of the overlay, that the window manager places and stacks like any other.
@@ -506,12 +574,22 @@ pub fn run(opts: BootOpts) -> anyhow::Result<()> {
     } else {
         palette.hide();
     }
+    apply_boot_token(&mut palette, opts.visible);
     crate::log::info(&format!(
         "hud start log={} status={}",
         crate::log::path().display(),
         palette.status_line()
     ));
     run_iced(palette).map_err(|err| anyhow::anyhow!("{err}"))
+}
+
+/// Take compositor env tokens at owner boot. Stash a legal token when the
+/// first window will map; always unset both vars.
+fn apply_boot_token(palette: &mut Palette, visible: bool) {
+    let tok = summon::take_env_token();
+    if visible {
+        palette.stash_token(tok);
+    }
 }
 
 fn run_iced(palette: Palette) -> iced::Result {
@@ -542,7 +620,7 @@ fn boot(palette: Palette) -> (HudApp, Task<Message>) {
     let mut app = HudApp::from_palette(palette);
     app.tray_quit = crate::tray::start();
     let task = if visible {
-        app.open_window()
+        app.boot_window()
     } else {
         Task::none()
     };
@@ -660,8 +738,67 @@ mod tests {
         assert!(prod.contains("iced::daemon"));
         assert!(prod.contains("window::Event::Closed"));
         assert!(prod.contains("Message::Closed(id)"));
+        assert!(prod.contains("wlactivate::activate"));
+        assert!(!prod.contains("let _ = tok"));
+        assert!(!prod.contains("gain_focus"));
         assert!(!prod.contains("Mode::Hidden"));
         assert!(!prod.contains("set_mode"));
+    }
+
+    #[test]
+    fn production_app_applies_xdg_activation() {
+        let src = include_str!("app.rs");
+        let prod = src.split("#[cfg(test)]").next().unwrap();
+        assert!(prod.contains("wlactivate::activate"));
+        assert!(prod.contains("Message::ActivationApplied"));
+        assert!(prod.contains("take_env_token"));
+        assert!(prod.contains("apply_boot_token"));
+        assert!(!prod.contains("let _ = tok"));
+        assert!(!prod.contains("gain_focus"));
+    }
+
+    #[test]
+    fn boot_token_stashes_when_visible() {
+        let _guard = crate::env_lock();
+        crate::wlactivate::set_activation_vars("boot-tok", "startup");
+        let (_dir, mut app) = empty_app();
+        apply_boot_token(&mut app.palette, true);
+        assert_eq!(app.palette.pending_token(), Some("boot-tok"));
+        assert!(std::env::var("XDG_ACTIVATION_TOKEN").is_err());
+        assert!(std::env::var("DESKTOP_STARTUP_ID").is_err());
+        let app = HudApp::from_palette(app.palette);
+        assert_eq!(app.activate_tries, ACTIVATE_TRIES);
+        assert_eq!(app.palette.pending_token(), Some("boot-tok"));
+    }
+
+    #[test]
+    fn boot_token_unsets_when_hidden() {
+        let _guard = crate::env_lock();
+        crate::wlactivate::set_activation_vars("boot-tok", "startup");
+        let (_dir, mut app) = empty_app();
+        app.palette.hide();
+        apply_boot_token(&mut app.palette, false);
+        assert_eq!(app.palette.pending_token(), None);
+        assert!(std::env::var("XDG_ACTIVATION_TOKEN").is_err());
+        assert!(std::env::var("DESKTOP_STARTUP_ID").is_err());
+        let app = HudApp::from_palette(app.palette);
+        assert_eq!(app.activate_tries, 0);
+    }
+
+    #[test]
+    fn activation_applied_true_clears_token() {
+        let (_dir, mut app) = empty_app();
+        app.palette.apply_summon(&crate::summon::SummonRequest {
+            action: crate::summon::SummonAction::Show,
+            token: Some("tok".into()),
+        });
+        app.activate_tries = ACTIVATE_TRIES;
+        assert_eq!(app.palette.pending_token(), Some("tok"));
+        let _ = app.update(Message::ActivationApplied(false));
+        assert_eq!(app.palette.pending_token(), Some("tok"));
+        let _ = app.update(Message::ActivationApplied(true));
+        assert_eq!(app.palette.pending_token(), None);
+        assert_eq!(app.activate_tries, 0);
     }
 
     #[test]
@@ -729,5 +866,52 @@ mod tests {
         );
         let _ = app.update(Message::Closed(pop));
         assert!(!app.mapped());
+    }
+
+    #[test]
+    fn window_env_boots_the_pop_out_not_the_overlay() {
+        let _guard = crate::env_lock();
+        process_env::clear_override(HUD_WINDOW_ENV);
+        assert!(!window_mode());
+
+        let (_dir, mut overlay_app) = empty_app();
+        let _ = overlay_app.boot_window();
+        assert!(
+            overlay_app.window_id.is_some(),
+            "unset env still maps the overlay"
+        );
+        assert!(
+            overlay_app.popout_id.is_none(),
+            "unset env must not map the pop-out"
+        );
+        let overlay = board_window();
+        assert!(!overlay.decorations);
+        assert_eq!(overlay.level, iced::window::Level::AlwaysOnTop);
+
+        process_env::override_var(HUD_WINDOW_ENV, Some("1"));
+        assert!(window_mode());
+        let (_dir, mut app) = empty_app();
+        let _ = app.boot_window();
+        assert!(
+            app.popout_id.is_some(),
+            "VISSUE_HUD_WINDOW=1 maps the pop-out"
+        );
+        assert!(
+            app.window_id.is_none(),
+            "window mode must not also map the overlay"
+        );
+        let pop = popout_window();
+        assert!(pop.decorations, "the pop-out is a managed window");
+        assert_eq!(pop.level, iced::window::Level::Normal);
+        #[cfg(target_os = "linux")]
+        {
+            assert_eq!(pop.platform_specific.application_id, POPOUT_APP_ID);
+            assert_eq!(
+                overlay.platform_specific.application_id,
+                crate::place::OVERLAY_APP_ID,
+                "the overlay Boot is unchanged when window mode is on"
+            );
+        }
+        process_env::clear_override(HUD_WINDOW_ENV);
     }
 }

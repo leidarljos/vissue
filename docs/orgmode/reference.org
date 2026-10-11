@@ -7,12 +7,12 @@
 |---------------------------------------------------------------------------+--------------------------------------------------------------------------|
 | =create=, =q=                                                             | Add an issue; =q= prints only the new id                                 |
 | =list=, =show=                                                            | Rows of issues; one issue's metadata and body (=--org= for the raw heading) |
-| =update=, =claim=, =refile=, =reject=, =resolve=                          | Change state, priority, or blockers; take an issue; move it; redirect; pick a sibling terminal |
+| =update=, =claim=, =release=, =refile=, =reject=, =resolve=               | Change state, priority, blockers, or tags (=-t TAG=, =--untag TAG=); take an issue; drop one holder's claims; move it; redirect; pick a sibling terminal |
 | =note=                                                                    | Add a dated logbook entry; state and claim untouched                     |
-| =append=                                                                  | Record a dated report under the heading, from =--text=, =--file=, or stdin |
+| =append=                                                                  | Record a dated report under the heading, from the words after the id, =--text=, =--file=, or stdin |
 | =body-excerpt=                                                            | A capped preview of an issue's file range; =show --org= for the whole heading |
 | =claims=                                                                  | Every live claim, oldest first: who holds what, for how long             |
-| =vote=                                                                    | Cast this agent's ballot (=--for=), or read the tally; =--json= for the ballot rows |
+| =vote=                                                                    | Cast this agent's ballot (=--for=), take it back (=--withdraw=, logged), or read the tally; =--json= for the ballot rows |
 | =consensus=                                                               | Weigh the same ballots by who the group listens to; social power and the two ways there is none; =--children= rolls up over a plan; =--trust JSON= lays rows over the configuration |
 | =deed=                                                                    | Cite (=--add=), drop (=--remove=), or list the deeds this issue's work produced; =d= on either board |
 | =recall=                                                                  | The working set for an issue: plan, inputs and their deeds, and its own; =--excerpts= splices in what each input concluded |
@@ -20,7 +20,7 @@
 | =--json= on a read                                                        | =list=, =show=, =ready=, =claims=, =digest=, =search=, =children=, =ancestors=, =impact=, =backlinks=, =agenda=, =tree=, =body-excerpt=, =projects=, =recall=, =consensus= |
 | =fold=                                                                    | Turn an inbox file's unstamped =* TODO= headings into issues             |
 | =whoami=                                                                  | The identity a claim would record                                        |
-| =ready=, =count=, =search=, =children=, =ancestors=, =impact=, =related=, =stale= | Query the corpus; bounded dependency and related traversal        |
+| =ready=, =count=, =search=, =children=, =ancestors=, =impact=, =related=, =stale= | Query the corpus; bounded dependency and related traversal; =search -p PROJECT= narrows to one project |
 | =agenda=                                                                  | Deadlines and scheduled starts inside a horizon, overdue first           |
 | =export=                                                                  | JSONL, one object per issue                                              |
 | =tree=, =graph=, =cycles=, =waiting-on=                                   | Relationships                                                            |
@@ -29,6 +29,7 @@
 | =digest=, =mirror --check=                                                | Corpus digest; whether a mirror is still current                         |
 | =satchel=                                                                 | Pack a slice of the tracker for somebody else: =--out= with =--project= or =--issue=, then =--seal= once the deeds are in, then =--verify= on arrival |
 | =check=, =hygiene=, =normalize=                                           | Validation; rewrite a tracker onto the house Org shape                    |
+| =migrate-ledger=                                                          | Split each =issues.org= into one append-only file per issue; =--dry-run= writes nothing |
 | =gen=, =events=, =wait=, =ping=                                           | Change stream for pollers; =wait --id= =--until-terminal= watches one issue |
 | =projects=, =identity=                                                    | Layout introspection                                                     |
 | =serve=                                                                   | Own the per-user Unix control socket (= -d=, =stop=, =restart=, =status=) |
@@ -36,6 +37,7 @@
 | =hud=                                                                     | Iced task board; =--rofi= for the dmenu picker (=--mode=) |
 | =keys=                                                                    | The board key catalog; =--check= validates an overlay, =--occupancy= lists taken chords |
 | =completions=, =man=                                                      | Shell completion scripts and the manual page                             |
+| =merge-driver=                                                            | git's merge driver for =issues.org=: merges by heading, keeps a clash as a note; =--install= registers it in this repository |
 | =surface=                                                                 | This binary's own subcommands, aliases and flags as JSON; hidden, and not about the tracker |
 
 * Projects
@@ -77,8 +79,10 @@ file (and its local =#+SETUPFILE:=) has no such line, it uses
 * Properties
 
 =:ID:= is required. =create= mints one unless =--id= keeps a free
-={project}-= suffix of =0-9a-z=. An org-gcal =<event>/<calendar>=
-value is not an issue id; that heading stays Org around the issues.
+={project}-= suffix of =0-9a-z=. =project= may contain =/= when the
+tracker lives in a nested directory (=Infra/terra-6cx2=). An org-gcal
+=<event>/<calendar>= value is not an issue id; that heading stays Org
+around the issues.
 =:CREATED:= is set on create. =:PARENT:=,
 =:BLOCKED_BY:=, =:VISSUE_TAGS:=, =:TYPE:=, =:CLAIMED_BY:=, =:CLAIMED_AT:=,
 and =:DISCOVERED_FROM:= are read by the query verbs. =:TYPE:= is also
@@ -246,6 +250,7 @@ socket.
 | =VISSUE_HUD_LOG=         | HUD stderr log; default is =hud.log= next to the control socket    |
 | =VISSUE_HUD_NOTIFY=      | =0= turns off the desktop notices the HUD posts on a claim, an unblock, or a move into BLOCKED, FAILED or CANCELLED |
 | =VISSUE_HUD_TRAY=        | =0= leaves the StatusNotifier tray out (Linux); left click toggles the overlay, Quit leaves the HUD alone |
+| =VISSUE_HUD_WINDOW=      | =1= boots the decorated pop-out (=me.rgoswami.vissue-hud.window=) instead of the overlay; unset keeps the overlay |
 
 * Control socket
 
@@ -262,7 +267,7 @@ The owner holds an in-memory catalog and answers the v1 methods:
 =issue/agenda=, =issue/show=, =issue/excerpt=, =issue/tree=,
 =issue/related=, =issue/children=, =issue/ancestors=, =issue/impact=,
 =issue/backlinks=, =issue/open=, =issue/create=, =issue/update=,
-=issue/claim=, =issue/note=, =issue/refile=, =project/list=,
+=issue/claim=, =issue/release=, =issue/note=, =issue/refile=, =project/list=,
 =events/since=, =events/gen=, and =identity/get=. =initialize= requires a
 non-empty =agent=. Mutations use that connection agent, or an optional
 per-call =agent=; they never read =VISSUE_AGENT= for the RPC. After a
@@ -290,7 +295,9 @@ changes the picker list.
 
 =P= (=window.popout=, remappable in =keys.toml=) opens the board in a
 decorated window of its own and takes the overlay down; closing that
-window hides the HUD and leaves it running. The HUD posts a desktop
+window hides the HUD and leaves it running.
+=VISSUE_HUD_WINDOW=1= starts in that decorated window instead of the
+overlay, so a nested X walk can crop a managed client. The HUD posts a desktop
 notice when an issue is claimed, comes unblocked, or moves into BLOCKED,
 FAILED or CANCELLED, with the board in view or not, and on Linux sits in
 the StatusNotifier tray.
@@ -315,7 +322,8 @@ Read one issue or many: =vissue_list=, =vissue_ready=, =vissue_show=,
 =vissue_count=, =vissue_search=, =vissue_claims=, =vissue_agenda=,
 =vissue_body_excerpt=, =vissue_org=, =vissue_export=.
 
-Change one: =vissue_create=, =vissue_update=, =vissue_claim=, =vissue_note=,
+Change one: =vissue_create=, =vissue_update=, =vissue_claim=, =vissue_release=,
+=vissue_note=,
 =vissue_append=, =vissue_refile=, =vissue_fold=, =vissue_reject=, =vissue_resolve=,
 =vissue_vote=, =vissue_deed=.
 
@@ -510,7 +518,7 @@ need no Cap'n Proto toolchain; regenerating after a schema edit does, and
 * Control socket coverage
 
 Every verb that changes a file has a method: =issue/create=, =issue/update=,
-=issue/claim=, =issue/note=, =issue/append=, =issue/refile=, =issue/reject=,
+=issue/claim=, =issue/release=, =issue/note=, =issue/append=, =issue/refile=, =issue/reject=,
 =issue/resolve=, =issue/vote=, =issue/deed=, =issue/fold=, =issue/normalize=.
 
 The reads have methods too: =issue/list=, =issue/show=, =issue/get=,
@@ -696,13 +704,18 @@ refuses rather than filing the ballot under an agent that never voted.
 Lines the parser does not recognise are kept where they are, so a comment left in
 the drawer survives the next vote.
 
-The tally distinguishes four outcomes, because a count that calls them all
+The tally distinguishes five outcomes, because a count that calls them all
 agreement is worth nothing:
 
-- *consensus*, when one choice holds more than half of at least two ballots;
+- *unanimous*, when at least two ballots all hold one choice;
+- *majority*, when one choice holds more than half of them;
 - *plurality only*, when one choice leads without a majority;
 - *no consensus*, when the lead is tied;
 - *one ballot only*, when a single agent has voted, which nobody has agreed with.
+
+A tally never says *consensus*. That word belongs to =vissue consensus=,
+which weighs the same ballots by who listens to whom, and the unanimous
+and majority lines name it.
 
 A choice is one line and may contain a colon, so ="ship: after the audit"= is a
 vote and not a parse error.

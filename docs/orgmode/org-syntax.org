@@ -244,7 +244,7 @@ Settable: a heading may put these in the drawer and Org honours them.
 | =ROAM_REFS= =ROAM_ALIASES= =ROAM_EXCLUDE= | org-roam (MELPA) | Cite/link refs and aliases. Preserved. =ID= is already required. |
 | =ORG_GTD_*= =PREVIOUS_ORG_GTD= | org-gtd v4 | Extra GTD keys. Do not fold =ORG_GTD_DEPENDS_ON= into =BLOCKED_BY=. |
 | =DRILL_*= =FC_*= =ANKI_*= =LEARN_DATA= | org-drill / org-fc / anki-editor | Spaced-repetition state. Extra drawer =:REVIEW_DATA:= stays. |
-| =calendar-id= =ETag= | org-gcal | Google event. A slash =:ID:= (=<event>/<calendar>=) is not an issue id; the heading stays Org around the issues. |
+| =calendar-id= =ETag= | org-gcal | Google event. An =<event>/<calendar>= =:ID:= is not an issue id; the heading stays Org around the issues. A nested-project vissue id (=Infra/terra-6cx2=) is still ={project}-{suffix}=. |
 | =BRAIN_*= | org-brain | A different parent/child graph. |
 | =STYLE= | org-habit (Org core) | =habit= |
 

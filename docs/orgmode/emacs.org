@@ -72,8 +72,9 @@ Org's own shape. Two rules cover it:
   either; a rewrite still emits =:PROPERTIES:= then =:LOGBOOK:= then any
   other drawer, which is the order =org-log-into-drawer= produces.
 - Do not put an org-gcal event id (=<event>/<calendar>=) on an issue.
-  A slash =:ID:= is not a vissue id; that heading is left as Org
-  around the issues.
+  That form is not a vissue id; the heading is left as Org around the
+  issues. A nested-project id such as =Infra/terra-6cx2= is still
+  ={project}-{suffix}=, even though the project name contains =/=.
 
 vissue keeps whatever it does not understand. CLOCK entries and other opaque
 drawer lines round-trip verbatim and appear in the JSONL export as =raw=, so

@@ -9,7 +9,7 @@
        <img class="vi-hero-mark" src="_static/mark.svg" width="64" height="64" alt="" />
        <div>
          <p class="vi-hero-name">vissue</p>
-         <p class="vi-hero-tag">The file is the database.</p>
+         <p class="vi-hero-tag">What does this node stand on, and who agrees?</p>
        </div>
      </div>
      <p class="vi-hero-tagline">A plan is a directed acyclic graph of Org headings.</p>
@@ -41,6 +41,18 @@ out of the binary:
 $ vissue completions zsh > ~/.zfunc/_vissue
 $ vissue man > ~/.local/share/man/man1/vissue.1
 #+end_src
+
+* First minute
+
+#+begin_src console
+$ mkdir -p /tmp/demo && cd /tmp/demo
+$ vissue create --project parser "Reject a manifest with no header"
+parser-k29f  TODO  [#C]  Reject a manifest with no header
+file: /tmp/demo/Software/parser/issues.org
+#+end_src
+
+That file is the database: one Org heading, ordinary text, nothing beside it.
+The [[file:getting-started.org][tutorial]] continues from this issue.
 
 Wire a coding seat through =ljos-mcp= on the [[file:harness.org][Harness]] how-to.
 

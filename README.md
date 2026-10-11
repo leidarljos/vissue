@@ -25,14 +25,20 @@ two surfaces, never by editing an `issues.org`.
 ## Install
 
 ```console
-$ cargo install vissue-cli
-$ cargo install vissue-mcp   # the MCP server, same version
-$ cargo install vissue-hud   # summonable overlay, optional
+$ cargo binstall vissue-cli
+$ cargo binstall vissue-mcp   # the MCP server, same version
+$ cargo binstall vissue-hud   # summonable overlay, optional
 ```
 
-Tagged releases carry prebuilt archives and a shell installer on the
-[releases page](https://github.com/leidarljos/vissue/releases).
+`cargo binstall` fetches the prebuilt archives from the
+[releases page](https://github.com/leidarljos/vissue/releases), which also
+carries a shell installer. `cargo install` takes the same names and builds
+from source.
 `vissue completions zsh` and `vissue man` come out of the binary.
+
+The leidarljos marketplace in
+[leidarljos/ljos](https://github.com/leidarljos/ljos) installs this MCP
+server as `vissue@leidarljos`. `vissue-mcp` stays on `PATH`.
 
 ## A minute of it
 
@@ -53,6 +59,9 @@ parser-k29f            TODO      [#C]  Reject a manifest with no header
 The files land under `<root>/Software/<project>/issues.org`; the prefix
 is configurable and `<root>` comes from `--root`, `VISSUE_ROOT`, or a
 user-level route table that sends named projects to other checkouts.
+A write names the generation it read: `vissue update parser-3xq7 --state DONE --if-gen 7`.
+`vissue gen` prints that generation and `vissue events` is the log of writes.
+Agents never `Write` or `StrReplace` an `issues.org`.
 
 ## Documentation
 

@@ -335,6 +335,29 @@ impl VissueServer {
     }
 
     #[tool(
+        description = "Drop every claim stamp held by one identity, including one left on a closed heading. State stays. Pass dry_run to preview; why is written on each ticket.",
+        annotations(
+            title = "Release a holder's claims",
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn vissue_release(
+        &self,
+        Parameters(args): Parameters<ReleaseArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        text(ops::release_holder(
+            &self.layout,
+            &args.holder,
+            args.older_than,
+            args.why.as_deref(),
+            args.dry_run.unwrap_or(false),
+        ))
+    }
+
+    #[tool(
         description = "Append a dated report to an issue's body. Use this to record work that was done: the logbook holds one line per event, so a written report belongs in the body. Markdown is safe.",
         annotations(
             title = "Append a report",
@@ -1166,6 +1189,11 @@ const SCHEME: &str = "vissue";
 /// Org text, which is what every resource here is.
 const ORG: &str = "text/x-org";
 
+/// How long a resource result stays fresh. Issues change with every note, so
+/// nothing is cached; MCP protocol 2026-07-28 requires the caching fields on
+/// every cacheable result.
+const RESOURCE_TTL_MS: u64 = 0;
+
 impl VissueServer {
     /// One issue's org text, addressed rather than queried.
     fn read_issue(&self, id: &str) -> Result<String, McpError> {
@@ -1280,7 +1308,9 @@ impl ServerHandler for VissueServer {
                     resource
                 })
                 .collect(),
-        ))
+        )
+        .with_ttl_ms(RESOURCE_TTL_MS)
+        .with_cache_scope(CacheScope::Private))
     }
 
     /// The pattern one issue is addressed by.
@@ -1295,7 +1325,9 @@ impl ServerHandler for VissueServer {
         template.description =
             Some("The org text of one issue, by id, with secrets screened out.".to_string());
         template.mime_type = Some(ORG.to_string());
-        Ok(ListResourceTemplatesResult::with_all_items(vec![template]))
+        Ok(ListResourceTemplatesResult::with_all_items(vec![template])
+            .with_ttl_ms(RESOURCE_TTL_MS)
+            .with_cache_scope(CacheScope::Private))
     }
 
     /// Complete the id or project a template or prompt asks for: id prefix,
@@ -1359,6 +1391,8 @@ impl ServerHandler for VissueServer {
                 text,
                 meta: None,
             }])
+            .with_ttl_ms(RESOURCE_TTL_MS)
+            .with_cache_scope(CacheScope::Private)
             .into(),
         )
     }
@@ -1432,6 +1466,80 @@ mod tests {
             .await;
         let message = refused.expect_err("a path is not an accession").message;
         assert!(message.contains("not a deed accession"), "{message}");
+    }
+
+    /// Reject moves work to an existing heading, to a successor created in a
+    /// named project, and refuses a call that names neither.
+    #[tokio::test]
+    async fn reject_routes_to_an_existing_heading_or_a_new_successor() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = Layout::new(dir.path(), DEFAULT_PREFIX);
+        std::fs::create_dir_all(layout.projects_dir()).unwrap();
+        let quiet = CreateOpts {
+            quiet: true,
+            ..Default::default()
+        };
+        let mint = |title: &str| {
+            ops::create(&layout, "keys", title, quiet)
+                .unwrap()
+                .trim()
+                .to_string()
+        };
+        let (dup, kept, moved, stuck) = (mint("dup"), mint("kept"), mint("moved"), mint("stuck"));
+        let server = VissueServer::with_layout(layout.clone());
+
+        let onto = server
+            .vissue_reject(Parameters(RejectArgs {
+                issue_id: dup.clone(),
+                to: Some(kept.clone()),
+                project: None,
+                title: None,
+                reason: Some("same work as the kept one".into()),
+            }))
+            .await
+            .unwrap();
+        assert_eq!(onto.is_error, Some(false));
+
+        let successor = server
+            .vissue_reject(Parameters(RejectArgs {
+                issue_id: moved.clone(),
+                to: None,
+                project: Some("locks".into()),
+                title: Some("moved into locks".into()),
+                reason: None,
+            }))
+            .await
+            .unwrap();
+        assert_eq!(successor.is_error, Some(false));
+        let all = vissue_core::store::load_all(&layout).unwrap();
+        assert!(
+            all.iter().any(|(_, h)| h.title == "moved into locks"),
+            "the successor was created"
+        );
+        let state_of = |id: &str| {
+            all.iter()
+                .find(|(_, h)| h.id == id)
+                .map(|(_, h)| h.state.clone())
+                .unwrap()
+        };
+        assert_eq!(state_of(&dup), "CANCELLED");
+        assert_eq!(state_of(&moved), "CANCELLED");
+
+        let refused = server
+            .vissue_reject(Parameters(RejectArgs {
+                issue_id: stuck,
+                to: None,
+                project: None,
+                title: None,
+                reason: None,
+            }))
+            .await
+            .expect_err("no destination");
+        assert!(
+            refused.message.contains("--to DST or --project"),
+            "{}",
+            refused.message
+        );
     }
 
     /// The consensus tool answers on an unconfigured tracker, where it is the
@@ -1561,6 +1669,19 @@ mod tests {
                 .vissue_note(Parameters(NoteArgs {
                     issue_id: id.clone(),
                     text: "waiting on the vault rotation window".into(),
+                }))
+                .await
+                .unwrap()
+                .is_error,
+            Some(false)
+        );
+        assert_eq!(
+            server
+                .vissue_release(Parameters(ReleaseArgs {
+                    holder: "nobody".into(),
+                    older_than: None,
+                    dry_run: Some(true),
+                    why: None,
                 }))
                 .await
                 .unwrap()
