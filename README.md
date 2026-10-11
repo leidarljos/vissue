@@ -25,14 +25,20 @@ two surfaces, never by editing an `issues.org`.
 ## Install
 
 ```console
-$ cargo install vissue-cli
-$ cargo install vissue-mcp   # the MCP server, same version
-$ cargo install vissue-hud   # summonable overlay, optional
+$ cargo binstall vissue-cli
+$ cargo binstall vissue-mcp   # the MCP server, same version
+$ cargo binstall vissue-hud   # summonable overlay, optional
 ```
 
-Tagged releases carry prebuilt archives and a shell installer on the
-[releases page](https://github.com/leidarljos/vissue/releases).
+`cargo binstall` fetches the prebuilt archives from the
+[releases page](https://github.com/leidarljos/vissue/releases), which also
+carries a shell installer. `cargo install` takes the same names and builds
+from source.
 `vissue completions zsh` and `vissue man` come out of the binary.
+
+The leidarljos marketplace in
+[leidarljos/ljos](https://github.com/leidarljos/ljos) installs this MCP
+server as `vissue@leidarljos`. `vissue-mcp` stays on `PATH`.
 
 ## A minute of it
 

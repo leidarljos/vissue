@@ -35,14 +35,20 @@ pub fn load_recs(layout: &Layout) -> Result<Vec<IssueRec>> {
         .map(|project| {
             let path = layout.project_issues_path(&project);
             let doc = IssueDoc::parse_file(&project, &path)?;
-            let tag_settings = doc.tag_settings;
+            let tag_settings = doc.tag_settings.clone();
+            let files: Vec<std::path::PathBuf> = doc
+                .headings
+                .iter()
+                .map(|heading| doc.heading_path(&heading.id).to_path_buf())
+                .collect();
             Ok(doc
                 .headings
                 .into_iter()
-                .map(|heading| IssueRec {
+                .zip(files)
+                .map(|(heading, file)| IssueRec {
                     project: project.clone(),
                     heading,
-                    path: path.clone(),
+                    path: file,
                     tag_settings: tag_settings.clone(),
                 })
                 .collect())

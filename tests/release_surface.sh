@@ -31,7 +31,8 @@ grep -q 'cargo-dist-installer.sh' .github/workflows/release.yml
 # Publication is trusted publishing: an OIDC identity exchanged for a token
 # that lives only as long as the run, with no long-lived registry secret in
 # the repository at all.
-grep -q 'crates-io-auth-action@v1' .github/workflows/publish-crates.yml
+# Trusted publishing, its action pinned by commit like every action.
+grep -Eq 'rust-lang/crates-io-auth-action@[0-9a-f]{40}' .github/workflows/publish-crates.yml
 grep -q 'id-token: write' .github/workflows/publish-crates.yml
 grep -q 'name: crates-io' .github/workflows/publish-crates.yml
 ! grep -q 'secrets.CARGO_REGISTRY_TOKEN' .github/workflows/publish-crates.yml
