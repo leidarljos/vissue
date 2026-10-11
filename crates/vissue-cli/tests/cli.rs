@@ -2526,6 +2526,9 @@ fn a_directory_that_is_not_a_tracker_says_so_rather_than_answering_none() {
             .env("VISSUE_NO_ROUTE", "1")
             .env_remove("VISSUE_ROOT")
             .env_remove("ISSUE_ROOT")
+            // A `root` in the user's own config would answer for the directory.
+            .env("HOME", dir.path())
+            .env("XDG_CONFIG_HOME", dir.path().join(".config"))
             .current_dir(cwd)
             .args(args)
             .output()

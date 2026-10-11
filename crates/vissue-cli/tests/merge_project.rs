@@ -182,3 +182,136 @@ fn project_writes_the_mirror_and_check_then_reads_it_fresh() {
     let fresh = vissue_in(root, &["project", "--check"]);
     assert!(fresh.status.success(), "{}", text(&fresh));
 }
+
+/// A tracker split into per-issue files, the driver installed before the
+/// first commit, and one issue to contend over.
+fn ledger_repo() -> (tempfile::TempDir, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    fs::create_dir_all(root.join("Software")).unwrap();
+    let made = vissue_in(root, &["create", "-p", "alpha", "-q", "contested"]);
+    assert!(made.status.success(), "{}", text(&made));
+    let split = vissue_in(root, &["migrate-ledger"]);
+    assert!(split.status.success(), "{}", text(&split));
+    git(root, &["init", "-q"]);
+    let install = vissue_in(root, &["merge-driver", "--install"]);
+    assert!(install.status.success(), "{}", text(&install));
+    git(root, &["add", "-A"]);
+    git(root, &["commit", "-q", "-m", "one issue, split"]);
+    (
+        dir,
+        String::from_utf8_lossy(&made.stdout).trim().to_string(),
+    )
+}
+
+fn vissue_as(dir: &Path, agent: &str, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_vissue"))
+        .env("VISSUE_NO_ROUTE", "1")
+        .env("VISSUE_AGENT", agent)
+        .current_dir(dir)
+        .args(["--root", dir.to_str().unwrap()])
+        .args(args)
+        .output()
+        .expect("run vissue")
+}
+
+#[test]
+fn install_names_the_per_issue_files_and_keeps_the_event_log_out_of_git() {
+    let (dir, _) = ledger_repo();
+    let root = dir.path();
+    let attrs = fs::read_to_string(root.join(".gitattributes")).unwrap();
+    assert!(attrs.contains("**/issues/*.org merge=vissue"), "{attrs}");
+    let ignore = fs::read_to_string(root.join(".gitignore")).unwrap();
+    assert!(ignore.contains(".vault-events.*"), "{ignore}");
+    let tracked = git(root, &["ls-files"]);
+    assert!(
+        !String::from_utf8_lossy(&tracked.stdout).contains(".vault-events"),
+        "{}",
+        String::from_utf8_lossy(&tracked.stdout)
+    );
+    let again = vissue_in(root, &["merge-driver", "--install"]);
+    assert!(again.status.success(), "{}", text(&again));
+    let attrs = fs::read_to_string(root.join(".gitattributes")).unwrap();
+    assert_eq!(
+        attrs.matches("**/issues/*.org merge=vissue").count(),
+        1,
+        "{attrs}"
+    );
+}
+
+#[test]
+fn two_branches_that_note_and_vote_on_one_split_issue_merge_both() {
+    let (dir, id) = ledger_repo();
+    let root = dir.path();
+
+    git(root, &["checkout", "-q", "-b", "side"]);
+    for args in [
+        vec!["note", id.as_str(), "noted by alice"],
+        vec!["vote", id.as_str(), "--for", "ship"],
+    ] {
+        let out = vissue_as(root, "alice", &args);
+        assert!(out.status.success(), "{}", text(&out));
+    }
+    git(root, &["add", "-A"]);
+    git(root, &["commit", "-q", "-m", "alice"]);
+    git(root, &["checkout", "-q", "main"]);
+    for args in [
+        vec!["note", id.as_str(), "noted by bob"],
+        vec!["vote", id.as_str(), "--for", "hold"],
+        vec!["update", id.as_str(), "--state", "DONE"],
+    ] {
+        let out = vissue_as(root, "bob", &args);
+        assert!(out.status.success(), "{}", text(&out));
+    }
+    git(root, &["add", "-A"]);
+    git(root, &["commit", "-q", "-m", "bob"]);
+
+    git(root, &["merge", "-q", "--no-edit", "side"]);
+    let file = fs::read_to_string(root.join(format!("Software/alpha/issues/{id}.org"))).unwrap();
+    assert!(!file.contains("<<<<<<<"), "no text conflict: {file}");
+
+    let tally = text(&vissue_in(root, &["vote", &id]));
+    assert!(tally.contains("2 votes"), "both ballots kept: {tally}");
+    assert!(tally.contains("alice") && tally.contains("bob"), "{tally}");
+    let shown = text(&vissue_in(root, &["show", &id, "--json"]));
+    assert!(shown.contains("noted by alice"), "{shown}");
+    assert!(shown.contains("noted by bob"), "{shown}");
+    assert!(shown.contains("\"state\": \"DONE\""), "{shown}");
+    let check = vissue_in(root, &["check"]);
+    assert!(check.status.success(), "{}", text(&check));
+}
+
+#[test]
+fn a_split_issue_left_with_conflict_markers_is_an_error_not_an_older_issue() {
+    let (dir, id) = ledger_repo();
+    let root = dir.path();
+    let note = vissue_as(root, "alice", &["note", &id, "kept before the clash"]);
+    assert!(note.status.success(), "{}", text(&note));
+    let path = root.join(format!("Software/alpha/issues/{id}.org"));
+    let mut file = fs::read_to_string(&path).unwrap();
+    file.push_str("<<<<<<< HEAD\n%% log 10\n- Note: x\n=======\n>>>>>>> side\n");
+    fs::write(&path, file).unwrap();
+
+    let shown = vissue_in(root, &["show", &id]);
+    assert!(!shown.status.success(), "{}", text(&shown));
+    assert!(text(&shown).contains("conflict marker"), "{}", text(&shown));
+    let check = vissue_in(root, &["check"]);
+    assert!(!check.status.success(), "{}", text(&check));
+}
+
+#[test]
+fn check_names_conflict_markers_left_in_a_board() {
+    let (dir, _, _) = tracker_repo();
+    let root = dir.path();
+    let path = root.join("Software/alpha/issues.org");
+    let mut board = fs::read_to_string(&path).unwrap();
+    board.push_str("<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> side\n");
+    fs::write(&path, board).unwrap();
+    let check = vissue_in(root, &["check"]);
+    assert!(!check.status.success(), "{}", text(&check));
+    assert!(
+        text(&check).contains("git conflict marker"),
+        "{}",
+        text(&check)
+    );
+}

@@ -873,20 +873,20 @@ fn merge_driver(
             .context("merge-driver: find the repository top")?;
         let top = PathBuf::from(String::from_utf8_lossy(&top.stdout).trim());
         let attrs = top.join(".gitattributes");
-        let line = "issues.org merge=vissue";
-        let held = std::fs::read_to_string(&attrs).unwrap_or_default();
-        if !held.lines().any(|l| l.trim() == line) {
-            let mut text = held;
-            if !text.is_empty() && !text.ends_with('\n') {
-                text.push('\n');
-            }
-            text.push_str(line);
-            text.push('\n');
-            std::fs::write(&attrs, text).with_context(|| format!("write {}", attrs.display()))?;
-        }
+        // The board, and the per-issue files `migrate-ledger` writes.
+        add_lines(
+            &attrs,
+            &["issues.org merge=vissue", "**/issues/*.org merge=vissue"],
+        )?;
+        // The event log, its generation counter and the lock files are this
+        // clone's own: two clones number their events independently, so
+        // committing them conflicts on every concurrent write.
+        let ignore = top.join(".gitignore");
+        add_lines(&ignore, &[".vault-events.*", "*.lock"])?;
         println!(
-            "merge-driver: registered as {driver}; {} names issues.org; commit it so every clone merges the same way",
-            attrs.display()
+            "merge-driver: registered as {driver}; {} names issues.org and issues/*.org, {} keeps the event log and locks out of git; commit both so every clone merges the same way",
+            attrs.display(),
+            ignore.display()
         );
         return Ok(());
     }
@@ -902,7 +902,13 @@ fn merge_driver(
         .and_then(|n| n.to_str())
         .unwrap_or("issues")
         .to_string();
-    match vissue_core::merge::merge_tracker(&project, &read(base)?, &read(ours)?, &read(theirs)?) {
+    let ours_text = read(ours)?;
+    let merged = if vissue_core::ledger::is_ledger_text(&ours_text) {
+        vissue_core::ledger::merge_file(&read(base)?, &ours_text, &read(theirs)?)
+    } else {
+        vissue_core::merge::merge_tracker(&project, &read(base)?, &ours_text, &read(theirs)?)
+    };
+    match merged {
         Ok(m) => {
             std::fs::write(ours, &m.text).with_context(|| format!("write {}", ours.display()))?;
             if m.conflicts > 0 {
@@ -928,6 +934,26 @@ fn merge_driver(
             std::process::exit(1);
         }
     }
+}
+
+/// Append each missing line to a git control file such as `.gitattributes`.
+fn add_lines(path: &std::path::Path, lines: &[&str]) -> Result<()> {
+    let held = std::fs::read_to_string(path).unwrap_or_default();
+    let mut text = held.clone();
+    for line in lines {
+        if text.lines().any(|l| l.trim() == *line) {
+            continue;
+        }
+        if !text.is_empty() && !text.ends_with('\n') {
+            text.push('\n');
+        }
+        text.push_str(line);
+        text.push('\n');
+    }
+    if text != held {
+        std::fs::write(path, text).with_context(|| format!("write {}", path.display()))?;
+    }
+    Ok(())
 }
 
 fn build_router(cli: &Cli) -> Result<Router> {

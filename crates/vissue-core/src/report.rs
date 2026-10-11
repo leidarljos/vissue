@@ -263,8 +263,31 @@ fn format_show(
         writeln!(out, "Body:")?;
         writeln!(out, "{body}")?;
     }
+    // Notes are where the work reports progress. A reader that only gets the
+    // body above never learns what the last holder found, so the newest lines
+    // print here and the rest stay one flag away.
+    if !h.logbook.is_empty() {
+        let total = h.logbook.len();
+        let shown = total.min(SHOW_LOG_LINES);
+        writeln!(out)?;
+        if shown == total {
+            writeln!(out, "Log (newest first):")?;
+        } else {
+            writeln!(
+                out,
+                "Log (newest {shown} of {total}; `vissue show {} --json` has all):",
+                h.id
+            )?;
+        }
+        for entry in h.logbook.iter().take(shown) {
+            writeln!(out, "  {}", entry.render().trim_start_matches("- "))?;
+        }
+    }
     Ok(out)
 }
+
+/// Logbook lines `show` prints before pointing at `--json`.
+const SHOW_LOG_LINES: usize = 8;
 
 /// What a plan's children settled on, child by child; never folded into one
 /// number, since a split child has no position and an unvoted one is absent.
@@ -1728,9 +1751,28 @@ fn check_project(project: &str, layout: &Layout, f: &mut Findings) -> Result<()>
     // hold one and counting them there counted nothing. The heading is still in the
     // file, and one the tracker will not touch is the surprise worth reporting, so the
     // file is what gets counted.
-    let gcal_ids = crate::store::org_ids(&std::fs::read_to_string(&path)?)
+    let raw = std::fs::read_to_string(&path)?;
+    let gcal_ids = crate::store::org_ids(&raw)
         .filter(|id| crate::org::is_gcal_event_id(id))
         .count();
+    // Git's conflict markers parse as body text, so a half-merged board reads
+    // as a tracker that lost one side's edits. Naming them is what stops a
+    // reader trusting it.
+    let markers: Vec<usize> = raw
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| {
+            line.starts_with("<<<<<<< ") || line.starts_with(">>>>>>> ") || *line == "======="
+        })
+        .map(|(n, _)| n + 1)
+        .collect();
+    if let Some(first) = markers.first() {
+        f.err(format_args!(
+            "{project}: {} git conflict marker line(s) in {}, the first at line {first}; resolve the merge (`vissue merge-driver --install` merges by heading)",
+            markers.len(),
+            path.display()
+        ));
+    }
     if gcal_ids > 0 {
         f.err(format_args!(
             "{project}: {gcal_ids} heading(s) use an org-gcal event id as :ID:"
