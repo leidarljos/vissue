@@ -145,6 +145,8 @@ enum Command {
         /// Emit JSON rows instead of text
         #[arg(long)]
         json: bool,
+        #[command(flatten)]
+        filter: RowFilter,
     },
     /// Show one issue: metadata, then the body.
     Show {
@@ -228,6 +230,8 @@ enum Command {
         /// Emit JSON rows instead of text
         #[arg(long)]
         json: bool,
+        #[command(flatten)]
+        filter: RowFilter,
     },
     /// Take an issue: move it to STARTED and stamp the claim.
     Claim {
@@ -868,20 +872,20 @@ fn merge_driver(
             .context("merge-driver: find the repository top")?;
         let top = PathBuf::from(String::from_utf8_lossy(&top.stdout).trim());
         let attrs = top.join(".gitattributes");
-        let line = "issues.org merge=vissue";
-        let held = std::fs::read_to_string(&attrs).unwrap_or_default();
-        if !held.lines().any(|l| l.trim() == line) {
-            let mut text = held;
-            if !text.is_empty() && !text.ends_with('\n') {
-                text.push('\n');
-            }
-            text.push_str(line);
-            text.push('\n');
-            std::fs::write(&attrs, text).with_context(|| format!("write {}", attrs.display()))?;
-        }
+        // The board, and the per-issue files `migrate-ledger` writes.
+        add_lines(
+            &attrs,
+            &["issues.org merge=vissue", "**/issues/*.org merge=vissue"],
+        )?;
+        // The event log, its generation counter and the lock files are this
+        // clone's own: two clones number their events independently, so
+        // committing them conflicts on every concurrent write.
+        let ignore = top.join(".gitignore");
+        add_lines(&ignore, &[".vault-events.*", "*.lock"])?;
         println!(
-            "merge-driver: registered as {driver}; {} names issues.org; commit it so every clone merges the same way",
-            attrs.display()
+            "merge-driver: registered as {driver}; {} names issues.org and issues/*.org, {} keeps the event log and locks out of git; commit both so every clone merges the same way",
+            attrs.display(),
+            ignore.display()
         );
         return Ok(());
     }
@@ -897,7 +901,13 @@ fn merge_driver(
         .and_then(|n| n.to_str())
         .unwrap_or("issues")
         .to_string();
-    match vissue_core::merge::merge_tracker(&project, &read(base)?, &read(ours)?, &read(theirs)?) {
+    let ours_text = read(ours)?;
+    let merged = if vissue_core::ledger::is_ledger_text(&ours_text) {
+        vissue_core::ledger::merge_file(&read(base)?, &ours_text, &read(theirs)?)
+    } else {
+        vissue_core::merge::merge_tracker(&project, &read(base)?, &ours_text, &read(theirs)?)
+    };
+    match merged {
         Ok(m) => {
             std::fs::write(ours, &m.text).with_context(|| format!("write {}", ours.display()))?;
             if m.conflicts > 0 {
@@ -923,6 +933,26 @@ fn merge_driver(
             std::process::exit(1);
         }
     }
+}
+
+/// Append each missing line to a git control file such as `.gitattributes`.
+fn add_lines(path: &std::path::Path, lines: &[&str]) -> Result<()> {
+    let held = std::fs::read_to_string(path).unwrap_or_default();
+    let mut text = held.clone();
+    for line in lines {
+        if text.lines().any(|l| l.trim() == *line) {
+            continue;
+        }
+        if !text.is_empty() && !text.ends_with('\n') {
+            text.push('\n');
+        }
+        text.push_str(line);
+        text.push('\n');
+    }
+    if text != held {
+        std::fs::write(path, text).with_context(|| format!("write {}", path.display()))?;
+    }
+    Ok(())
 }
 
 fn build_router(cli: &Cli) -> Result<Router> {
@@ -1505,23 +1535,16 @@ fn run() -> Result<()> {
             project,
             state,
             json,
+            filter,
         } => {
-            if json {
-                emitln!(
-                    "{}",
-                    serde_json::to_string_pretty(&issues_json_routed(
-                        &router,
-                        project.as_deref(),
-                        state.as_deref(),
-                        false
-                    )?)?
-                );
-            } else {
-                emit!(
-                    "{}",
-                    list_routed(&router, project.as_deref(), state.as_deref(), false)?
-                );
-            }
+            print_rows(
+                &router,
+                project.as_deref(),
+                state.as_deref(),
+                false,
+                &filter,
+                json,
+            )?;
         }
         Command::Show { id, all, json, org } => {
             if all {
@@ -1605,20 +1628,12 @@ fn run() -> Result<()> {
                 )?
             )
         }
-        Command::Ready { project, json } => {
-            if json {
-                emitln!(
-                    "{}",
-                    serde_json::to_string_pretty(&issues_json_routed(
-                        &router,
-                        project.as_deref(),
-                        None,
-                        true
-                    )?)?
-                );
-            } else {
-                emit!("{}", list_routed(&router, project.as_deref(), None, true)?);
-            }
+        Command::Ready {
+            project,
+            json,
+            filter,
+        } => {
+            print_rows(&router, project.as_deref(), None, true, &filter, json)?;
         }
         Command::Claim { id, force } => {
             let found = layout_for_id(&router, &id)?;
@@ -2289,6 +2304,139 @@ fn exec_hud(opts: ExecHud) -> Result<()> {
         }
         bail!("{} exited without a status", bin.display());
     }
+}
+
+/// Narrowing for `list` and `ready`, applied after the frontier is worked out
+/// over the whole corpus, so a blocker outside the filter still blocks.
+#[derive(clap::Args, Debug, Clone, Default)]
+struct RowFilter {
+    /// Only issues nobody holds a claim on
+    #[arg(long, conflicts_with = "claimed_by")]
+    unclaimed: bool,
+    /// Only issues this identity holds a claim on
+    #[arg(long, value_name = "WHO")]
+    claimed_by: Option<String>,
+    /// Only direct children of this issue (`:PARENT:`)
+    #[arg(long, value_name = "ID")]
+    parent: Option<String>,
+    /// Only issues carrying this tag on the heading; repeat to require several
+    #[arg(long = "tag", value_name = "TAG")]
+    tags: Vec<String>,
+    /// Print at most this many rows, after sorting
+    #[arg(long, value_name = "N")]
+    limit: Option<usize>,
+}
+
+impl RowFilter {
+    fn is_set(&self) -> bool {
+        self.unclaimed
+            || self.claimed_by.is_some()
+            || self.parent.is_some()
+            || !self.tags.is_empty()
+            || self.limit.is_some()
+    }
+
+    fn keep(
+        &self,
+        row: &vissue_core::views::IssueRow,
+        rec: Option<&vissue_core::views::IssueRec>,
+    ) -> bool {
+        if self.unclaimed && row.claimed_by.is_some() {
+            return false;
+        }
+        if let Some(who) = &self.claimed_by
+            && row.claimed_by.as_deref() != Some(who.as_str())
+        {
+            return false;
+        }
+        if let Some(parent) = &self.parent
+            && row.parent.as_deref() != Some(parent.as_str())
+        {
+            return false;
+        }
+        if !self.tags.is_empty() {
+            let Some(rec) = rec else { return false };
+            let held = &rec.heading.org_tags;
+            if !self
+                .tags
+                .iter()
+                .all(|want| held.iter().any(|t| t.eq_ignore_ascii_case(want)))
+            {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+/// Print `list` or `ready`: through the filter when one is set, else the
+/// plain text or JSON rows as before.
+fn print_rows(
+    router: &Router,
+    project: Option<&str>,
+    state: Option<&str>,
+    ready_only: bool,
+    filter: &RowFilter,
+    json: bool,
+) -> Result<()> {
+    if filter.is_set() {
+        emit!(
+            "{}",
+            filtered_routed(router, project, state, ready_only, filter, json)?
+        );
+    } else if json {
+        emitln!(
+            "{}",
+            serde_json::to_string_pretty(&issues_json_routed(router, project, state, ready_only)?)?
+        );
+    } else {
+        emit!("{}", list_routed(router, project, state, ready_only)?);
+    }
+    Ok(())
+}
+
+/// `list` or `ready` through a [`RowFilter`]: the same rows and the same text
+/// or JSON shape, narrowed and capped.
+fn filtered_routed(
+    router: &Router,
+    project: Option<&str>,
+    state: Option<&str>,
+    ready_only: bool,
+    filter: &RowFilter,
+    json: bool,
+) -> Result<String> {
+    let mut rows: Vec<(vissue_core::views::IssueRow, String)> = Vec::new();
+    let mut take = |recs: &[vissue_core::views::IssueRec], dir: &str| -> Result<()> {
+        let by_id: std::collections::HashMap<&str, &vissue_core::views::IssueRec> = recs
+            .iter()
+            .map(|rec| (rec.heading.id.as_str(), rec))
+            .collect();
+        for row in agent::issues_rows_in(recs, Some(dir), state, ready_only)? {
+            if filter.keep(&row, by_id.get(row.id.as_str()).copied()) {
+                let line = report::format_rows(recs, std::slice::from_ref(&row));
+                rows.push((row, line));
+            }
+        }
+        Ok(())
+    };
+    if let Some(p) = project {
+        let pref = router.route(p);
+        let recs = vissue_core::catalog::load_recs(&pref.layout)?;
+        take(&recs, &pref.dir)?;
+    } else {
+        for_each_visible_in(router, take)?;
+        // Each project comes back in priority order; a cap across several
+        // has to take the most urgent first, not the first project's.
+        rows.sort_by(|a, b| a.0.priority.cmp(&b.0.priority));
+    }
+    if let Some(n) = filter.limit {
+        rows.truncate(n);
+    }
+    if json {
+        let only: Vec<&vissue_core::views::IssueRow> = rows.iter().map(|(row, _)| row).collect();
+        return Ok(format!("{}\n", serde_json::to_string_pretty(&only)?));
+    }
+    Ok(rows.into_iter().map(|(_, line)| line).collect())
 }
 
 fn list_routed(
