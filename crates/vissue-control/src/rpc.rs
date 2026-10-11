@@ -376,6 +376,8 @@ pub enum Method {
     IssueUpdate,
     /// Take the issue.
     IssueClaim,
+    /// Drop every claim stamp held by one identity, including one left on a closed heading.
+    IssueRelease,
     /// Dated logbook entry.
     IssueNote,
     /// Move to another project.
@@ -456,6 +458,7 @@ impl Method {
             Self::IssueCreate => "issue/create",
             Self::IssueUpdate => "issue/update",
             Self::IssueClaim => "issue/claim",
+            Self::IssueRelease => "issue/release",
             Self::IssueNote => "issue/note",
             Self::IssueRefile => "issue/refile",
             Self::ProjectList => "project/list",
@@ -513,6 +516,7 @@ impl Method {
             "issue/create" => Ok(Self::IssueCreate),
             "issue/update" => Ok(Self::IssueUpdate),
             "issue/claim" => Ok(Self::IssueClaim),
+            "issue/release" => Ok(Self::IssueRelease),
             "issue/note" => Ok(Self::IssueNote),
             "issue/refile" => Ok(Self::IssueRefile),
             "project/list" => Ok(Self::ProjectList),
@@ -573,6 +577,7 @@ pub const V1_CAPABILITIES: &[&str] = &[
     "issue/create",
     "issue/update",
     "issue/claim",
+    "issue/release",
     "issue/note",
     "issue/refile",
     "issue/append",
@@ -938,6 +943,25 @@ pub struct ClaimParams {
     /// Take over an existing claim.
     #[serde(default)]
     pub force: bool,
+    /// Override the connection agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+}
+
+/// `issue/release` params. `dry_run` defaults to false.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReleaseParams {
+    /// Identity whose claims to drop.
+    pub holder: String,
+    /// Only claims whose claim stamp is older than this many days.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub older_than: Option<i64>,
+    /// Print what would be released without writing.
+    #[serde(default)]
+    pub dry_run: bool,
+    /// Why this holder is being released; written on each ticket.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
     /// Override the connection agent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
@@ -1377,6 +1401,8 @@ pub enum Request {
     IssueUpdate(UpdateParams),
     /// Take the issue.
     IssueClaim(ClaimParams),
+    /// Drop every claim stamp held by one identity, including one left on a closed heading.
+    IssueRelease(ReleaseParams),
     /// Dated logbook entry.
     IssueNote(NoteParams),
     /// Move to another project.
@@ -1457,6 +1483,7 @@ impl Request {
             Self::IssueCreate(_) => Method::IssueCreate,
             Self::IssueUpdate(_) => Method::IssueUpdate,
             Self::IssueClaim(_) => Method::IssueClaim,
+            Self::IssueRelease(_) => Method::IssueRelease,
             Self::IssueNote(_) => Method::IssueNote,
             Self::IssueRefile(_) => Method::IssueRefile,
             Self::IssueAppend(_) => Method::IssueAppend,
@@ -1519,6 +1546,7 @@ impl Request {
             Method::IssueCreate => Ok(Self::IssueCreate(decode_params(params)?)),
             Method::IssueUpdate => Ok(Self::IssueUpdate(decode_params(params)?)),
             Method::IssueClaim => Ok(Self::IssueClaim(decode_params(params)?)),
+            Method::IssueRelease => Ok(Self::IssueRelease(decode_params(params)?)),
             Method::IssueNote => Ok(Self::IssueNote(decode_params(params)?)),
             Method::IssueRefile => Ok(Self::IssueRefile(decode_params(params)?)),
             Method::ProjectList => Ok(Self::ProjectList),
@@ -1594,6 +1622,7 @@ impl Request {
             Self::IssueCreate(p) => serde_json::to_value(p).unwrap_or(Value::Null),
             Self::IssueUpdate(p) => serde_json::to_value(p).unwrap_or(Value::Null),
             Self::IssueClaim(p) => serde_json::to_value(p).unwrap_or(Value::Null),
+            Self::IssueRelease(p) => serde_json::to_value(p).unwrap_or(Value::Null),
             Self::IssueNote(p) => serde_json::to_value(p).unwrap_or(Value::Null),
             Self::IssueRefile(p) => serde_json::to_value(p).unwrap_or(Value::Null),
             Self::EventsSince(p) => serde_json::to_value(p).unwrap_or(Value::Null),
@@ -1644,6 +1673,8 @@ pub enum Response {
     IssueUpdate(MutResult),
     /// Claim result.
     IssueClaim(MutResult),
+    /// Bulk claim release result.
+    IssueRelease(MutResult),
     /// Note result.
     IssueNote(MutResult),
     /// Refile result.
@@ -1747,6 +1778,7 @@ impl Response {
             Self::IssueCreate(v)
             | Self::IssueUpdate(v)
             | Self::IssueClaim(v)
+            | Self::IssueRelease(v)
             | Self::IssueNote(v)
             | Self::IssueRefile(v) => serde_json::to_value(v),
             Self::ProjectList(v) => serde_json::to_value(v),
@@ -1884,6 +1916,40 @@ mod tests {
     fn missing_id_on_issue_get_is_invalid_params() {
         let err = Request::parse("issue/get", Some(json!({}))).unwrap_err();
         assert_eq!(err.code, INVALID_PARAMS);
+    }
+
+    #[test]
+    fn the_remaining_core_errors_map_to_their_codes() {
+        let err = error_from_core(&CoreError::NotATracker {
+            root: "/srv/none".into(),
+            prefix: "Software".into(),
+        });
+        assert_eq!(err.code, NOT_FOUND);
+        assert_eq!(err.data.as_ref().unwrap()["code"], "not_a_tracker");
+        assert_eq!(err.data.as_ref().unwrap()["prefix"], "Software");
+        let err = error_from_core(&CoreError::StaleWrite {
+            id: "atlas-1a2b".into(),
+            expected_state: Some("TODO".into()),
+            actual_state: "STARTED".into(),
+            expected_gen: Some(3),
+            actual_gen: Some(4),
+        });
+        assert_eq!(err.code, INVALID_STATE);
+        let data = err.data.unwrap();
+        assert_eq!(data["code"], "stale");
+        assert_eq!(data["actual_state"], "STARTED");
+        assert_eq!(data["actual_gen"], 4);
+        let err = error_from_core(&CoreError::TerminalConflict {
+            id: "atlas-1a2b".into(),
+            held: "DONE".into(),
+            attempted: "CANCELLED".into(),
+        });
+        assert_eq!(err.code, CONFLICT);
+        assert_eq!(err.data.as_ref().unwrap()["code"], "terminal_conflict");
+        assert_eq!(err.data.as_ref().unwrap()["attempted"], "CANCELLED");
+        let err = error_from_core(&CoreError::from(std::io::Error::other("disk full")));
+        assert_eq!(err.code, INTERNAL_ERROR);
+        assert!(err.message.contains("disk full"), "{}", err.message);
     }
 
     #[test]
@@ -2237,6 +2303,7 @@ mod tests {
             ("issue/create", json!({"project": "atlas", "title": "t"})),
             ("issue/update", id.clone()),
             ("issue/claim", id.clone()),
+            ("issue/release", json!({"holder": "fixture-agent"})),
             ("issue/note", json!({"id": "atlas-1a2b", "text": "n"})),
             ("issue/refile", json!({"id": "atlas-1a2b", "to": "beacon"})),
             ("project/list", json!({})),

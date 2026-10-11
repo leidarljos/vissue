@@ -6,6 +6,147 @@ All notable changes to vissue are recorded here. The format follows
 
 <!-- towncrier release notes start -->
 
+## [0.21.0](https://github.com/leidarljos/vissue/releases/tag/v0.21.0) - 2026-10-09
+
+### Added
+
+- `vissue consensus` files a child for each option a voter still leads with when the settle did not reach one position. The unique plurality is not filed again, and a child already titled for that option is left as it is.
+
+
+## [0.20.0](https://github.com/leidarljos/vissue/releases/tag/v0.20.0) - 2026-10-04
+
+### Added
+
+- Each issue lives in its own append-only file, `PROJECT/issues/ID.org`. `migrate-ledger` copies every heading there, writes `PROJECT/issues/.ledger`, and does not modify the project board.
+- The leidarljos marketplace installs this MCP server as
+  `vissue@leidarljos`. `vissue-mcp` stays on `PATH`.
+
+### Fixed
+
+- A second `migrate-ledger` folds a board note that landed after the copy into that issue's file. The board digest stored with the copy is what a later run compares, and a field both sides changed is left unsealed.
+- After `migrate-ledger`, `show` names the per-issue file it read. A note, an update, and a close append to that file and leave the project board unchanged. An older vissue still rewrites the project board and does not read those files, so every machine that writes the tracker has to be on this release once a tracker is migrated.
+- `migrate-ledger --freeze-shows` holds every project lock while it records show output, copies each heading, and records show output again. A board that changes while that lock is held stops the split.
+
+
+## [0.19.0](https://github.com/leidarljos/vissue/releases/tag/v0.19.0) - 2026-10-03
+
+### Changed
+
+- `vissue create` on a board this tracker projects from elsewhere writes the issue to the board's inbox with its id, priority, type, parent and tags, and prints the id; `vissue project` folds it into the source under that id. It used to refuse, so a child chained on the new id got an empty one.
+
+
+## [0.18.2](https://github.com/leidarljos/vissue/releases/tag/v0.18.2) - 2026-10-02
+
+### Added
+
+- `vissue update ID -t TAG` adds a tag and `--untag TAG` removes one,
+  repeated or comma-separated, filed as `create` files them: on the
+  heading when Org can hold the tag, in `:VISSUE_TAGS:` otherwise.
+  `vissue append ID "text"` takes the report as the words after the id,
+  beside `--text` and `--file`.
+
+
+## [0.18.1](https://github.com/leidarljos/vissue/releases/tag/v0.18.1) - 2026-10-02
+
+### Added
+
+- `vissue search QUERY -p PROJECT` searches one project's issues, on the
+  tracker that project routes to, and the limit counts only its hits.
+
+### Changed
+
+- The vote tally never calls a count a consensus: at least two ballots on
+  one choice read *unanimous*, more than half *majority*, and both name
+  `vissue consensus ID`, which weighs the same ballots by who listens to
+  whom.
+
+
+## [0.18.0](https://github.com/leidarljos/vissue/releases/tag/v0.18.0) - 2026-09-30
+
+### Added
+
+- `vissue search QUERY -p PROJECT` searches one project's issues, on the
+  tracker that project routes to, and the limit counts only its hits.
+- `vissue vote ID --withdraw` takes back the caller's ballot on an issue, and
+  the logbook notes what it was and when it was cast. A merge keeps the
+  removal: one side dropping a ballot the other left alone is not a clash.
+
+
+## [0.17.1](https://github.com/leidarljos/vissue/releases/tag/v0.17.1) - 2026-09-29
+
+### Fixed
+
+- The release workflow's dependency and build steps run in bash on every
+  runner. On Windows they ran in PowerShell, which stopped the 0.17.0 release
+  before it published anything.
+
+
+## [0.17.0](https://github.com/leidarljos/vissue/releases/tag/v0.17.0) - 2026-09-29
+
+### Added
+
+- A tracker one level down, `prefix/A/B/issues.org`, is listed as the project
+  `A/B` when its header carries `#+VISSUE:`, so `show`, `check` and the listings
+  resolve its `A/B-*` ids. An unstamped org file there stays out. A file
+  reached through a symlink at the top is listed once, under its top name.
+- `VISSUE_HUD_WINDOW=1` starts the HUD as a decorated window
+  (`me.rgoswami.vissue-hud.window`) instead of the overlay, so a nested X
+  walk can crop it. Unset keeps the overlay.
+- `hygiene` groups live claims by holder and shows each holder's newest
+  `CLAIMED_AT` stamp, flagging holders with nothing newer than
+  `stale_claim_days`. Logbook notes do not count, because they do not name
+  who wrote them. `vissue release --holder NAME` drops that identity's
+  claims in one step, including a stamp left on a closed heading. State
+  stays, and each ticket gets a why-note. `--dry-run` prints the same
+  report without writing.
+- `vissue merge-driver` merges three versions of one `issues.org` by heading, for
+  git's merge driver. Logbooks take the union of both sides, ballots merge per
+  voter, `DEEDS`, `BLOCKED_BY`, `FILES` and `VISSUE_TAGS` merge per token, and a
+  state that both sides moved takes the later logged move. A field both sides
+  changed some other way keeps ours and is written on the heading as a
+  merge-conflict note, with theirs kept in a `MERGE_CONFLICT` drawer. A side
+  that does not parse leaves git's ordinary text conflict. Register it in a
+  tracker repository with `vissue merge-driver --install`, then commit the
+  `.gitattributes` line it writes; each clone runs `--install` once.
+
+### Fixed
+
+- A create refuses a named root that is not a directory, as it already
+  refused a guessed root with no tracker. A mistyped root no longer builds a
+  private tracker tree that mints ids other seats already hold.
+- A create with no `--project` run inside `<root>/<prefix>/<name>/` files under
+  `<name>`, ahead of a `.project-ctx.toml` higher up that names the whole vault.
+- A refusal such as `create` on a projected board prints its message once
+  instead of twice.
+- Sway and other Wayland binds that summon the HUD now pass the
+  xdg-activation token through, so the overlay maps with keyboard focus.
+  The first bind (no HUD yet) and a `.desktop` launch consume the token
+  the same way. `--hide` with no HUD running exits 0 and does not start one.
+- `--root`, `ISSUE_ROOT` and `VISSUE_ROOT` expand a leading `~/`. An
+  unexpanded root from environment.d or an MCP `env` block no longer plants a
+  tracker in a directory named `~` under the working directory.
+- `check` no longer treats a nested-project issue id as an org-gcal event.
+
+  A vissue id is `{project}-{suffix}`. When the project lives in a nested
+  directory the project name contains `/` (`Infra/terra-6cx2`), which is
+  not the org-gcal `<event>/<calendar>` form. A real org-gcal id is still
+  an error, and that heading is still left as Org around the issues.
+- `vissue claims`, `stale`, `export`, `graph` and `roadmap` over a routed
+  tracker parse each tracker once instead of once per project. On a vault of
+  173 projects, `vissue claims --json` went from 29 s and a 382 MB peak to
+  0.6 s and 153 MB, with the same output.
+- `vissue create` on a board this tracker projects from another refuses and
+  names the board's inbox, instead of writing into the stub no seat reads.
+
+
+## [0.16.2](https://github.com/leidarljos/vissue/releases/tag/v0.16.2) - 2026-09-25
+
+### Fixed
+
+- `vissue vote --for` accepts `--used` and `--confidence`. The choice on
+  the tally stays the option alone. The deeds and the stated probability
+  stay on the ballot line.
+
 ## [0.16.1](https://github.com/leidarljos/vissue/releases/tag/v0.16.1) - 2026-09-20
 
 ### Added

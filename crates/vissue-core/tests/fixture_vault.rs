@@ -1138,13 +1138,19 @@ fn hygiene_reports_a_claim_that_has_gone_stale() {
     let layout = fixture_layout();
     // The fixture claim was taken in January, so any small threshold trips it.
     let text = vissue_core::agent::hygiene(&layout, Some(7)).unwrap();
-    assert!(text.contains("claim held"), "{text}");
-    assert!(text.contains("atlas-1a2b by fixture-agent"), "{text}");
+    assert!(text.contains("stale"), "{text}");
+    assert!(text.contains("fixture-agent"), "{text}");
     assert!(text.contains("stale_claims=1"), "{text}");
+    assert!(text.contains("stale_holders=1"), "{text}");
+    assert!(
+        !text.contains("claim held"),
+        "per-issue stale lines came back: {text}"
+    );
 
     // A threshold wider than the claim age reports nothing stale.
     let wide = vissue_core::agent::hygiene(&layout, Some(100_000)).unwrap();
     assert!(wide.contains("stale_claims=0"), "{wide}");
+    assert!(wide.contains("stale_holders=0"), "{wide}");
 }
 
 #[test]
@@ -2128,12 +2134,21 @@ fn check_counts_a_priority_outside_the_declared_range() {
     assert_finds(&out, "[warn] atlas: 1 heading(s) have a [#");
 }
 
-/// An id with a slash is an org-gcal event, which means a calendar sync owns the
-/// heading and a tracker write would fight it.
+/// An org-gcal `<event>/<calendar>` id means a calendar sync owns the heading
+/// and a tracker write would fight it.
 #[test]
 fn check_reports_an_id_a_calendar_sync_owns() {
     let out = check_after(|l| edit_raw(l, "atlas", "atlas-3e4f", "cal/2026abc"));
     assert_finds(&out, "[err]  atlas: 1 heading(s) use an org-gcal event");
+}
+
+/// A nested-project vissue id contains `/` because the project name does.
+/// That slash is not an org-gcal event/calendar split.
+#[test]
+fn check_does_not_treat_a_nested_project_id_as_org_gcal() {
+    let out = check_after(|l| edit_raw(l, "atlas", "atlas-3e4f", "acme/cli-1a2b"));
+    assert_eq!(out.errors, 0, "{}", out.text);
+    assert!(!out.text.contains("org-gcal"), "{}", out.text);
 }
 
 #[test]

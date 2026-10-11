@@ -9,8 +9,8 @@ pub mod cli;
 pub(crate) mod dates;
 pub mod desktop;
 pub mod detach;
-pub mod install_desktop;
 pub mod fuzzy;
+pub mod install_desktop;
 pub mod keys;
 pub mod log;
 pub mod palette;
@@ -19,6 +19,7 @@ pub mod summon;
 pub mod theme;
 pub mod tray;
 pub mod wire;
+pub mod wlactivate;
 
 pub mod app;
 pub mod view;

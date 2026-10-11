@@ -1119,9 +1119,32 @@ pub fn priorities_from_preamble(preamble: &str) -> PrioritySpec {
     PrioritySpec::default()
 }
 
+/// A vissue `:ID:`: `{project}-{suffix}` with a `[0-9a-z]+` suffix.
+///
+/// `project` may contain `/` when the tracker lives in a nested directory
+/// (`acme/cli-1a2b`). That slash is not an org-gcal event/calendar split.
+pub fn is_vissue_id(id: &str) -> bool {
+    let id = id.trim();
+    let Some((project, suffix)) = id.rsplit_once('-') else {
+        return false;
+    };
+    !project.is_empty()
+        && !suffix.is_empty()
+        && suffix
+            .bytes()
+            .all(|b| b.is_ascii_digit() || b.is_ascii_lowercase())
+}
+
 /// An org-gcal event id (`<event>/<calendar>`), not an org-id / vissue id.
+///
+/// A nested-project vissue id contains `/` because the project name does
+/// (`acme/cli-1a2b`). That is still `{project}-{suffix}`, not an event
+/// and a calendar.
 pub fn is_gcal_event_id(id: &str) -> bool {
     let id = id.trim();
+    if is_vissue_id(id) {
+        return false;
+    }
     let Some((left, right)) = id.split_once('/') else {
         return false;
     };
@@ -2084,6 +2107,13 @@ mod tests {
         assert!(is_gcal_event_id("abc/def/ghi"));
         assert!(!is_gcal_event_id("atlas-1a2b"));
         assert!(!is_gcal_event_id("no-slash"));
+        assert!(!is_gcal_event_id("acme/cli-1a2b"));
+        assert!(!is_gcal_event_id("acme/cli-consensus"));
+        assert!(!is_gcal_event_id("acme/python-parseplot-yq4v"));
+        assert!(is_vissue_id("acme/cli-1a2b"));
+        assert!(is_vissue_id("atlas-1a2b"));
+        assert!(!is_vissue_id("abc123/primary@group.calendar.google.com"));
+        assert!(!is_vissue_id("evt/cal"));
     }
 
     #[test]

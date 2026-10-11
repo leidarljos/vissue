@@ -324,6 +324,17 @@ impl IssueHeading {
         Some((today - taken).num_days())
     }
 
+    /// Date of the holder's claim stamp. Logbook notes do not name an author,
+    /// so they are not activity by this holder.
+    pub fn last_activity_date(&self) -> Option<chrono::NaiveDate> {
+        parse_stamp_date(self.claimed_at()?)
+    }
+
+    /// Whole days since [`Self::last_activity_date`], when that date parses.
+    pub fn last_activity_age_days(&self, today: chrono::NaiveDate) -> Option<i64> {
+        Some((today - self.last_activity_date()?).num_days())
+    }
+
     /// Record the claim. Stores the identity verbatim: it is an opaque tag.
     pub fn set_claim(&mut self, identity: &str) {
         self.properties
@@ -582,6 +593,28 @@ mod tests {
             line_start: 4,
             line_end: 12,
         }
+    }
+
+    #[test]
+    fn last_activity_is_the_claim_stamp_even_when_someone_else_noted() {
+        let mut h = sample_heading();
+        h.properties.insert(CLAIMED_BY.to_string(), "worker".into());
+        h.properties
+            .insert(CLAIMED_AT.to_string(), "[2026-01-01 Thu]".into());
+        h.logbook.push(LogEntry {
+            timestamp: "[2026-03-15 Sun]".into(),
+            from_state: None,
+            to_state: None,
+            note: Some("still going".into()),
+            raw: None,
+        });
+        assert_eq!(
+            h.last_activity_date(),
+            Some(chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap())
+        );
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 3, 22).unwrap();
+        assert_eq!(h.last_activity_age_days(today), Some(80));
+        assert_eq!(h.claim_age_days(today), Some(80));
     }
 
     #[test]

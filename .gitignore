@@ -43,4 +43,10 @@ docs/source/*.rst
 .fastembed_cache/
 
 # A runner's local workflow tree; it names live ticket ids and hosts.
-.grok/
+# Skills are the in-tree harness; workflows stay ignored.
+.grok/*
+!.grok/skills/
+!.grok/skills/**
+
+# HUD walk screenshots and ad-hoc probes — never commit
+/tmp/
