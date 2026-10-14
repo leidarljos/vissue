@@ -331,6 +331,12 @@ enum Command {
         /// whoever voted first.
         #[arg(long, value_name = "N", requires = "gate", conflicts_with = "children")]
         quorum: Option<usize>,
+        /// With `--quorum`, the RFC 3339 time the ballots were due. Past it,
+        /// a gate still short of its quorum has timed out: the issue gets one
+        /// `quorum timed out` note and the gate exits 3, so a caller tells
+        /// "wait for more ballots" (exit 1) from "the vote lapsed" (exit 3).
+        #[arg(long, value_name = "RFC3339", requires = "quorum")]
+        deadline: Option<String>,
         /// Emit a JSON object instead of text
         #[arg(long)]
         json: bool,
@@ -1449,6 +1455,55 @@ fn reads_the_corpus(command: &Command) -> bool {
     }
 }
 
+/// The gate's verdict on one issue's settle: settled with its quorum met.
+/// Past `deadline` with the quorum short, the vote has lapsed and the process
+/// exits 3 after noting it.
+fn gate_verdict(
+    layout: &Layout,
+    id: &str,
+    outcome: &vissue_core::consensus::Outcome,
+    gate: bool,
+    quorum: Option<usize>,
+    deadline: Option<chrono::DateTime<chrono::FixedOffset>>,
+) -> Result<bool> {
+    let cast = outcome.agents.len();
+    if !gate || quorum_met(id, cast, quorum) {
+        return Ok(outcome.settled());
+    }
+    if let (Some(n), Some(due)) = (quorum, deadline)
+        && chrono::Utc::now() > due
+    {
+        quorum_timed_out(layout, id, cast, n, &due.to_rfc3339())?;
+        std::process::exit(3);
+    }
+    Ok(false)
+}
+
+/// Note once on the issue that its vote lapsed short of a quorum, and say so
+/// on stderr. A second gate run past the deadline adds no second note.
+fn quorum_timed_out(layout: &Layout, id: &str, cast: usize, n: usize, due: &str) -> Result<()> {
+    let line = quorum_timeout_note(cast, n, due);
+    eprintln!("{id}: {line}");
+    let recs = vissue_core::catalog::load_recs(layout)?;
+    let noted = recs.iter().any(|rec| {
+        rec.heading.id == id
+            && rec.heading.logbook.iter().any(|e| {
+                e.note
+                    .as_deref()
+                    .is_some_and(|t| t.contains("quorum timed out"))
+            })
+    });
+    if !noted {
+        vissue_core::ops::note(layout, id, &line)?;
+    }
+    Ok(())
+}
+
+/// The note a lapsed quorum leaves.
+fn quorum_timeout_note(cast: usize, n: usize, due: &str) -> String {
+    format!("quorum timed out: {cast} of {n} ballots by {due}; nothing was decided")
+}
+
 /// Whether `cast` ballots meet the gate's quorum, saying on stderr when not.
 fn quorum_met(id: &str, cast: usize, quorum: Option<usize>) -> bool {
     match quorum {
@@ -1691,11 +1746,19 @@ fn run() -> Result<()> {
             children,
             gate,
             quorum,
+            deadline,
             json,
             trust,
             susceptibility_of,
             file_dissent: file,
         } => {
+            let deadline = deadline
+                .as_deref()
+                .map(|raw| {
+                    chrono::DateTime::parse_from_rfc3339(raw.trim())
+                        .map_err(|e| anyhow::anyhow!("--deadline {raw:?} is not RFC 3339: {e}"))
+                })
+                .transpose()?;
             let found = layout_for_id(&router, &id)?;
             let rows = match trust.as_deref() {
                 Some(raw) => vissue_core::consensus::trust_rows(raw)?,
@@ -1730,7 +1793,7 @@ fn run() -> Result<()> {
                     || report::consensus_anchored(&found, &id, &rows, &anchors),
                 )?;
                 file_dissent(&router, &found, &id, &outcome, file)?;
-                outcome.settled() && quorum_met(&id, outcome.agents.len(), quorum)
+                gate_verdict(&found, &id, &outcome, gate, quorum, deadline)?
             };
             if gate && !settled {
                 std::process::exit(1);

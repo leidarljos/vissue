@@ -39,6 +39,7 @@ path = "src/main.rs"
 # part of that and the cheapest to change.
 mimalloc = { version = "0.1", default-features = false }
 anyhow.workspace = true
+chrono.workspace = true
 clap.workspace = true
 clap_complete.workspace = true
 clap_mangen.workspace = true

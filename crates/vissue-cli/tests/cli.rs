@@ -2412,6 +2412,90 @@ fn a_gate_with_a_quorum_refuses_a_lone_ballot() {
     assert!(!bare.status.success(), "--quorum without --gate is refused");
 }
 
+/// Past `--deadline`, a gate short of its quorum has lapsed: exit 3 rather
+/// than the "not yet" exit 1, and one `quorum timed out` note on the issue,
+/// not one per run. Before the deadline the gate is the plain quorum gate.
+#[test]
+fn a_quorum_past_its_deadline_times_out_once() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let own = |agent: &str, args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd()
+            .env("VISSUE_AGENT", agent)
+            .args(argv)
+            .output()
+            .unwrap()
+    };
+    let issue = stdout(&own(
+        "a",
+        &["create", "-p", "api", "Adopt the linter?", "-q"],
+    ))
+    .trim()
+    .to_string();
+    own("a", &["vote", &issue, "--for", "adopt"]);
+    let early = own(
+        "a",
+        &[
+            "consensus",
+            &issue,
+            "--gate",
+            "--quorum",
+            "3",
+            "--deadline",
+            "2999-01-01T00:00:00Z",
+        ],
+    );
+    assert_eq!(early.status.code(), Some(1), "before the deadline it waits");
+    for _ in 0..2 {
+        let late = own(
+            "a",
+            &[
+                "consensus",
+                &issue,
+                "--gate",
+                "--quorum",
+                "3",
+                "--deadline",
+                "2000-01-01T00:00:00Z",
+            ],
+        );
+        assert_eq!(
+            late.status.code(),
+            Some(3),
+            "{}",
+            String::from_utf8_lossy(&late.stderr)
+        );
+    }
+    let shown = stdout(&own("a", &["show", &issue]));
+    assert_eq!(shown.matches("quorum timed out").count(), 1, "{shown}");
+    let bad = own(
+        "a",
+        &[
+            "consensus",
+            &issue,
+            "--gate",
+            "--quorum",
+            "3",
+            "--deadline",
+            "soon",
+        ],
+    );
+    assert!(!bad.status.success());
+    let no_quorum = own(
+        "a",
+        &[
+            "consensus",
+            &issue,
+            "--gate",
+            "--deadline",
+            "2000-01-01T00:00:00Z",
+        ],
+    );
+    assert!(!no_quorum.status.success(), "--deadline needs --quorum");
+}
+
 /// Over a plan the rule is different and the design note says why: a split
 /// child has no position to fold in and an unvoted child is absent rather than
 /// neutral, so either one is a row a person has to read.
