@@ -395,3 +395,46 @@ table.docutils {
     padding-right: 180px;
   }
 }
+
+/* Insets as plain lengths. Shibuya draws these boxes with padding-inline,
+   padding-block and max(env(safe-area-inset-*), ...); the values below are
+   the same boxes. The viewport tag has no viewport-fit=cover, so the
+   safe-area insets are 0 and max() picks the length. The header inner keeps
+   its fixed height and centres its row, so the block padding moves nothing. */
+.sy-head-inner {
+  padding: 0.25rem 1rem 0.25rem 1.5rem;
+}
+@media (min-width: 768px) {
+  .sy-head-inner { padding-right: 1.5rem; }
+}
+#copy-page-trigger > button.js-copy { padding: 0.25rem 0.75rem; }
+#copy-page-trigger > button.js-menu { padding: 0.25rem 0.5rem; }
+/* Under the repository card the edit link has no rule above it. */
+.repo-stats + .edit-this-page { border-top: none; }
+
+/* Tables as on leidarljos.github.io: rules between rows, no outer box. */
+.yue div.table-wrapper,
+div.table-wrapper {
+  border: none;
+  border-radius: 0;
+}
+
+/* Notes as on the cream sites: a hairline box, not a side stripe. */
+.yue .admonition,
+.yue div.admonition {
+  border: 1px solid var(--sy-c-border);
+  border-radius: 8px;
+}
+
+/* Gold as text on the light page is the paper gold of the cream sites,
+   #7f520b: 5.9:1 on cream, 5.5:1 on the accent tint. The bright gold stays
+   for the dark page. */
+html[data-accent-color="gold"] {
+  --accent-9: #7f520b;
+  --accent-a11: #7f520b;
+}
+html.dark[data-accent-color="gold"],
+html[data-theme="dark"][data-accent-color="gold"] {
+  --accent-9: #e6a23c;
+  --accent-a11: rgba(230, 162, 60, 0.94);
+}

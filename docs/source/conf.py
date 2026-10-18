@@ -18,7 +18,6 @@ version = "0.21"
 extensions = [
     "sphinx.ext.mathjax",
     "sphinx_copybutton",
-    "sphinx_design",
     "site_meta",
 ]
 
