@@ -2,9 +2,9 @@ name: Pre-checks
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 concurrency:
   group: prek-${{ github.ref }}
