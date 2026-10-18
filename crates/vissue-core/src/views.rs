@@ -113,7 +113,7 @@ pub struct IssueDetail {
     pub logbook: Vec<LogbookLine>,
 }
 
-/// One logbook line on a detail card: note, state flip, or raw CLOCK.
+/// One logbook line on a detail card: note, state flip, or a verbatim drawer line.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct LogbookLine {
@@ -129,7 +129,8 @@ pub struct LogbookLine {
     /// Folded note text, when the line is a note rather than a state flip.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
-    /// Opaque drawer line preserved verbatim (a `CLOCK:` entry, say).
+    /// Drawer line preserved verbatim: a `CLOCK:` row, or any line that is
+    /// not a state change or a note.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw: Option<String>,
 }

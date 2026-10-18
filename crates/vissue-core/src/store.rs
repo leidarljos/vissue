@@ -1450,6 +1450,53 @@ mod tests {
     }
 
     #[test]
+    fn an_unrecognised_log_line_round_trips_with_state_and_note_lines() {
+        let board = concat!(
+            "#+TITLE: sample issues\n",
+            "#+VISSUE: 1\n",
+            "#+CATEGORY: sample\n",
+            "#+FILETAGS: :issues:sample:noexport:\n",
+            "#+TAGS: { bug(b) feature(f) task(t) chore(c) plan(p) }\n",
+            "#+TAGS: docs(d) perf ignore ARCHIVE\n",
+            "#+PRIORITIES: A C C\n",
+            "#+EXCLUDE_TAGS: noexport\n",
+            "#+SELECT_TAGS: export\n",
+            "#+TODO: TODO STARTED BLOCKED | DONE CANCELLED\n",
+            "\n",
+            "* DONE [#C] Ship the notes\n",
+            ":PROPERTIES:\n",
+            ":ID:         sample-log1\n",
+            ":END:\n",
+            ":LOGBOOK:\n",
+            "- Finished by inky [2026-10-18 Sun 07:00]\n",
+            "- State \"DONE\" from \"STARTED\" [2026-10-17 Sat 18:00]\n",
+            "- Note: \"kept the drawer\" [2026-10-17 Sat 12:00]\n",
+            ":END:\n",
+            "\n",
+        );
+        let doc = IssueDoc::parse("sample", PathBuf::from("issues.org"), board).unwrap();
+        let notes: Vec<_> = doc.headings[0]
+            .logbook
+            .iter()
+            .filter_map(|entry| entry.note.as_deref())
+            .collect();
+        assert_eq!(
+            notes,
+            vec!["kept the drawer"],
+            "only a Note line is a note: {:?}",
+            doc.headings[0].logbook
+        );
+        let foreign = &doc.headings[0].logbook[0];
+        assert!(foreign.note.is_none());
+        assert!(foreign.to_state.is_none());
+        assert_eq!(
+            foreign.raw.as_deref(),
+            Some("- Finished by inky [2026-10-18 Sun 07:00]")
+        );
+        assert_eq!(doc.render_string(), board);
+    }
+
+    #[test]
     fn logbook_survives_a_document_round_trip() {
         let mut h = sample_heading();
         h.logbook = vec![LogEntry {
