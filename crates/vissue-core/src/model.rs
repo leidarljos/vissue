@@ -78,8 +78,11 @@ pub struct LogEntry {
     pub to_state: Option<String>,
     /// Folded note text, when the line is a note rather than a state flip.
     pub note: Option<String>,
-    /// Opaque logbook line (an org `CLOCK:` entry, say) preserved verbatim
-    /// across rewrites.
+    /// Drawer line preserved verbatim across rewrites.
+    ///
+    /// An org `CLOCK:` row, or any other line that is not a state change or a
+    /// note. Readers that want notes look at [`Self::note`]; this is the line
+    /// itself, so a rewrite cannot recast it as one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw: Option<String>,
 }
@@ -125,8 +128,14 @@ impl LogEntry {
     }
 
     fn raw_line(line: &str) -> Self {
+        Self::verbatim(line, String::new())
+    }
+
+    /// A drawer line this crate does not own. `timestamp` is the stamp on the
+    /// line when it has one, for ordering; [`Self::render`] writes `line`.
+    fn verbatim(line: &str, timestamp: String) -> Self {
         Self {
-            timestamp: String::new(),
+            timestamp,
             from_state: None,
             to_state: None,
             note: None,
@@ -176,17 +185,11 @@ pub(crate) fn parse_log_line(s: &str) -> LogEntry {
             raw: None,
         }
     } else {
-        LogEntry {
-            timestamp,
-            from_state: None,
-            to_state: None,
-            note: if prefix.is_empty() {
-                None
-            } else {
-                Some(prefix.to_string())
-            },
-            raw: None,
-        }
+        // Not a state change and not a note. The bytes go back out as read:
+        // folding the text into a note rewrites a line such as
+        // `- Finished by inky [2026-10-18 Sun 07:00]` the next time create
+        // or claim re-renders the board.
+        LogEntry::verbatim(s, timestamp)
     }
 }
 
