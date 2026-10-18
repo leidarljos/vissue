@@ -8,8 +8,8 @@ to be first.
 
 from __future__ import annotations
 
-import importlib.util
 import re
+import subprocess
 from html import escape
 from pathlib import Path
 
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 _SOURCE = Path(__file__).resolve().parents[1]
 _ROOT = _SOURCE.parents[1]
 _ORG = _ROOT / "docs" / "orgmode"
-_OG_SCRIPT = _ROOT / "docs" / "scripts" / "og_image.py"
+_OG_SCRIPT = _ROOT / ".github" / "render-og-png.sh"
 
 _TITLE = re.compile(r"^#\+title:\s*(.*?)\s*$", re.IGNORECASE)
 _DESCRIPTION = re.compile(r"^#\+description:\s*(.*?)\s*$", re.IGNORECASE)
@@ -146,21 +146,12 @@ def _page_meta(
     context["body"] = f'<h1 class="vi-page-title">{escape(page_title)}</h1>\n{body}'
 
 
-def _load_og():
-    spec = importlib.util.spec_from_file_location("vissue_og_image", _OG_SCRIPT)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"cannot load {_OG_SCRIPT}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
 def _write_og(app: Sphinx, exception: Exception | None) -> None:
     if exception is not None or app.builder.format != "html":
         return
-    module = _load_og()
     out = Path(app.outdir) / "_static" / "og.png"
-    module.render(_SOURCE / "_static" / "mark.svg", out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run([str(_OG_SCRIPT), str(out)], check=True)
 
 
 def setup(app: Sphinx) -> dict:

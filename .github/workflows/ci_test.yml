@@ -143,8 +143,10 @@ jobs:
       # The exporter prefers pandoc and falls back to Emacs. Only the
       # preferred path is installed here: the fallback exists for hosts
       # without pandoc, and this host has one.
-      - name: Pandoc
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pandoc libcairo2
+      - name: Pandoc and Georgia
+        run: |
+          echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | sudo debconf-set-selections
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends pandoc ttf-mscorefonts-installer
       - name: Export org and build the site
         run: |
           set -euo pipefail
