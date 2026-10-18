@@ -346,3 +346,52 @@ table.docutils {
     scroll-behavior: auto;
   }
 }
+
+/* The page title is the only h1, and it is not drawn: the pages were
+   designed around their section headings. Those headings are h2 and h3
+   now, and they keep the size and spacing they had as h1 and h2. */
+.vi-page-title,
+.vi-search-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+.sy-page .yue h2 {
+  margin-top: 0;
+  margin-bottom: 0.888889em;
+  font-size: clamp(2.1rem, 5vw, 3.4rem);
+  font-weight: 800;
+  line-height: 1.08;
+}
+.sy-page .yue h2 code {
+  font-size: 1em;
+}
+.sy-page .yue h2 + p {
+  margin-top: 1rem;
+}
+.sy-page .yue h2 + ul,
+.sy-page .yue h2 + ol {
+  margin-top: 1.25em;
+}
+.sy-page .yue h3 {
+  margin-top: 2em;
+  margin-bottom: 1em;
+  font-size: clamp(1.45rem, 2.6vw, 1.9rem);
+  font-weight: 700;
+  line-height: 1.2;
+}
+.sy-page .yue h3 code {
+  font-size: 0.875em;
+}
+@media (min-width: 64rem) {
+  .copy-page-wrapper + .yue > section > h2:first-of-type {
+    padding-right: 180px;
+  }
+}

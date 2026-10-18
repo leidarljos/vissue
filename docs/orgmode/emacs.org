@@ -1,4 +1,5 @@
 #+title: Emacs
+#+description: An issues.org is an ordinary Org file. Emacs is a client of it, not of the command.
 #+options: toc:nil num:nil
 
 An =issues.org= is an ordinary Org file. Emacs is a client of it, not of the

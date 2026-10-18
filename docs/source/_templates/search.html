@@ -1,0 +1,9 @@
+{%- extends "!search.html" %}
+{% block searchbox %}
+  <form class="searchform" action="" method="get">
+    <label class="vi-search-label" for="vi-search-page-q">Search documentation</label>
+    <input id="vi-search-page-q" type="text" name="q" value="" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+    <button type="submit">{{ _('search') }}</button>
+  </form>
+  <p><span id="search-progress"></span></p>
+{% endblock %}

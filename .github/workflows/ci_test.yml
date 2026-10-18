@@ -144,7 +144,7 @@ jobs:
       # preferred path is installed here: the fallback exists for hosts
       # without pandoc, and this host has one.
       - name: Pandoc
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pandoc
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pandoc libcairo2
       - name: Export org and build the site
         run: |
           set -euo pipefail

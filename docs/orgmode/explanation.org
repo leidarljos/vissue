@@ -1,4 +1,5 @@
 #+title: Explanation
+#+description: Why the design is what it is.
 #+options: toc:nil num:nil
 
 Why the design is what it is. For what the commands do, read [[file:reference.org][Reference]];

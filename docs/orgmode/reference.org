@@ -1,4 +1,5 @@
 #+title: Reference
+#+description: Commands, projects, states, properties, configuration, the control socket, and the crates.
 #+options: toc:nil num:nil
 
 * Commands

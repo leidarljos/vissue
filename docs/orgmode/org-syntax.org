@@ -1,4 +1,5 @@
 #+title: Org syntax
+#+description: How the Org 9.8 manual maps onto an issues.org.
 #+options: toc:nil num:nil
 
 How the Org 9.8 manual

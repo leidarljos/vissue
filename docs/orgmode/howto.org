@@ -1,4 +1,5 @@
 #+title: How-to
+#+description: One task per section. For the guided path through the basics, read Getting started first.
 #+options: toc:nil num:nil
 
 One task per section. For the guided path through the basics, read
@@ -335,7 +336,7 @@ Claiming stamps an identity and a timestamp onto the issue.
 
 #+begin_src console
 $ vissue whoami
-rgoswami@workstation
+user@host
 $ vissue claims --by grind-worker-3 --json | jq -r '.[0].claimed_at'
 #+end_src
 
@@ -355,8 +356,8 @@ STARTED issues nobody has claimed are still listed one by one.
 To drop every claim stamp one identity still holds, including a stamp left on a closed heading, without changing state:
 
 #+begin_src console
-$ vissue release --holder rgoswami@rgx1gen11 --dry-run
-$ vissue release --holder rgoswami@rgx1gen11 --why "X1 laptop is gone"
+$ vissue release --holder user@old-laptop --dry-run
+$ vissue release --holder user@old-laptop --why "that laptop is gone"
 $ vissue release --holder impl-A --older-than 7 --why "old panel persona"
 #+end_src
 
