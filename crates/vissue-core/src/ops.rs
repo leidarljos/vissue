@@ -2698,6 +2698,41 @@ mod tests {
     }
 
     #[test]
+    fn a_create_or_claim_leaves_an_unrecognised_log_line_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = fresh_layout(dir.path());
+        let path = layout.project_issues_path("sample");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let line = "- Finished by inky [2026-10-18 Sun 07:00]";
+        fs::write(
+            &path,
+            format!(
+                "#+TITLE: sample issues\n#+TODO: TODO STARTED BLOCKED | DONE CANCELLED\n\n* TODO [#B] Keep the log\n:PROPERTIES:\n:ID:         sample-keep\n:END:\n:LOGBOOK:\n{line}\n- State \"STARTED\" from \"TODO\" [2026-10-17 Sat 18:00]\n- Note: \"kept the drawer\" [2026-10-17 Sat 12:00]\n:END:\n"
+            ),
+        )
+        .unwrap();
+
+        let still_there = |written: &str| {
+            assert!(
+                written.contains(&format!("{line}\n")),
+                "the log line was rewritten:\n{written}"
+            );
+            assert!(
+                !written.contains("Note: \"Finished by inky\""),
+                "the log line was stored as a note:\n{written}"
+            );
+            assert!(written.contains("- Note: \"kept the drawer\" [2026-10-17 Sat 12:00]\n"));
+            assert!(written.contains("- State \"STARTED\" from \"TODO\" [2026-10-17 Sat 18:00]\n"));
+        };
+
+        create(&layout, "sample", "a second issue", CreateOpts::default()).unwrap();
+        still_there(&fs::read_to_string(&path).unwrap());
+
+        claim(&layout, "sample-keep", false).unwrap();
+        still_there(&fs::read_to_string(&path).unwrap());
+    }
+
+    #[test]
     fn a_state_update_writes_a_logbook_entry() {
         let dir = tempfile::tempdir().unwrap();
         let layout = fresh_layout(dir.path());
