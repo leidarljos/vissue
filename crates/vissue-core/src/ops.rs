@@ -13,8 +13,8 @@ use crate::error::Error;
 use crate::graph::DependencyGraph;
 use crate::model::{IssueHeading, LogEntry, today_inactive_bracket};
 use crate::store::{
-    IssueDoc, collect_org_ids, detect_project_from_ctx, find_by_id, generate_id, load_all,
-    resolve_existing_project_case, with_issues_lock, with_issues_locks,
+    IssueDoc, collect_org_ids, detect_project_from_ctx, detect_project_from_ctx_until, find_by_id,
+    generate_id, load_all, resolve_existing_project_case, with_issues_lock, with_issues_locks,
 };
 
 /// Resolve the project to act on. An explicit name wins; then a current
@@ -39,7 +39,7 @@ fn resolve_project_at(layout: &Layout, explicit: Option<&str>, cwd: &Path) -> Re
     if let Some(name) = explicit_name(explicit)? {
         return resolve_existing_project_case(layout, name);
     }
-    file_project(layout, cwd)?.ok_or_else(|| {
+    file_project(layout, cwd, None)?.ok_or_else(|| {
         anyhow!(
             "no --project given and no .project-ctx.toml found walking up from {}",
             cwd.display()
@@ -53,9 +53,11 @@ fn resolve_project_at(layout: &Layout, explicit: Option<&str>, cwd: &Path) -> Re
 /// The order is the explicit name, the current file's project, the git
 /// repository, then the layout prefix. The file's project is the directory
 /// under `<root>/<prefix>/` the caller stands in, or `[project].name` in a
-/// `.project-ctx.toml` walked up from there. The repository is the `origin`
-/// remote's name, or the top-level directory when the repository has no
-/// remote. The prefix is `Software` unless the layout names another.
+/// `.project-ctx.toml` walked up from there. Inside a git repository that
+/// walk stops at the repository's top-level directory, so a context file
+/// above the checkout is not the current file. The repository is the
+/// `origin` remote's name, or the top-level directory when the repository
+/// has no remote. The prefix is `Software` unless the layout names another.
 ///
 /// # Errors
 ///
@@ -75,10 +77,11 @@ fn resolve_create_project_at(
     if let Some(name) = explicit_name(explicit)? {
         return resolve_existing_project_case(layout, name);
     }
-    if let Some(name) = file_project(layout, cwd)? {
+    let top = repo_toplevel(cwd);
+    if let Some(name) = file_project(layout, cwd, top.as_deref())? {
         return Ok(name);
     }
-    if let Some(name) = project_from_repo(cwd) {
+    if let Some(name) = top.as_deref().and_then(repository_name) {
         return resolve_existing_project_case(layout, &name);
     }
     resolve_existing_project_case(layout, layout.prefix())
@@ -95,25 +98,34 @@ fn explicit_name(explicit: Option<&str>) -> Result<Option<&str>> {
 /// The project of the file the caller is standing in.
 ///
 /// A directory under the prefix wins, then `.project-ctx.toml`.
-fn file_project(layout: &Layout, cwd: &Path) -> Result<Option<String>> {
+/// `ctx_stop`, when set, is the last directory the walk checks.
+fn file_project(layout: &Layout, cwd: &Path, ctx_stop: Option<&Path>) -> Result<Option<String>> {
     if let Some(name) = project_from_tracker_path(&layout.projects_dir(), cwd) {
         return Ok(Some(resolve_existing_project_case(layout, &name)?));
     }
-    match detect_project_from_ctx(cwd) {
+    let found = match ctx_stop {
+        Some(stop) => detect_project_from_ctx_until(cwd, stop),
+        None => detect_project_from_ctx(cwd),
+    };
+    match found {
         Some(name) => Ok(Some(resolve_existing_project_case(layout, &name)?)),
         None => Ok(None),
     }
 }
 
-/// The project a git repository at `cwd` is.
+/// Top-level directory of the git repository that contains `cwd`.
+///
+/// Nothing when `git` is missing or `cwd` is not inside a repository.
+fn repo_toplevel(cwd: &Path) -> Option<PathBuf> {
+    git_line(cwd, &["rev-parse", "--show-toplevel"]).map(PathBuf::from)
+}
+
+/// The project name of the repository rooted at `top`.
 ///
 /// The `origin` remote's repository name when that remote exists, otherwise
-/// the top-level directory's name. A missing `git`, or a directory that is
-/// not a repository, is nothing: the caller then uses the prefix.
-fn project_from_repo(cwd: &Path) -> Option<String> {
-    let top = git_line(cwd, &["rev-parse", "--show-toplevel"])?;
-    let top = PathBuf::from(top);
-    remote_repo_name(&top).or_else(|| directory_name(&top))
+/// the top-level directory's name.
+fn repository_name(top: &Path) -> Option<String> {
+    remote_repo_name(top).or_else(|| directory_name(top))
 }
 
 fn remote_repo_name(top: &Path) -> Option<String> {
@@ -4771,5 +4783,80 @@ mod tests {
             layout.prefix(),
             "no file and no repository leaves the prefix"
         );
+    }
+
+    /// A workspace `.project-ctx.toml` sits above the clone. `create` files
+    /// in the repository. A directory that is not a repository still reads
+    /// that file, and so does resolution that stops at the context file.
+    #[test]
+    fn a_context_file_above_the_repo_leaves_the_repository_name() {
+        let tracker = tempfile::tempdir().unwrap();
+        let layout = fresh_layout(tracker.path());
+        fs::create_dir_all(layout.projects_dir().join("Parser")).unwrap();
+        fs::write(layout.project_issues_path("Parser"), "").unwrap();
+
+        let work = tempfile::tempdir().unwrap();
+        fs::write(
+            work.path().join(".project-ctx.toml"),
+            "[project]\nname = \"Software\"\n",
+        )
+        .unwrap();
+
+        let checkout = work.path().join("checkout");
+        let nested = checkout.join("src");
+        fs::create_dir_all(&nested).unwrap();
+        git(&checkout, &["init", "-q"]);
+        git(
+            &checkout,
+            &[
+                "remote",
+                "add",
+                "origin",
+                "https://github.com/acme/parser.git",
+            ],
+        );
+        assert_eq!(
+            resolve_create_project_at(&layout, None, &nested).unwrap(),
+            "Parser"
+        );
+        assert_eq!(
+            resolve_project_at(&layout, None, &nested).unwrap(),
+            "Software"
+        );
+
+        fs::write(
+            checkout.join(".project-ctx.toml"),
+            "[project]\nname = \"fromfile\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            resolve_create_project_at(&layout, None, &nested).unwrap(),
+            "fromfile"
+        );
+
+        let folder = work.path().join("plain-folder");
+        fs::create_dir_all(&folder).unwrap();
+        git(&folder, &["init", "-q"]);
+        assert_eq!(
+            resolve_create_project_at(&layout, None, &folder).unwrap(),
+            "plain-folder"
+        );
+        assert_eq!(
+            resolve_project_at(&layout, None, &folder).unwrap(),
+            "Software"
+        );
+
+        let notes = work.path().join("notes");
+        fs::create_dir_all(notes.join(".git")).unwrap();
+        fs::write(
+            work.path().join(".project-ctx.toml"),
+            "[project]\nname = \"atlas\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            resolve_create_project_at(&layout, None, &notes).unwrap(),
+            "atlas"
+        );
+        assert_eq!(resolve_project_at(&layout, None, &notes).unwrap(), "atlas");
     }
 }

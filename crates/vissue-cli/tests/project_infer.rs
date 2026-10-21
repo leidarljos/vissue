@@ -181,6 +181,117 @@ fn the_current_file_beats_the_repo() {
     assert!(!root.join("Software/fromfile/issues.org").exists());
 }
 
+/// A `.project-ctx.toml` above the clone names Software. `create` and `q`
+/// file in the repository: the remote name, or the top-level directory
+/// when the repository has no remote.
+#[test]
+fn create_inside_a_repo_ignores_a_context_file_above_it() {
+    let tracker = tracker();
+    let workspace = tempfile::tempdir().unwrap();
+    fs::write(
+        workspace.path().join(".project-ctx.toml"),
+        "[project]\nname = \"Software\"\n",
+    )
+    .unwrap();
+    let repo = workspace.path().join("checkout");
+    let nested = repo.join("src");
+    fs::create_dir_all(&nested).unwrap();
+    git(&repo, &["init", "-q"]);
+    git(
+        &repo,
+        &[
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/acme/parser.git",
+        ],
+    );
+
+    let created = vissue_at(
+        &nested,
+        tracker.path(),
+        &["create", "--quiet", "from the clone"],
+    );
+    assert!(created.status.success(), "{}", text(&created));
+    let id = id_of(&created);
+    assert!(id.starts_with("parser-"), "{id}");
+    assert!(tracker.path().join("Software/parser/issues.org").is_file());
+    assert!(!tracker.path().join("Software/Software/issues.org").exists());
+
+    let quick = vissue_at(&nested, tracker.path(), &["q", "quick from the clone"]);
+    assert!(quick.status.success(), "{}", text(&quick));
+    assert!(id_of(&quick).starts_with("parser-"), "{}", text(&quick));
+
+    let folder = workspace.path().join("plain-folder");
+    fs::create_dir_all(&folder).unwrap();
+    git(&folder, &["init", "-q"]);
+    let plain = vissue_at(&folder, tracker.path(), &["q", "from the folder"]);
+    assert!(plain.status.success(), "{}", text(&plain));
+    assert!(
+        id_of(&plain).starts_with("plain-folder-"),
+        "{}",
+        text(&plain)
+    );
+    assert!(!tracker.path().join("Software/Software/issues.org").exists());
+}
+
+/// The remote's name matches an existing project directory by case.
+#[test]
+fn a_repo_name_matches_an_existing_project_by_case() {
+    let tracker = tracker();
+    let workspace = tempfile::tempdir().unwrap();
+    fs::write(
+        workspace.path().join(".project-ctx.toml"),
+        "[project]\nname = \"Software\"\n",
+    )
+    .unwrap();
+    let repo = workspace.path().join("checkout");
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q"]);
+    git(
+        &repo,
+        &[
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/acme/parser.git",
+        ],
+    );
+
+    let seeded = vissue_at(
+        &repo,
+        tracker.path(),
+        &["create", "-p", "Parser", "--quiet", "seed"],
+    );
+    assert!(seeded.status.success(), "{}", text(&seeded));
+    assert!(id_of(&seeded).starts_with("Parser-"), "{}", text(&seeded));
+
+    let created = vissue_at(&repo, tracker.path(), &["q", "folded case"]);
+    assert!(created.status.success(), "{}", text(&created));
+    assert!(id_of(&created).starts_with("Parser-"), "{}", text(&created));
+    assert!(!tracker.path().join("Software/parser/issues.org").exists());
+    assert!(!tracker.path().join("Software/Software/issues.org").exists());
+}
+
+/// Outside a repository, a parent context file still names the project.
+#[test]
+fn a_context_file_names_the_project_outside_a_repo() {
+    let tracker = tracker();
+    let workspace = tempfile::tempdir().unwrap();
+    fs::write(
+        workspace.path().join(".project-ctx.toml"),
+        "[project]\nname = \"atlas\"\n",
+    )
+    .unwrap();
+    let notes = workspace.path().join("notes");
+    fs::create_dir_all(notes.join(".git")).unwrap();
+
+    let created = vissue_at(&notes, tracker.path(), &["create", "--quiet", "no repo"]);
+    assert!(created.status.success(), "{}", text(&created));
+    assert!(id_of(&created).starts_with("atlas-"), "{}", text(&created));
+    assert!(!tracker.path().join("Software/Software/issues.org").exists());
+}
+
 /// A context file is also the current file's project, ahead of the repository.
 #[test]
 fn a_context_file_beats_the_repo() {

@@ -1101,25 +1101,53 @@ pub fn generate_id(
 pub fn detect_project_from_ctx(start: &Path) -> Option<String> {
     let mut dir = start.canonicalize().ok()?;
     loop {
-        let candidate = dir.join(".project-ctx.toml");
-        if candidate.exists()
-            && let Ok(text) = fs::read_to_string(&candidate)
-            // A document, not a value: `str::parse` into a `Value` reads one
-            // TOML value, so a file opening with a table header stops at the
-            // bracket.
-            && let Ok(value) = toml::from_str::<toml::Value>(&text)
-            && let Some(name) = value
-                .get("project")
-                .and_then(|p| p.get("name"))
-                .and_then(|n| n.as_str())
-        {
-            return Some(name.to_string());
+        if let Some(name) = project_name_in_ctx(&dir) {
+            return Some(name);
         }
         if !dir.pop() {
             break;
         }
     }
     None
+}
+
+/// Like [`detect_project_from_ctx`], but the walk checks `boundary` and stops.
+///
+/// A context file above `boundary` stays unread. `create` and `q` pass the
+/// git top-level directory here, so a workspace file above the checkout does
+/// not name the project.
+pub(crate) fn detect_project_from_ctx_until(start: &Path, boundary: &Path) -> Option<String> {
+    let mut dir = start.canonicalize().ok()?;
+    let boundary = boundary.canonicalize().ok()?;
+    if !dir.starts_with(&boundary) {
+        return None;
+    }
+    loop {
+        if let Some(name) = project_name_in_ctx(&dir) {
+            return Some(name);
+        }
+        if dir == boundary || !dir.pop() {
+            break;
+        }
+    }
+    None
+}
+
+/// `[project].name` from `dir/.project-ctx.toml`, when that file names one.
+fn project_name_in_ctx(dir: &Path) -> Option<String> {
+    let candidate = dir.join(".project-ctx.toml");
+    if !candidate.exists() {
+        return None;
+    }
+    let text = fs::read_to_string(&candidate).ok()?;
+    // A document, not a value: `str::parse` into a `Value` reads one TOML
+    // value, so a file opening with a table header stops at the bracket.
+    let value = toml::from_str::<toml::Value>(&text).ok()?;
+    value
+        .get("project")
+        .and_then(|p| p.get("name"))
+        .and_then(|n| n.as_str())
+        .map(str::to_string)
 }
 
 /// Look for `wanted` among every `:ID:` under the layout prefix, including
