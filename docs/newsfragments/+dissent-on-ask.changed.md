@@ -1,0 +1,1 @@
+`vissue consensus` files `Dissent holds OPTION` children only with `--file-dissent`. It filed them on every run, `--gate` and `--json` included, so a push check that only asked whether an issue settles wrote tickets. A script that relied on a plain run to file them adds `--file-dissent`.

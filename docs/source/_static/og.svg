@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-label="vissue. A plan is a directed acyclic graph of Org headings.">
+  <rect width="1200" height="630" fill="#0B0B0A"/>
+  <g opacity="0.14" transform="translate(736 48) scale(1.85)">
+    <image href="mark.svg" x="0" y="0" width="256" height="256"/>
+  </g>
+  <text x="72" y="168" font-family="Georgia, 'Iowan Old Style', serif" font-size="28" fill="#E6A23C" letter-spacing="6">LEIÐARLJÓS</text>
+  <text x="72" y="300" font-family="Georgia, 'Iowan Old Style', serif" font-size="72" font-weight="600" fill="#F4F0E6">vissue</text>
+  <line x1="72" y1="336" x2="520" y2="336" stroke="#E6A23C" stroke-width="2"/>
+  <text x="72" y="400" font-family="Georgia, 'Iowan Old Style', serif" font-size="32" fill="#E8E2D4">A plan is a directed acyclic graph of Org headings.</text>
+</svg>

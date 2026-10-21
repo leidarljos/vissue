@@ -278,9 +278,12 @@ const operations :List(Operation) = [
       ( cli = "", tool = "issue_id", socket = "id", note = "no flag: the command line takes it as a positional argument", toolType = "String", socketType = "String" ),
       ( cli = "children", tool = "children", socket = "children", note = "roll up over the issue's children instead of its own ballots", toolType = "Option<bool>", socketType = "bool", omittable = true ),
       ( cli = "gate", tool = "", socket = "", note = "an exit status for a shell hook; the remote surfaces answer with the settling in the structure and a caller there decides for itself", toolType = "", socketType = "" ),
+      ( cli = "quorum", tool = "", socket = "", note = "a condition on the gate's exit status; the remote surfaces return the agents in the structure and a caller there counts them", toolType = "", socketType = "" ),
+      ( cli = "deadline", tool = "", socket = "", note = "when a gate short of its quorum has lapsed: exit 3 and one note; the remote surfaces have no gate, so no deadline", toolType = "", socketType = "" ),
       ( cli = "json", tool = "", socket = "", note = "the socket answers in structure already and the tool answers the prose a reader needs, so neither takes a flag to ask", toolType = "", socketType = "" ),
       ( cli = "trust", tool = "", socket = "", note = "trust rows laid over the configuration, as the seat passes them from its pack; the remote surfaces settle under the tracker's own rows", toolType = "", socketType = "" ),
-      ( cli = "susceptibility-of", tool = "", socket = "", note = "per-agent susceptibility laid over the configuration, as the seat passes a persona's anchor; the remote surfaces settle under the tracker's own", toolType = "", socketType = "" )
+      ( cli = "susceptibility-of", tool = "", socket = "", note = "per-agent susceptibility laid over the configuration, as the seat passes a persona's anchor; the remote surfaces settle under the tracker's own", toolType = "", socketType = "" ),
+      ( cli = "file-dissent", tool = "", socket = "", note = "the one write this verb can make, asked for by name on the command line; the remote surfaces only read", toolType = "", socketType = "" )
     ] ),
   ( cli = "fold", socket = "issue/fold", mcp = "vissue_fold", mutates = true, local = false,
     note = "",
@@ -362,7 +365,12 @@ const operations :List(Operation) = [
     fields = [
       ( cli = "json", tool = "", socket = "", note = "the remote surfaces answer in structure already, so they need no flag to ask for it", toolType = "", socketType = "" ),
       ( cli = "project", tool = "project", socket = "project", note = "", toolType = "Option<String>", socketType = "Option<String>" ),
-      ( cli = "state", tool = "state", socket = "state", note = "", toolType = "Option<String>", socketType = "Option<String>" )
+      ( cli = "state", tool = "state", socket = "state", note = "", toolType = "Option<String>", socketType = "Option<String>" ),
+      ( cli = "unclaimed", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" ),
+      ( cli = "claimed-by", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" ),
+      ( cli = "parent", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" ),
+      ( cli = "tag", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" ),
+      ( cli = "limit", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" )
     ] ),
   ( cli = "projects", socket = "project/list", mcp = "vissue_projects", mutates = false, local = false,
     note = "",
@@ -373,7 +381,12 @@ const operations :List(Operation) = [
     note = "",
     fields = [
       ( cli = "json", tool = "", socket = "", note = "the remote surfaces answer in structure already, so they need no flag to ask for it", toolType = "", socketType = "" ),
-      ( cli = "project", tool = "project", socket = "project", note = "", toolType = "Option<String>", socketType = "Option<String>" )
+      ( cli = "project", tool = "project", socket = "project", note = "", toolType = "Option<String>", socketType = "Option<String>" ),
+      ( cli = "unclaimed", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" ),
+      ( cli = "claimed-by", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" ),
+      ( cli = "parent", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" ),
+      ( cli = "tag", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" ),
+      ( cli = "limit", tool = "", socket = "", note = "command line only so far: narrows the rows after the frontier is worked out on the whole tracker; the remote surfaces answer the full set and a caller filters the structure", toolType = "", socketType = "" )
     ] ),
   ( cli = "related", socket = "issue/related", mcp = "vissue_related", mutates = false, local = false,
     note = "",

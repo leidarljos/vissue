@@ -149,6 +149,8 @@ enum Command {
         /// Emit JSON rows instead of text
         #[arg(long)]
         json: bool,
+        #[command(flatten)]
+        filter: RowFilter,
     },
     /// Show one issue: metadata, then the body.
     Show {
@@ -232,6 +234,8 @@ enum Command {
         /// Emit JSON rows instead of text
         #[arg(long)]
         json: bool,
+        #[command(flatten)]
+        filter: RowFilter,
     },
     /// Take an issue: move it to STARTED and stamp the claim.
     Claim {
@@ -326,6 +330,17 @@ enum Command {
         /// Exit non-zero when there is nothing settled to act on.
         #[arg(long)]
         gate: bool,
+        /// With `--gate`, also exit non-zero when fewer than N identities voted.
+        /// One ballot settles on itself, so a gate without a quorum passes on
+        /// whoever voted first.
+        #[arg(long, value_name = "N", requires = "gate", conflicts_with = "children")]
+        quorum: Option<usize>,
+        /// With `--quorum`, the RFC 3339 time the ballots were due. Past it,
+        /// a gate still short of its quorum has timed out: the issue gets one
+        /// `quorum timed out` note and the gate exits 3, so a caller tells
+        /// "wait for more ballots" (exit 1) from "the vote lapsed" (exit 3).
+        #[arg(long, value_name = "RFC3339", requires = "quorum")]
+        deadline: Option<String>,
         /// Emit a JSON object instead of text
         #[arg(long)]
         json: bool,
@@ -336,6 +351,10 @@ enum Command {
         /// `{"agent": s}` with s in [0, 1]; 0 holds the agent to its ballot.
         #[arg(long, value_name = "JSON")]
         susceptibility_of: Option<String>,
+        /// File a `Dissent holds OPTION` child for each option a voter still
+        /// leads with after an anchored settle. Without it the verb only reads.
+        #[arg(long, conflicts_with = "children")]
+        file_dissent: bool,
     },
     /// Split each `issues.org` into one append-only file per issue.
     ///
@@ -868,20 +887,20 @@ fn merge_driver(
             .context("merge-driver: find the repository top")?;
         let top = PathBuf::from(String::from_utf8_lossy(&top.stdout).trim());
         let attrs = top.join(".gitattributes");
-        let line = "issues.org merge=vissue";
-        let held = std::fs::read_to_string(&attrs).unwrap_or_default();
-        if !held.lines().any(|l| l.trim() == line) {
-            let mut text = held;
-            if !text.is_empty() && !text.ends_with('\n') {
-                text.push('\n');
-            }
-            text.push_str(line);
-            text.push('\n');
-            std::fs::write(&attrs, text).with_context(|| format!("write {}", attrs.display()))?;
-        }
+        // The board, and the per-issue files `migrate-ledger` writes.
+        add_lines(
+            &attrs,
+            &["issues.org merge=vissue", "**/issues/*.org merge=vissue"],
+        )?;
+        // The event log, its generation counter and the lock files are this
+        // clone's own: two clones number their events independently, so
+        // committing them conflicts on every concurrent write.
+        let ignore = top.join(".gitignore");
+        add_lines(&ignore, &[".vault-events.*", "*.lock"])?;
         println!(
-            "merge-driver: registered as {driver}; {} names issues.org; commit it so every clone merges the same way",
-            attrs.display()
+            "merge-driver: registered as {driver}; {} names issues.org and issues/*.org, {} keeps the event log and locks out of git; commit both so every clone merges the same way",
+            attrs.display(),
+            ignore.display()
         );
         return Ok(());
     }
@@ -897,7 +916,13 @@ fn merge_driver(
         .and_then(|n| n.to_str())
         .unwrap_or("issues")
         .to_string();
-    match vissue_core::merge::merge_tracker(&project, &read(base)?, &read(ours)?, &read(theirs)?) {
+    let ours_text = read(ours)?;
+    let merged = if vissue_core::ledger::is_ledger_text(&ours_text) {
+        vissue_core::ledger::merge_file(&read(base)?, &ours_text, &read(theirs)?)
+    } else {
+        vissue_core::merge::merge_tracker(&project, &read(base)?, &ours_text, &read(theirs)?)
+    };
+    match merged {
         Ok(m) => {
             std::fs::write(ours, &m.text).with_context(|| format!("write {}", ours.display()))?;
             if m.conflicts > 0 {
@@ -925,6 +950,26 @@ fn merge_driver(
     }
 }
 
+/// Append each missing line to a git control file such as `.gitattributes`.
+fn add_lines(path: &std::path::Path, lines: &[&str]) -> Result<()> {
+    let held = std::fs::read_to_string(path).unwrap_or_default();
+    let mut text = held.clone();
+    for line in lines {
+        if text.lines().any(|l| l.trim() == *line) {
+            continue;
+        }
+        if !text.is_empty() && !text.ends_with('\n') {
+            text.push('\n');
+        }
+        text.push_str(line);
+        text.push('\n');
+    }
+    if text != held {
+        std::fs::write(path, text).with_context(|| format!("write {}", path.display()))?;
+    }
+    Ok(())
+}
+
 fn build_router(cli: &Cli) -> Result<Router> {
     let default = Layout::resolve(cli.root.as_deref(), cli.prefix.as_deref())?;
     let routed = if cli.no_route {
@@ -943,7 +988,13 @@ fn file_dissent(
     layout: &Layout,
     id: &str,
     outcome: &vissue_core::consensus::Outcome,
+    asked: bool,
 ) -> Result<()> {
+    // A read, a gate and a JSON dump write nothing: a push check that asks
+    // whether an issue settles must not file tickets.
+    if !asked {
+        return Ok(());
+    }
     let claims = vissue_core::consensus::dissent_claims(outcome);
     if claims.is_empty() {
         return Ok(());
@@ -1408,6 +1459,66 @@ fn reads_the_corpus(command: &Command) -> bool {
     }
 }
 
+/// The gate's verdict on one issue's settle: settled with its quorum met.
+/// Past `deadline` with the quorum short, the vote has lapsed and the process
+/// exits 3 after noting it.
+fn gate_verdict(
+    layout: &Layout,
+    id: &str,
+    outcome: &vissue_core::consensus::Outcome,
+    gate: bool,
+    quorum: Option<usize>,
+    deadline: Option<chrono::DateTime<chrono::FixedOffset>>,
+) -> Result<bool> {
+    let cast = outcome.agents.len();
+    if !gate || quorum_met(id, cast, quorum) {
+        return Ok(outcome.settled());
+    }
+    if let (Some(n), Some(due)) = (quorum, deadline)
+        && chrono::Utc::now() > due
+    {
+        quorum_timed_out(layout, id, cast, n, &due.to_rfc3339())?;
+        std::process::exit(3);
+    }
+    Ok(false)
+}
+
+/// Note once on the issue that its vote lapsed short of a quorum, and say so
+/// on stderr. A second gate run past the deadline adds no second note.
+fn quorum_timed_out(layout: &Layout, id: &str, cast: usize, n: usize, due: &str) -> Result<()> {
+    let line = quorum_timeout_note(cast, n, due);
+    eprintln!("{id}: {line}");
+    let recs = vissue_core::catalog::load_recs(layout)?;
+    let noted = recs.iter().any(|rec| {
+        rec.heading.id == id
+            && rec.heading.logbook.iter().any(|e| {
+                e.note
+                    .as_deref()
+                    .is_some_and(|t| t.contains("quorum timed out"))
+            })
+    });
+    if !noted {
+        vissue_core::ops::note(layout, id, &line)?;
+    }
+    Ok(())
+}
+
+/// The note a lapsed quorum leaves.
+fn quorum_timeout_note(cast: usize, n: usize, due: &str) -> String {
+    format!("quorum timed out: {cast} of {n} ballots by {due}; nothing was decided")
+}
+
+/// Whether `cast` ballots meet the gate's quorum, saying on stderr when not.
+fn quorum_met(id: &str, cast: usize, quorum: Option<usize>) -> bool {
+    match quorum {
+        Some(n) if cast < n => {
+            eprintln!("{id}: {cast} of {n} ballots needed for a quorum");
+            false
+        }
+        _ => true,
+    }
+}
+
 fn run() -> Result<()> {
     let cli = Cli::parse();
     // git runs the merge driver in any repository, tracker or not.
@@ -1499,23 +1610,16 @@ fn run() -> Result<()> {
             project,
             state,
             json,
+            filter,
         } => {
-            if json {
-                emitln!(
-                    "{}",
-                    serde_json::to_string_pretty(&issues_json_routed(
-                        &router,
-                        project.as_deref(),
-                        state.as_deref(),
-                        false
-                    )?)?
-                );
-            } else {
-                emit!(
-                    "{}",
-                    list_routed(&router, project.as_deref(), state.as_deref(), false)?
-                );
-            }
+            print_rows(
+                &router,
+                project.as_deref(),
+                state.as_deref(),
+                false,
+                &filter,
+                json,
+            )?;
         }
         Command::Show { id, all, json, org } => {
             if all {
@@ -1599,20 +1703,12 @@ fn run() -> Result<()> {
                 )?
             )
         }
-        Command::Ready { project, json } => {
-            if json {
-                emitln!(
-                    "{}",
-                    serde_json::to_string_pretty(&issues_json_routed(
-                        &router,
-                        project.as_deref(),
-                        None,
-                        true
-                    )?)?
-                );
-            } else {
-                emit!("{}", list_routed(&router, project.as_deref(), None, true)?);
-            }
+        Command::Ready {
+            project,
+            json,
+            filter,
+        } => {
+            print_rows(&router, project.as_deref(), None, true, &filter, json)?;
         }
         Command::Claim { id, force } => {
             let found = layout_for_id(&router, &id)?;
@@ -1653,10 +1749,20 @@ fn run() -> Result<()> {
             id,
             children,
             gate,
+            quorum,
+            deadline,
             json,
             trust,
             susceptibility_of,
+            file_dissent: file,
         } => {
+            let deadline = deadline
+                .as_deref()
+                .map(|raw| {
+                    chrono::DateTime::parse_from_rfc3339(raw.trim())
+                        .map_err(|e| anyhow::anyhow!("--deadline {raw:?} is not RFC 3339: {e}"))
+                })
+                .transpose()?;
             let found = layout_for_id(&router, &id)?;
             let rows = match trust.as_deref() {
                 Some(raw) => vissue_core::consensus::trust_rows(raw)?,
@@ -1690,8 +1796,8 @@ fn run() -> Result<()> {
                     || vissue_core::Result::Ok(outcome.clone()),
                     || report::consensus_anchored(&found, &id, &rows, &anchors),
                 )?;
-                file_dissent(&router, &found, &id, &outcome)?;
-                outcome.settled()
+                file_dissent(&router, &found, &id, &outcome, file)?;
+                gate_verdict(&found, &id, &outcome, gate, quorum, deadline)?
             };
             if gate && !settled {
                 std::process::exit(1);
@@ -2282,6 +2388,139 @@ fn exec_hud(opts: ExecHud) -> Result<()> {
         }
         bail!("{} exited without a status", bin.display());
     }
+}
+
+/// Narrowing for `list` and `ready`, applied after the frontier is worked out
+/// over the whole corpus, so a blocker outside the filter still blocks.
+#[derive(clap::Args, Debug, Clone, Default)]
+struct RowFilter {
+    /// Only issues nobody holds a claim on
+    #[arg(long, conflicts_with = "claimed_by")]
+    unclaimed: bool,
+    /// Only issues this identity holds a claim on
+    #[arg(long, value_name = "WHO")]
+    claimed_by: Option<String>,
+    /// Only direct children of this issue (`:PARENT:`)
+    #[arg(long, value_name = "ID")]
+    parent: Option<String>,
+    /// Only issues carrying this tag on the heading; repeat to require several
+    #[arg(long = "tag", value_name = "TAG")]
+    tags: Vec<String>,
+    /// Print at most this many rows, after sorting
+    #[arg(long, value_name = "N")]
+    limit: Option<usize>,
+}
+
+impl RowFilter {
+    fn is_set(&self) -> bool {
+        self.unclaimed
+            || self.claimed_by.is_some()
+            || self.parent.is_some()
+            || !self.tags.is_empty()
+            || self.limit.is_some()
+    }
+
+    fn keep(
+        &self,
+        row: &vissue_core::views::IssueRow,
+        rec: Option<&vissue_core::views::IssueRec>,
+    ) -> bool {
+        if self.unclaimed && row.claimed_by.is_some() {
+            return false;
+        }
+        if let Some(who) = &self.claimed_by
+            && row.claimed_by.as_deref() != Some(who.as_str())
+        {
+            return false;
+        }
+        if let Some(parent) = &self.parent
+            && row.parent.as_deref() != Some(parent.as_str())
+        {
+            return false;
+        }
+        if !self.tags.is_empty() {
+            let Some(rec) = rec else { return false };
+            let held = &rec.heading.org_tags;
+            if !self
+                .tags
+                .iter()
+                .all(|want| held.iter().any(|t| t.eq_ignore_ascii_case(want)))
+            {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+/// Print `list` or `ready`: through the filter when one is set, else the
+/// plain text or JSON rows as before.
+fn print_rows(
+    router: &Router,
+    project: Option<&str>,
+    state: Option<&str>,
+    ready_only: bool,
+    filter: &RowFilter,
+    json: bool,
+) -> Result<()> {
+    if filter.is_set() {
+        emit!(
+            "{}",
+            filtered_routed(router, project, state, ready_only, filter, json)?
+        );
+    } else if json {
+        emitln!(
+            "{}",
+            serde_json::to_string_pretty(&issues_json_routed(router, project, state, ready_only)?)?
+        );
+    } else {
+        emit!("{}", list_routed(router, project, state, ready_only)?);
+    }
+    Ok(())
+}
+
+/// `list` or `ready` through a [`RowFilter`]: the same rows and the same text
+/// or JSON shape, narrowed and capped.
+fn filtered_routed(
+    router: &Router,
+    project: Option<&str>,
+    state: Option<&str>,
+    ready_only: bool,
+    filter: &RowFilter,
+    json: bool,
+) -> Result<String> {
+    let mut rows: Vec<(vissue_core::views::IssueRow, String)> = Vec::new();
+    let mut take = |recs: &[vissue_core::views::IssueRec], dir: &str| -> Result<()> {
+        let by_id: std::collections::HashMap<&str, &vissue_core::views::IssueRec> = recs
+            .iter()
+            .map(|rec| (rec.heading.id.as_str(), rec))
+            .collect();
+        for row in agent::issues_rows_in(recs, Some(dir), state, ready_only)? {
+            if filter.keep(&row, by_id.get(row.id.as_str()).copied()) {
+                let line = report::format_rows(recs, std::slice::from_ref(&row));
+                rows.push((row, line));
+            }
+        }
+        Ok(())
+    };
+    if let Some(p) = project {
+        let pref = router.route(p);
+        let recs = vissue_core::catalog::load_recs(&pref.layout)?;
+        take(&recs, &pref.dir)?;
+    } else {
+        for_each_visible_in(router, take)?;
+        // Each project comes back in priority order; a cap across several
+        // has to take the most urgent first, not the first project's.
+        rows.sort_by(|a, b| a.0.priority.cmp(&b.0.priority));
+    }
+    if let Some(n) = filter.limit {
+        rows.truncate(n);
+    }
+    if json {
+        let only: Vec<&vissue_core::views::IssueRow> = rows.iter().map(|(row, _)| row).collect();
+        return Ok(format!("{}\n", serde_json::to_string_pretty(&only)?));
+    }
+    Ok(rows.into_iter().map(|(_, line)| line).collect())
 }
 
 fn list_routed(

@@ -1,0 +1,7 @@
+{%- if pathto('search') != '#' -%}
+<form class="searchbox flex items-center" action="{{ pathto('search') }}" method="get">
+  <label class="vi-search-label" for="vi-search-q">Search</label>
+  <input id="vi-search-q" type="text" name="q" placeholder="{{ _('Search') }}" />
+  <kbd>/</kbd>
+</form>
+{%- endif -%}

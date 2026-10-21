@@ -1,4 +1,5 @@
 #+title: Harness
+#+description: Wire ljos-mcp so a coding seat can cite a ticket, recall what it stands on, and settle agreement.
 #+options: toc:nil num:nil
 
 Wire =ljos-mcp= so a coding seat can cite a ticket, recall what it

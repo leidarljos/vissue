@@ -2376,6 +2376,126 @@ fn the_consensus_gate_carries_the_verdict_in_the_exit_status() {
     assert!(stdout(&led).contains("holds: ship"), "{}", stdout(&led));
 }
 
+/// One ballot settles on itself, so a gate with no quorum passes on whoever
+/// voted first. `--quorum` makes the count part of the verdict.
+#[test]
+fn a_gate_with_a_quorum_refuses_a_lone_ballot() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let own = |agent: &str, args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd()
+            .env("VISSUE_AGENT", agent)
+            .args(argv)
+            .output()
+            .unwrap()
+    };
+    let issue = stdout(&own("a", &["create", "-p", "api", "Ship it?", "-q"]))
+        .trim()
+        .to_string();
+
+    own("a", &["vote", &issue, "--for", "ship"]);
+    let lone = own("a", &["consensus", &issue, "--gate"]);
+    assert!(lone.status.success(), "no quorum keeps the old verdict");
+    let short = own("a", &["consensus", &issue, "--gate", "--quorum", "2"]);
+    assert!(!short.status.success(), "{}", stdout(&short));
+    let complaint = String::from_utf8(short.stderr).unwrap();
+    assert!(complaint.contains("1 of 2 ballots"), "{complaint}");
+
+    own("b", &["vote", &issue, "--for", "ship"]);
+    let met = own("a", &["consensus", &issue, "--gate", "--quorum", "2"]);
+    assert!(met.status.success(), "{}", stdout(&met));
+
+    // A quorum is a condition on the gate, not a report of its own.
+    let bare = own("a", &["consensus", &issue, "--quorum", "2"]);
+    assert!(!bare.status.success(), "--quorum without --gate is refused");
+}
+
+/// Past `--deadline`, a gate short of its quorum has lapsed: exit 3 rather
+/// than the "not yet" exit 1, and one `quorum timed out` note on the issue,
+/// not one per run. Before the deadline the gate is the plain quorum gate.
+#[test]
+fn a_quorum_past_its_deadline_times_out_once() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let own = |agent: &str, args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd()
+            .env("VISSUE_AGENT", agent)
+            .args(argv)
+            .output()
+            .unwrap()
+    };
+    let issue = stdout(&own(
+        "a",
+        &["create", "-p", "api", "Adopt the linter?", "-q"],
+    ))
+    .trim()
+    .to_string();
+    own("a", &["vote", &issue, "--for", "adopt"]);
+    let early = own(
+        "a",
+        &[
+            "consensus",
+            &issue,
+            "--gate",
+            "--quorum",
+            "3",
+            "--deadline",
+            "2999-01-01T00:00:00Z",
+        ],
+    );
+    assert_eq!(early.status.code(), Some(1), "before the deadline it waits");
+    for _ in 0..2 {
+        let late = own(
+            "a",
+            &[
+                "consensus",
+                &issue,
+                "--gate",
+                "--quorum",
+                "3",
+                "--deadline",
+                "2000-01-01T00:00:00Z",
+            ],
+        );
+        assert_eq!(
+            late.status.code(),
+            Some(3),
+            "{}",
+            String::from_utf8_lossy(&late.stderr)
+        );
+    }
+    let shown = stdout(&own("a", &["show", &issue]));
+    assert_eq!(shown.matches("quorum timed out").count(), 1, "{shown}");
+    let bad = own(
+        "a",
+        &[
+            "consensus",
+            &issue,
+            "--gate",
+            "--quorum",
+            "3",
+            "--deadline",
+            "soon",
+        ],
+    );
+    assert!(!bad.status.success());
+    let no_quorum = own(
+        "a",
+        &[
+            "consensus",
+            &issue,
+            "--gate",
+            "--deadline",
+            "2000-01-01T00:00:00Z",
+        ],
+    );
+    assert!(!no_quorum.status.success(), "--deadline needs --quorum");
+}
+
 /// Over a plan the rule is different and the design note says why: a split
 /// child has no position to fold in and an unvoted child is absent rather than
 /// neutral, so either one is a row a person has to read.
@@ -2490,6 +2610,9 @@ fn a_directory_that_is_not_a_tracker_says_so_rather_than_answering_none() {
             .env("VISSUE_NO_ROUTE", "1")
             .env_remove("VISSUE_ROOT")
             .env_remove("ISSUE_ROOT")
+            // A `root` in the user's own config would answer for the directory.
+            .env("HOME", dir.path())
+            .env("XDG_CONFIG_HOME", dir.path().join(".config"))
             .current_dir(cwd)
             .args(args)
             .output()
@@ -2656,4 +2779,70 @@ fn a_known_issue_id_wins_over_the_accession_shape() {
         links.contains("(blocked-by)"),
         "a known id is an issue whatever it looks like: {links}"
     );
+}
+
+/// `consensus` reads unless asked to file: a gate or a JSON dump of an
+/// anchored split writes no dissent child, and `--file-dissent` files one.
+#[test]
+fn consensus_files_dissent_only_when_asked() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let own = |agent: &str, args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd()
+            .env("VISSUE_AGENT", agent)
+            .args(argv)
+            .output()
+            .unwrap()
+    };
+    let id = stdout(&own("alice", &["create", "-p", "atlas", "Pick one", "-q"]))
+        .trim()
+        .to_string();
+    for (agent, choice) in [("alice", "ship"), ("bob", "ship"), ("carol", "hold")] {
+        let out = own(agent, &["vote", &id, "--for", choice]);
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    let anchors = r#"{"alice":0.5,"bob":0.5,"carol":0.5}"#;
+    let kids = || {
+        let out = own("alice", &["list", "--json"]);
+        let rows: Vec<serde_json::Value> = serde_json::from_str(&stdout(&out)).unwrap();
+        rows.iter()
+            .filter(|r| {
+                r["title"]
+                    .as_str()
+                    .is_some_and(|t| t.starts_with("Dissent holds"))
+            })
+            .count()
+    };
+    own("alice", &["consensus", &id, "--susceptibility-of", anchors]);
+    own(
+        "alice",
+        &["consensus", &id, "--gate", "--susceptibility-of", anchors],
+    );
+    own(
+        "alice",
+        &["consensus", &id, "--json", "--susceptibility-of", anchors],
+    );
+    assert_eq!(kids(), 0, "a read filed a dissent child");
+    let out = own(
+        "alice",
+        &[
+            "consensus",
+            &id,
+            "--file-dissent",
+            "--susceptibility-of",
+            anchors,
+        ],
+    );
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(kids(), 1, "--file-dissent filed none");
 }

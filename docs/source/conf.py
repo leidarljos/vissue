@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 _DOCS = Path(__file__).resolve().parent
 _ROOT = _DOCS.parent.parent
+sys.path.insert(0, str(_DOCS / "_ext"))
 
 project = "vissue"
 copyright = "2026, Rohit Goswami"
@@ -16,7 +18,7 @@ version = "0.21"
 extensions = [
     "sphinx.ext.mathjax",
     "sphinx_copybutton",
-    "sphinx_design",
+    "site_meta",
 ]
 
 templates_path = ["_templates"]
@@ -24,6 +26,7 @@ exclude_patterns: list[str] = []
 
 html_theme = "shibuya"
 html_static_path = ["_static"]
+html_baseurl = "https://leidarljos.github.io/vissue/"
 html_favicon = "_static/favicon.svg"
 html_logo = "_static/mark.svg"
 html_title = "vissue"

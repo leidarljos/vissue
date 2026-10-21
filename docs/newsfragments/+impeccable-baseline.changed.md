@@ -1,0 +1,1 @@
+The docs site no longer loads sphinx-design, which no page used. On the light page, gold text uses the paper gold #7f520b, tables lose their outer box, and notes are a hairline box instead of a side stripe, as on the other leiðarljós sites. `.impeccable/config.json` records the detector ignores for the vendored theme stylesheet and for command flags in code, each with its reason.

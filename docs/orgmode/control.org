@@ -1,4 +1,5 @@
 #+title: Control
+#+description: vissue serve owns a per-user Unix socket and answers JSON-RPC 2.0 in issue terms.
 #+options: toc:nil num:nil
 
 =vissue serve= owns a per-user Unix socket and answers JSON-RPC 2.0 in

@@ -1,4 +1,5 @@
 #+title: Getting started
+#+description: Everything below runs in a scratch directory and touches nothing else.
 #+options: toc:nil num:nil
 
 Everything below runs in a scratch directory and touches nothing else. By the

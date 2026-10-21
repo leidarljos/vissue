@@ -1,4 +1,5 @@
 #+title: vissue
+#+description: A plan is a directed acyclic graph of Org headings.
 #+options: toc:nil num:nil
 
 #+begin_export rst

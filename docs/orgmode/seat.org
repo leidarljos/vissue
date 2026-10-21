@@ -1,4 +1,5 @@
 #+title: In the seat
+#+description: This crate is one habitat. The seat that sits on it is ljos.
 #+options: toc:nil num:nil
 
 * In the seat

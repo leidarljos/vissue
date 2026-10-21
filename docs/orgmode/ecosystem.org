@@ -1,4 +1,5 @@
 #+title: Org ecosystem
+#+description: Protocol 1 is the tracker contract, not parity with every Org package.
 #+options: toc:nil num:nil
 
 Protocol 1 is the tracker contract, not parity with every Org
