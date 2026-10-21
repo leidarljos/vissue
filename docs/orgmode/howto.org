@@ -632,16 +632,16 @@ alone.
 
 =create= and =q= choose a project in this order and stop at the first name:
 
-1. =-p= (also =--project= or =-P=).
-2. The current file's project. A working directory inside
-   =<root>/<prefix>/<name>/= means =<name>=. Otherwise a
-   =.project-ctx.toml= in that directory or a parent, carrying
-   =[project] name = "..."=, names it.
-3. The git repository around the working directory. That is the =origin=
-   remote's repository name, or the top-level directory's name when the
-   repository has no remote.
-4. The prefix. =Software=, unless =--prefix=, =VISSUE_PREFIX=, or =prefix=
-   in =vissue.toml= names another.
+- =-p= (also =--project= or =-P=).
+- The current file's project. A working directory inside
+  =<root>/<prefix>/<name>/= means =<name>=. Otherwise a
+  =.project-ctx.toml= in that directory or a parent, carrying
+  =[project] name = "..."=, names it.
+- The git repository around the working directory. That is the =origin=
+  remote's repository name, or the top-level directory's name when the
+  repository has no remote.
+- The prefix. =Software=, unless =--prefix=, =VISSUE_PREFIX=, or =prefix=
+  in =vissue.toml= names another.
 
 An issue filed inside a repository therefore lands in that repository's
 project. The prefix is the last resort, for a directory that has no project
