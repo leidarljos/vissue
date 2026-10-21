@@ -1,0 +1,1 @@
+`vissue create` and `vissue q` with no `--project` take the project from the current file, then from the git repository (the remote name, or the top-level directory), and otherwise from the prefix. An issue filed inside a repository lands in that repository's project.

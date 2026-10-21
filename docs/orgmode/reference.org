@@ -53,6 +53,12 @@ Names fold case against what is already there, so =--project Atlas= reaches
 an existing =atlas=. A name matching two existing projects by case alone is
 refused rather than guessed at.
 
+=create= and =q= with no project flag take the current file's project, then
+the git repository (the =origin= remote's name, or the top-level directory),
+then the prefix default. =-p= still wins when it is given. =fold= does not
+guess a repository: with no flag and no =.project-ctx.toml= it reports an
+error.
+
 * States and priorities
 
 States are =TODO=, =STARTED=, =BLOCKED=, =DONE=, and =CANCELLED=, plus
