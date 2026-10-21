@@ -628,10 +628,30 @@ stale_claim_days = 3
 Each layer overrides key by key, so a file that tunes one knob leaves the rest
 alone.
 
-* Detect the project from the working directory
+* Detect the project
 
-With a =.project-ctx.toml= carrying =[project] name = "..."= in or above the
-current directory, =--project= may be omitted.
+=create= and =q= choose a project in this order and stop at the first name:
+
+- =-p= (also =--project= or =-P=).
+- The current file's project. A working directory inside
+  =<root>/<prefix>/<name>/= means =<name>=. Otherwise a
+  =.project-ctx.toml= in that directory or a parent, carrying
+  =[project] name = "..."=, names it. Inside a git repository the walk
+  stops at that repository's top-level directory.
+- The git repository around the working directory. That is the =origin=
+  remote's repository name, or the top-level directory's name when the
+  repository has no remote.
+- The prefix. =Software=, unless =--prefix=, =VISSUE_PREFIX=, or =prefix=
+  in =vissue.toml= names another.
+
+An issue filed inside a repository lands in that repository's project.
+The context file that counts is the one at or below the repository's
+top-level directory. Outside a repository, a context file in a parent
+directory names the project. The prefix is the last resort for a
+directory that has no project file and is not a repository.
+
+=fold= stops after the context file. With no =-p= and no
+=.project-ctx.toml= it reports an error.
 
 * Know which tracker you are writing to
 

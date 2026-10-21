@@ -86,7 +86,7 @@ complete -c vissue -n "__fish_vissue_needs_command" -f -a "completions" -d 'Writ
 complete -c vissue -n "__fish_vissue_needs_command" -f -a "man" -d 'Write the roff manual page to stdout'
 complete -c vissue -n "__fish_vissue_needs_command" -f -a "keys" -d 'Print the HUD key catalog, or check a keys.toml overlay'
 complete -c vissue -n "__fish_vissue_needs_command" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
-complete -c vissue -n "__fish_vissue_using_subcommand create" -s p -l project -d 'Project name. Auto-detected from .project-ctx.toml when omitted' -r
+complete -c vissue -n "__fish_vissue_using_subcommand create" -s p -l project -d 'Project name. `-p` wins, then the current file\'s project, then the git repo (remote name, or else the top-level directory), then the prefix default' -r
 complete -c vissue -n "__fish_vissue_using_subcommand create" -l priority -d 'Priority cookie: A high, B mid, C low' -r
 complete -c vissue -n "__fish_vissue_using_subcommand create" -s t -l type -d 'Type tag such as feature, bug, or task' -r
 complete -c vissue -n "__fish_vissue_using_subcommand create" -l deadline -d 'Org deadline like `<2026-05-15 Fri>` or `[2026-05-15]`' -r
@@ -101,7 +101,7 @@ complete -c vissue -n "__fish_vissue_using_subcommand create" -l prefix -d 'Dire
 complete -c vissue -n "__fish_vissue_using_subcommand create" -s q -l quiet -d 'Print only the new id'
 complete -c vissue -n "__fish_vissue_using_subcommand create" -l no-route -d 'Ignore `$VISSUE_CONFIG` / `~/.config/vissue/config.toml` and keep every verb on the process default layout'
 complete -c vissue -n "__fish_vissue_using_subcommand create" -s h -l help -d 'Print help'
-complete -c vissue -n "__fish_vissue_using_subcommand q" -s p -l project -d 'Project the issue belongs to; the current file\'s project when omitted' -r
+complete -c vissue -n "__fish_vissue_using_subcommand q" -s p -l project -d 'Project name. `-p` wins, then the current file\'s project, then the git repo (remote name, or else the top-level directory), then the prefix default' -r
 complete -c vissue -n "__fish_vissue_using_subcommand q" -s t -l type -d 'Issue type, recorded as a tag: task, bug, epic, or any word' -r
 complete -c vissue -n "__fish_vissue_using_subcommand q" -l parent -d 'Parent id, which must already exist' -r
 complete -c vissue -n "__fish_vissue_using_subcommand q" -l root -d 'Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory' -r -F

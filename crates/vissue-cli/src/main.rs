@@ -86,7 +86,9 @@ enum Command {
     Create {
         /// One-line title
         title: String,
-        /// Project name. Auto-detected from .project-ctx.toml when omitted.
+        /// Project name. `-p` wins, then the current file's project, then the
+        /// git repo (remote name, or else the top-level directory), then the
+        /// prefix default.
         #[arg(short = 'p', short_alias = 'P', long)]
         project: Option<String>,
         /// Priority cookie: A high, B mid, C low
@@ -124,7 +126,9 @@ enum Command {
     Q {
         /// One-line title
         title: String,
-        /// Project the issue belongs to; the current file's project when omitted
+        /// Project name. `-p` wins, then the current file's project, then the
+        /// git repo (remote name, or else the top-level directory), then the
+        /// prefix default.
         #[arg(short = 'p', short_alias = 'P', long)]
         project: Option<String>,
         /// Issue type, recorded as a tag: task, bug, epic, or any word
@@ -1557,7 +1561,7 @@ fn run() -> Result<()> {
             body,
             body_file,
         } => {
-            let project = ops::resolve_project(&layout, project.as_deref())?;
+            let project = ops::resolve_create_project(&layout, project.as_deref())?;
             let body_text = match (body, body_file) {
                 (Some(b), _) => Some(b),
                 (None, Some(path)) => Some(read_body_file(&path)?),
@@ -1588,7 +1592,7 @@ fn run() -> Result<()> {
             issue_type,
             parent,
         } => {
-            let project = ops::resolve_project(&layout, project.as_deref())?;
+            let project = ops::resolve_create_project(&layout, project.as_deref())?;
             let out = create_routed(
                 &router,
                 &project,

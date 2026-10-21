@@ -33,8 +33,8 @@ _vissue() {
         case $line[1] in
             (create)
 _arguments "${_arguments_options[@]}" : \
-'-p+[Project name. Auto-detected from .project-ctx.toml when omitted]:PROJECT:_default' \
-'--project=[Project name. Auto-detected from .project-ctx.toml when omitted]:PROJECT:_default' \
+'-p+[Project name. \`-p\` wins, then the current file'\''s project, then the git repo (remote name, or else the top-level directory), then the prefix default]:PROJECT:_default' \
+'--project=[Project name. \`-p\` wins, then the current file'\''s project, then the git repo (remote name, or else the top-level directory), then the prefix default]:PROJECT:_default' \
 '--priority=[Priority cookie\: A high, B mid, C low]:PRIORITY:_default' \
 '-t+[Type tag such as feature, bug, or task]:ISSUE_TYPE:_default' \
 '--type=[Type tag such as feature, bug, or task]:ISSUE_TYPE:_default' \
@@ -57,8 +57,8 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (q)
 _arguments "${_arguments_options[@]}" : \
-'-p+[Project the issue belongs to; the current file'\''s project when omitted]:PROJECT:_default' \
-'--project=[Project the issue belongs to; the current file'\''s project when omitted]:PROJECT:_default' \
+'-p+[Project name. \`-p\` wins, then the current file'\''s project, then the git repo (remote name, or else the top-level directory), then the prefix default]:PROJECT:_default' \
+'--project=[Project name. \`-p\` wins, then the current file'\''s project, then the git repo (remote name, or else the top-level directory), then the prefix default]:PROJECT:_default' \
 '-t+[Issue type, recorded as a tag\: task, bug, epic, or any word]:ISSUE_TYPE:_default' \
 '--type=[Issue type, recorded as a tag\: task, bug, epic, or any word]:ISSUE_TYPE:_default' \
 '--parent=[Parent id, which must already exist]:PARENT:_default' \
