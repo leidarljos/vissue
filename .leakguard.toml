@@ -1,15 +1,9 @@
-# This crate is named vissue. The global issue-prefix ban exists to
-# keep that word out of other public trees, not this one.
+# This is the tracker's own repository: the tool name is the project name
+# in every file here. The docs theme names the assistants its "open in"
+# buttons would reach, switched off in conf.py.
 allow = [
     "vissue ",
     "vissue:",
-    " vissue\n",
-    "discovered-from",
-]
-
-# The harness how-to must name the public seat CLIs and their
-# documented config paths. Scoped to that page so the rest of the
-# tree stays scanned.
-path_allow = [
-    "docs/orgmode/harness.org",
+    "chatgpt",
+    "claude",
 ]

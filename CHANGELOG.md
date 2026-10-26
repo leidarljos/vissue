@@ -6,6 +6,24 @@ All notable changes to vissue are recorded here. The format follows
 
 <!-- towncrier release notes start -->
 
+## [0.22.0](https://github.com/leidarljos/vissue/releases/tag/v0.22.0) - 2026-10-26
+
+### Added
+
+- `vissue consensus --quorum N` fails when fewer than `N` ballots are cast, and with `--deadline` a quorum still short past the deadline times out instead of waiting.
+- `vissue show` prints the newest logbook lines after the body.
+- `vissue ready` and `vissue list` narrow by claim, parent and tag, and cap how many issues they print.
+
+### Fixed
+
+- The project is inferred from the git repository the working directory sits in. The walk that looks for a project stops at the repository boundary instead of reading a context file above it.
+- Unrecognised logbook lines are kept verbatim through a read and a write.
+- A plain `vissue consensus` read files no dissent child; only a settle does.
+- Per-issue ledger files are merged by field, and a merge that conflicts refuses rather than writing one side over the other.
+- `cargo binstall vissue-cli`, `vissue-mcp` and `vissue-hud` fetch the dist archives the release publishes.
+- The lockfile moves past the tokio and rustls advisories.
+
+
 ## [0.21.0](https://github.com/leidarljos/vissue/releases/tag/v0.21.0) - 2026-10-09
 
 ### Added
