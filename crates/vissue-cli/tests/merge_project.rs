@@ -19,6 +19,7 @@ fn vissue_in(dir: &Path, args: &[&str]) -> Output {
 }
 
 fn git(dir: &Path, args: &[&str]) -> Output {
+    let hooks_path = format!("core.hooksPath={}", dir.join(".empty-hooks").display());
     let out = Command::new("git")
         .current_dir(dir)
         .args([
@@ -30,6 +31,8 @@ fn git(dir: &Path, args: &[&str]) -> Output {
             "commit.gpgsign=false",
             "-c",
             "init.defaultBranch=main",
+            "-c",
+            &hooks_path,
         ])
         .args(args)
         .output()
