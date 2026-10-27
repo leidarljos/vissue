@@ -760,6 +760,41 @@ fn copied_preamble(source: &str) -> Option<String> {
     }
 }
 
+fn apply_legacy_logbook(heading: &mut IssueHeading, log: &str, start: usize) -> Result<usize> {
+    let mut lines = log[start..].split_inclusive('\n');
+    let Some(opening) = lines.next() else {
+        return Err(anyhow!("empty legacy logbook drawer in ledger log").into());
+    };
+    if !opening.trim().eq_ignore_ascii_case(":LOGBOOK:") {
+        return Err(anyhow!("invalid legacy logbook drawer in ledger log").into());
+    }
+
+    let mut consumed = opening.len();
+    let mut entries = Vec::new();
+    let mut closed = false;
+    for line in lines {
+        consumed += line.len();
+        let line = line.trim_end_matches(['\r', '\n']);
+        if line.trim().eq_ignore_ascii_case(":END:") {
+            closed = true;
+            break;
+        }
+        if !line.trim().is_empty() {
+            entries.push(parse_log_line(line));
+        }
+    }
+    if !closed {
+        return Err(anyhow!("unterminated legacy logbook drawer in ledger log").into());
+    }
+
+    for entry in entries.into_iter().rev() {
+        if !heading.logbook.contains(&entry) {
+            heading.logbook.insert(0, entry);
+        }
+    }
+    Ok(start + consumed)
+}
+
 fn apply_records(heading: &mut IssueHeading, log: &str, preamble: &str) -> Result<bool> {
     let bytes = log.as_bytes();
     let mut index = 0usize;
@@ -772,6 +807,10 @@ fn apply_records(heading: &mut IssueHeading, log: &str, preamble: &str) -> Resul
             break;
         }
         if !bytes[index..].starts_with(b"%% ") {
+            if log[index..].starts_with(":LOGBOOK:") {
+                index = apply_legacy_logbook(heading, log, index)?;
+                continue;
+            }
             // A line that is not a record is never skipped: stopping here
             // would fold the issue to whatever came before it and drop every
             // later record without a word. Git's conflict markers are the
@@ -1398,6 +1437,45 @@ Body two.
             .collect();
         assert!(notes.iter().any(|note| note == "alpha note"), "{notes:?}");
         assert!(notes.iter().any(|note| note == "beta note"), "{notes:?}");
+    }
+
+    #[test]
+    fn legacy_logbook_drawers_preserve_entries_and_later_ledger_records() {
+        let doc = IssueDoc::parse("sample", PathBuf::new(), FIXTURE).unwrap();
+        let mut heading = doc.headings.into_iter().next().unwrap();
+        let mut log = Vec::new();
+        push_op(&mut log, "state", "STARTED");
+        log.extend_from_slice(
+            b":LOGBOOK:\n- Note: \"first legacy\" [2026-10-04 Sun 02:00]\n- Note: \"second legacy\" [2026-10-04 Sun 01:30]\n- Note: \"kept\" [2026-10-04 Sun 01:00]\n:END:\n",
+        );
+        push_op(
+            &mut log,
+            "log",
+            "- Note: \"after drawer\" [2026-10-04 Sun 03:00]",
+        );
+        push_op(&mut log, "state", "DONE");
+
+        let log = String::from_utf8(log).unwrap();
+        assert!(!apply_records(&mut heading, &log, "").unwrap());
+        assert_eq!(heading.state, "DONE");
+        let notes: Vec<_> = heading
+            .logbook
+            .iter()
+            .filter_map(|entry| entry.note.as_deref())
+            .collect();
+        assert_eq!(
+            notes,
+            ["after drawer", "first legacy", "second legacy", "kept"]
+        );
+    }
+
+    #[test]
+    fn malformed_ledger_text_still_fails_instead_of_truncating() {
+        let doc = IssueDoc::parse("sample", PathBuf::new(), FIXTURE).unwrap();
+        let mut heading = doc.headings.into_iter().next().unwrap();
+        let error =
+            apply_records(&mut heading, "<<<<<<< conflict\n%% state 4\nDONE\n", "").unwrap_err();
+        assert!(error.to_string().contains("git conflict marker"));
     }
 
     fn insert_log_line(path: &Path, line: &str) {
