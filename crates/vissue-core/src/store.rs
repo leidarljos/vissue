@@ -1364,7 +1364,9 @@ mod tests {
     use crate::config::DEFAULT_PREFIX;
 
     fn board(id: &str) -> String {
-        format!("{TODO_HEADER}\n\n* TODO [#B] Heading {id}\n:PROPERTIES:\n:ID:         {id}\n:END:\n")
+        format!(
+            "{TODO_HEADER}\n\n* TODO [#B] Heading {id}\n:PROPERTIES:\n:ID:         {id}\n:END:\n"
+        )
     }
 
     fn write_project(root: &std::path::Path, project: &str, text: &str) {
@@ -1394,7 +1396,11 @@ mod tests {
     #[test]
     fn find_by_id_reads_the_named_project_first() {
         let tmp = tempfile::tempdir().unwrap();
-        write_project(tmp.path(), "aaa", "* TODO no id here\n:PROPERTIES:\n:END:\n");
+        write_project(
+            tmp.path(),
+            "aaa",
+            "* TODO no id here\n:PROPERTIES:\n:END:\n",
+        );
         write_project(tmp.path(), "zed", &board("zed-q1w2"));
         let layout = Layout::new(tmp.path(), DEFAULT_PREFIX);
         assert!(
