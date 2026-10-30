@@ -945,11 +945,22 @@ pub fn project_selected(project: &str, filter: Option<&str>) -> bool {
 
 /// Locate one issue by id across every project.
 ///
+/// The project the id names, the longest project whose name and a `-` start
+/// it, is read first, so a verb about one issue on a large tracker parses one
+/// project rather than every project ahead of it in the listing. An id that
+/// does not live in the project it names, such as one refiled elsewhere, is
+/// still found by reading the others in listing order.
+///
 /// # Errors
 ///
 /// Returns an error if a project file cannot be read or parsed.
 pub fn find_by_id(layout: &Layout, id: &str) -> Result<Option<(IssueHeading, PathBuf, String)>> {
-    for project in list_projects(layout)? {
+    let mut projects = list_projects(layout)?;
+    if let Some(at) = own_project(&projects, id) {
+        let own = projects.remove(at);
+        projects.insert(0, own);
+    }
+    for project in projects {
         let path = layout.project_issues_path(&project);
         let doc = IssueDoc::parse_file(&project, &path)?;
         for h in doc.headings {
@@ -959,6 +970,32 @@ pub fn find_by_id(layout: &Layout, id: &str) -> Result<Option<(IssueHeading, Pat
         }
     }
     Ok(None)
+}
+
+/// The index of the project an id names: the longest of `projects` that,
+/// followed by `-` and at least one more character, starts the id, matched
+/// exactly and then ignoring case.
+fn own_project(projects: &[String], id: &str) -> Option<usize> {
+    let named = |fold: bool| {
+        projects
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| {
+                let Some(rest) = id.get(p.len()..) else {
+                    return false;
+                };
+                let head = &id[..p.len()];
+                let same = if fold {
+                    head.eq_ignore_ascii_case(p)
+                } else {
+                    head == p.as_str()
+                };
+                same && rest.len() > 1 && rest.starts_with('-')
+            })
+            .max_by_key(|(_, p)| p.len())
+            .map(|(at, _)| at)
+    };
+    named(false).or_else(|| named(true))
 }
 
 /// Snapshot every heading across every project, tagged with its project.
@@ -1325,6 +1362,63 @@ pub(crate) fn org_ids(content: &str) -> impl Iterator<Item = &str> {
 mod tests {
     use super::*;
     use crate::config::DEFAULT_PREFIX;
+
+    fn board(id: &str) -> String {
+        format!("{TODO_HEADER}\n\n* TODO [#B] Heading {id}\n:PROPERTIES:\n:ID:         {id}\n:END:\n")
+    }
+
+    fn write_project(root: &std::path::Path, project: &str, text: &str) {
+        let dir = root.join(DEFAULT_PREFIX).join(project);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("issues.org"), text).unwrap();
+    }
+
+    #[test]
+    fn own_project_is_the_longest_name_the_id_starts() {
+        let projects: Vec<String> = ["ab", "ab-cd", "Zeta", "xAI/code-quality"]
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect();
+        assert_eq!(own_project(&projects, "ab-cd-x1y2"), Some(1));
+        assert_eq!(own_project(&projects, "ab-x1y2"), Some(0));
+        assert_eq!(own_project(&projects, "zeta-aaaa"), Some(2));
+        assert_eq!(own_project(&projects, "xAI/code-quality-ffzl"), Some(3));
+        assert_eq!(own_project(&projects, "ab-"), None);
+        assert_eq!(own_project(&projects, "abc-aaaa"), None);
+        assert_eq!(own_project(&projects, "\u{e9}-aaaa"), None);
+    }
+
+    /// The id's own project answers before any project ahead of it in the
+    /// listing is parsed: an earlier project that does not parse fails a walk
+    /// in listing order, and does not fail this lookup.
+    #[test]
+    fn find_by_id_reads_the_named_project_first() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_project(tmp.path(), "aaa", "* TODO no id here\n:PROPERTIES:\n:END:\n");
+        write_project(tmp.path(), "zed", &board("zed-q1w2"));
+        let layout = Layout::new(tmp.path(), DEFAULT_PREFIX);
+        assert!(
+            IssueDoc::parse_file("aaa", &layout.project_issues_path("aaa")).is_err(),
+            "the first project must not parse for this test to say anything"
+        );
+        let (h, path, project) = find_by_id(&layout, "zed-q1w2").unwrap().expect("found");
+        assert_eq!(h.id, "zed-q1w2");
+        assert_eq!(project, "zed");
+        assert_eq!(path, layout.project_issues_path("zed"));
+    }
+
+    /// An id that lives outside the project it names is still found.
+    #[test]
+    fn find_by_id_falls_back_to_every_project() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_project(tmp.path(), "home", &board("away-k9k9"));
+        write_project(tmp.path(), "away", &board("away-other"));
+        let layout = Layout::new(tmp.path(), DEFAULT_PREFIX);
+        let (h, _, project) = find_by_id(&layout, "away-k9k9").unwrap().expect("found");
+        assert_eq!(h.id, "away-k9k9");
+        assert_eq!(project, "home");
+        assert!(find_by_id(&layout, "away-none").unwrap().is_none());
+    }
 
     fn sample_heading() -> IssueHeading {
         let mut props = BTreeMap::new();
