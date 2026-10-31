@@ -6,6 +6,36 @@ All notable changes to vissue are recorded here. The format follows
 
 <!-- towncrier release notes start -->
 
+## [0.23.0](https://github.com/leidarljos/vissue/releases/tag/v0.23.0) - 2026-10-31
+
+### Added
+
+- A gate with `--quorum` takes `--deadline RFC3339`: past it, a vote still short of its quorum has lapsed, the issue gets one `quorum timed out` note, and the gate exits 3 instead of 1.
+- `cargo binstall vissue-cli`, `vissue-mcp` and `vissue-hud` fetch the release archive for the target, the flat zip on Windows, and never fall back to a third-party or source build.
+- `vissue consensus ID --gate --quorum N` fails the gate when fewer than N identities voted.
+- `vissue ready` and `vissue list` take `--unclaimed`, `--claimed-by WHO`, `--parent ID`, `--tag TAG` (repeatable) and `--limit N`. The frontier is still worked out over the whole tracker, so a blocker outside the filter keeps its issue off `ready`, and a cap across projects keeps the most urgent rows.
+
+### Changed
+
+- A store read looks in the project an id names before the others, so a lookup by id does not walk every project first.
+- The docs site no longer loads sphinx-design, which no page used. On the light page, gold text uses the paper gold #7f520b, tables lose their outer box, and notes are a hairline box instead of a side stripe, as on the other leiðarljós sites. `.impeccable/config.json` records the detector ignores for the vendored theme stylesheet and for command flags in code, each with its reason.
+- The explanation page links its poisoning section instead of printing the raw Org link, and the how-to lists the reserved keys as code instead of a run of stray equals signs.
+- `vissue consensus` files `Dissent holds OPTION` children only with `--file-dissent`. It filed them on every run, `--gate` and `--json` included, so a push check that only asked whether an issue settles wrote tickets. A script that relied on a plain run to file them adds `--file-dissent`.
+- `vissue show` prints the newest eight logbook lines after the body, and says how many more `vissue show ID --json` holds.
+
+### Fixed
+
+- Ledger reads preserve logbook drawers written into older per-issue files and continue folding later records. ([#legacy-logbook](https://github.com/leidarljos/vissue/issues/legacy-logbook))
+- Rewriting a board leaves a logbook line that is not a state change or a note as it was written. Creating or claiming an issue no longer turns `- Finished by inky [2026-10-18 Sun 07:00]` into a note, and that line is no longer reported as one.
+- `vissue create` and `vissue q` with no `--project` take the project from the current file, then from the git repository (the remote name, or the top-level directory), and otherwise from the prefix. Inside a repository the context walk stops at the top-level directory, so an issue filed there lands in that repository's project.
+- `vissue merge-driver` merges the per-issue files `migrate-ledger` writes by field, as it merges a board, so two clones that note or vote on one issue both keep their records. `--install` names `**/issues/*.org` in `.gitattributes` and adds `.vault-events.*` and `*.lock` to `.gitignore`. A per-issue file holding a line that is not a record, such as a git conflict marker, is now an error instead of folding to the records before it, and `check` names conflict markers left in a board.
+
+### Developer
+
+- Test and Pre-checks also run on pull requests into develop and on pushes to develop.
+- The release workflow actions move to their current versions: crates-io-auth-action 1.0.6, setup-uv 10.3.1, setup-python 7.1.0, download-artifact 8.0.2.
+
+
 ## [0.22.0](https://github.com/leidarljos/vissue/releases/tag/v0.22.0) - 2026-10-26
 
 ### Added

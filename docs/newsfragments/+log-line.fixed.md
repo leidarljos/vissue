@@ -1,1 +1,0 @@
-Rewriting a board leaves a logbook line that is not a state change or a note as it was written. Creating or claiming an issue no longer turns `- Finished by inky [2026-10-18 Sun 07:00]` into a note, and that line is no longer reported as one.

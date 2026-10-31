@@ -12,8 +12,8 @@ sys.path.insert(0, str(_DOCS / "_ext"))
 project = "vissue"
 copyright = "2026, Rohit Goswami"
 author = "Rohit Goswami"
-release = "0.22.0"
-version = "0.21"
+release = "0.23.0"
+version = "0.23"
 
 extensions = [
     "sphinx.ext.mathjax",
