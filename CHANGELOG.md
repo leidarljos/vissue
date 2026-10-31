@@ -6,6 +6,13 @@ All notable changes to vissue are recorded here. The format follows
 
 <!-- towncrier release notes start -->
 
+## [0.23.1](https://github.com/leidarljos/vissue/releases/tag/v0.23.1) - 2026-10-31
+
+### Developer
+
+- The v0.23.0 tag did not ship: GitHub browned out the macos-14 runner image twice during its release build. The Apple builds run on macos-15, and 0.23.1 is that release.
+
+
 ## [0.23.0](https://github.com/leidarljos/vissue/releases/tag/v0.23.0) - 2026-10-31
 
 ### Added

@@ -41,3 +41,10 @@ publish-jobs = ["./publish-crates"]
 # Caller permissions are a ceiling: without contents:read the reusable
 # workflow cannot check out the tree before cargo publish.
 github-custom-job-permissions = { "publish-crates" = { contents = "read", "id-token" = "write", packages = "write" } }
+
+# GitHub retires the macos-14 image on 2026-11-02 and browned it out for
+# the v0.23.0 release twice; dist 0.30.3 still plans the Apple builds on
+# it. These labels are read at plan time, so no regenerate is needed.
+[dist.github-custom-runners]
+aarch64-apple-darwin = "macos-15"
+x86_64-apple-darwin = "macos-15"
