@@ -1,0 +1,689 @@
+#+title: How-to
+#+description: One task per section. For the guided path through the basics, read Getting started first.
+#+options: toc:nil num:nil
+
+One task per section. For the guided path through the basics, read
+[[file:getting-started.org][Getting started]] first. To wire a coding seat, read
+[[file:harness.org][Harness]].
+
+* Send a project to another checkout
+
+Put a route table in =~/.config/vissue/config.toml= so a process whose
+default root is one tracker can still write another.
+
+#+begin_src toml
+[layouts.work]
+root = "~/work-notes"
+prefix = "Issues"
+
+[routes]
+parser = "work"
+#+end_src
+
+#+begin_src console
+$ vissue create --project parser "Measure the cold-start path"
+$ vissue show parser-ab12
+$ vissue --no-route create --project parser "Stays on the default root"
+#+end_src
+
+=identity= appends one =route:= line per routed name. =projects= lists
+those names with the default-layout projects.
+
+* Filter and count
+
+=--project= (also =-p= or =-P=) and =--state= apply to =list=, =count=,
+=ready=, =graph=, =roadmap=, and =export=. A project name matches the
+directory on disk without regard to case.
+
+#+begin_src console
+$ vissue list --project parser --state TODO
+$ vissue count --ready
+#+end_src
+
+* Feed another tool
+
+=export= writes one JSON object per line, carrying every property, the
+logbook, the body, and the file line range.
+
+#+begin_src console
+$ vissue export --project parser | jq -r '.id + " " + .state'
+#+end_src
+
+The schema is in the [[file:reference.org][Reference]]. It is the seam other tools consume,
+so fields are added rather than repurposed.
+
+* Hand an issue to someone as the specification
+
+=show --org= writes the heading out whole: the property drawer, the
+logbook, and the body, exactly as the file holds them.
+
+#+begin_src console
+$ vissue show --org parser-1a2b > ISSUE.org
+#+end_src
+
+Use this rather than =body-excerpt= whenever the text is the thing being
+worked from. =body-excerpt= is a preview and stops at 40 lines, so a
+longer issue loses its tail without saying so. The logbook travels with
+the export, carrying the notes written when the work was
+handed over.
+
+An issue whose text looks like credential material is refused rather
+than exported, the same way a preview of it is.
+
+Plain =show= prints the metadata and then the body, and =show --json=
+carries both along with the logbook, so a caller that already fetched
+the issue does not need a second read to learn what it asks for.
+
+* Reject work by redirecting it
+
+=reject= closes an issue as =CANCELLED= and points at a replacement: an
+existing id with =--to=, or a newly created heading with =--project= and a
+title. =--reason= is recorded on the source.
+
+#+begin_src console
+$ vissue reject parser-1a2b --to parser-9k0m --reason "duplicate of the rewrite"
+$ vissue reject parser-1a2b --project parser "Rewrite the manifest parser" --reason "superseded"
+#+end_src
+
+A write that still believes the heading is open must name what it read:
+
+#+begin_src console
+$ vissue update parser-1a2b --state DONE --if-state STARTED
+$ vissue update parser-1a2b --state DONE --if-gen 3167
+#+end_src
+
+If a reject landed first, =--if-state STARTED= refuses and the source stays
+=CANCELLED=. Two disagreeing closes do not last-write-wins: the first
+terminal stays, the second is =:SIBLING_TERMINAL:=, and =resolve= picks one.
+
+#+begin_src console
+$ vissue resolve parser-1a2b --state CANCELLED
+#+end_src
+
+=check= warns when a =DONE= body reads as a reject, when a body =[[id:]]=
+is connected by no edge at all, and when a sibling terminal is unresolved.
+
+Both of the first two are narrower than they sound, on purpose. "Reads as a
+reject" means the shapes a rejection is written in -- =vissue reject=,
+"superseded by", "rejected in favour of", or a heading naming the outcome -- and
+not the word itself: a bug report about validation says "rejected" in every
+other sentence, and warning about those is how a check gets ignored.
+
+The mention warning is narrower twice over. The edge can be =DISCOVERED_FROM=,
+=PIVOTED_TO=, =PARENT= or =BLOCKED_BY=, because a parent naming its child is a
+stated relation already. And the prose near the link has to claim the relation
+the properties name -- "discovered while", "filed from", "pivoted to" and their
+neighbours -- because a body links other issues for every reason there is: an
+umbrella rolls up what it does not close, a note says see also. A link that
+claims nothing is a link, not a missing edge.
+
+* What merges and what conflicts
+
+The file is not a CRDT. Fields that are sets can be unioned if two
+replicas are joined by hand. Fields that are a single value cannot.
+
+| Field | On a merge |
+|-------+------------|
+| logbook, =append= body, tags, =BLOCKED_BY= | Union. Duplicates drop. |
+| =state=, claim, =PIVOTED_TO=, =SIBLING_TERMINAL= | Conflict. Use =reject=, =resolve=, or =update --if-state=. |
+
+* Record what was done
+
+=append= adds a dated, attributed report to the issue's body.
+
+#+begin_src console
+$ vissue append parser-1a2b --file SUMMARY.md
+$ vissue append parser-1a2b --text "landed; back-pressure still open"
+#+end_src
+
+=--file -= reads stdin. Markdown is safe: a line that would otherwise end
+the issue is indented on the way out, so a bullet list does not split the
+heading in two.
+
+This is the counterpart to =note=. A note is one line in the logbook,
+which is the audit trail of what happened to the issue; a report is prose
+about the work, which belongs under the heading where a reader looks for
+what the issue is about.
+
+* Open what the work stands on
+
+=recall= is the working set for one issue: the plan above it, what blocks it
+and what each of those produced, the issue it was bounced from, and what it has
+produced itself. Run it after claiming and before starting.
+
+#+begin_src console
+$ vissue claim parser-3xq7
+claimed parser-3xq7 by impl (BLOCKED -> STARTED)
+  `recall parser-3xq7` for 2 declared inputs, a plan above it
+$ vissue recall parser-3xq7
+$ vissue recall parser-3xq7 --json
+#+end_src
+
+It walks declared edges rather than ranking the corpus, so the set is what the
+plan says the work needs. =related= is the verb for the other question.
+
+* Name what a unit of work produced
+
+A claim says who is working and a note says what happened. Neither says what
+the work made, so the next unit had to reread a transcript to find out.
+
+[[https://leidarljos.github.io/deedar/][deedar]] records a product as a *deed*
+and freezes it. =deed= cites that accession on the heading, and the next
+issue's =recall= hands it on:
+
+#+begin_src console
+$ deedar create patch --id deed-patch-backpressure --name "back-pressure" \
+    --tree . --diff work.patch --functionary impl --agent impl
+$ vissue deed parser-3xq7 --add deed-patch-backpressure
+parser-3xq7: deeds += deed-patch-backpressure
+$ vissue update parser-3xq7 --state DONE
+#+end_src
+
+Whoever picks up the issue this one was blocking opens the product directly:
+
+#+begin_src console
+$ deedar get $(vissue recall parser-9k2m --deeds-only)
+#+end_src
+
+The tracker stores the accession and nothing else. =deed --remove= drops a
+citation, and =deed= with neither flag lists them.
+
+* Check that the citations still resolve
+
+The tracker stores accessions and never opens the store, so it cannot tell you
+whether a cited deed is still there. =check= says whether a citation is
+*shaped* like one; the deed store says whether it *is* one. Compose them:
+
+#+begin_src console
+$ vissue recall parser-3xq7 --deeds-only | deedar evidence -
+deed-patch-backpressure ok
+deed-file-manifest FAILED: deed not found: deed-file-manifest
+1 of 2 verified
+#+end_src
+
+=deedar evidence -= reads one id per line, checks each, and exits non-zero if
+any failed, so a job can gate on it. Run it over a whole project by feeding it
+every citation in the corpus:
+
+#+begin_src console
+$ vissue export | jq -r '.properties.DEEDS // empty' | tr ", " "\n" \
+    | grep . | sort -u | deedar evidence -
+#+end_src
+
+* Find everything standing on a product
+
+=deedar current= tells you a cited deed has been superseded. The next question
+is which work stood on it, and that is =backlinks= given an accession rather
+than an id:
+
+#+begin_src console
+$ vissue backlinks deed-patch-backpressure
+parser-3xq7            (cites) (parser)
+parser-9k2m            (cites) (parser)
+api-4tn8               (body mention) (api)
+#+end_src
+
+=(cites)= is a =:DEEDS:= citation; =(body mention)= is prose naming the
+accession and nothing declared. Under routing the scan covers every tracker in
+reach, since a product has no project of its own and anything can stand on it.
+
+The corpus decides which namespace the argument is in. A known issue id is an
+issue whatever it looks like, so a project literally named =deed= keeps
+working. A token nobody minted reads as an accession, and nothing else does. An accession
+nobody cited answers empty rather than failing, because the product may be real
+and simply unused.
+
+Chained, that sweeps a corpus for work standing on a superseded product:
+
+#+begin_src console
+$ vissue export | jq -r '.properties.DEEDS // empty' | tr ", " "\n" \
+    | grep . | sort -u | deedar current - \
+    | awk '$2 == "SUPERSEDED" { print $1 }' \
+    | while read -r deed; do vissue backlinks "$deed"; done
+#+end_src
+
+* Decide something several agents disagree about
+
+=vote= records one ballot per identity and counts them. =consensus= weighs the
+same ballots by how much the group listens to each agent.
+
+#+begin_src console
+$ VISSUE_AGENT=reviewer vissue vote parser-3xq7 --for hold
+$ vissue vote parser-3xq7
+$ vissue consensus parser-3xq7
+#+end_src
+
+With no =[consensus.trust]= configured the weighted answer is the count as a
+fraction. Configure the rows and the report says where the two differ, which
+agent carried how much of the result, and whether the group can reach an
+agreement at all.
+
+=consensus= only reads. When an anchored settle leaves a
+voter leading with its own option, =--file-dissent= files a =Dissent holds
+OPTION= child for it, once per option.
+
+* Follow the graph
+
+=tree= walks children and blockers below an id; =graph= emits the whole thing
+as Graphviz DOT; =backlinks= finds everything pointing at an id, or citing a
+deed accession; =cycles= reports a blocker loop; =ancestors= and =impact= bound
+the walk by hop depth.
+
+#+begin_src console
+$ vissue tree parser-3xq7
+$ vissue graph --project parser | dot -Tsvg > backlog.svg
+$ vissue ancestors parser-3xq7 --depth 3
+$ vissue impact parser-k29f --depth 3
+#+end_src
+
+* Ask what else is related, and why
+
+=related= gives a bounded, derived neighbourhood. Explicit =:PARENT:=,
+=:BLOCKED_BY:=, =:DISCOVERED_FROM:=, a shared deed, and Org body links rank
+above shared tags and rare terms. The result names its evidence and writes nothing back.
+
+#+begin_src console
+$ vissue related parser-k29f --depth 2 --limit 20 --format org
+#+end_src
+
+=--format org= gives pasteable =id:= links back to the headings.
+
+* Keep the corpus consistent
+
+=check= validates every parent and blocker edge, that parent chains terminate,
+that dates parse, and that ids are unique. An org-gcal =<event>/<calendar>=
+=:ID:= is an error; a nested-project vissue id (=Infra/terra-6cx2=) is not.
+It exits non-zero on an error, so CI can gate on it. =hygiene= adds the
+claims that are not actually workable.
+
+#+begin_src console
+$ vissue check
+$ vissue hygiene --stale-days 3
+#+end_src
+
+* Tell whether a copy of the backlog is current
+
+=digest= hashes the corpus, combined and per project, so a consumer can
+compare two points in time without reading every issue.
+
+#+begin_src console
+$ vissue digest -P atlas -P beacon
+combined=7f91ad67512010d0 issues=109 generation=3167 projects=2
+6cdab6af46e1c979      12  atlas
+671d99c6181c1494      97  beacon
+#+end_src
+
+The per-project lines are the point: a changed combined digest says something
+moved, and the sub-digests say which project. The hash is xxh3 over the JSONL
+export, so it tracks content and ignores formatting that changes nothing.
+
+Every mirror carries that digest in its header, which makes freshness one
+command that exits 0 when current and 1 when not:
+
+#+begin_src console
+$ vissue mirror --check Software/atlas/issues-mirror.org
+stale: Software/atlas/issues-mirror.org
+  stamped digest=0000000000000000 at=2026-08-03T09:53 issues=12
+  current digest=d2ee07c7f585330b issues=12 generation=3167
+  moved: atlas 1111111111111111 -> 6cdab6af46e1c979
+#+end_src
+
+The check reads the projects from the stamp, so a caller need not repeat them.
+
+* See who is holding what
+
+Claiming stamps an identity and a timestamp onto the issue.
+
+#+begin_src console
+$ vissue whoami
+user@host
+$ vissue claims --by grind-worker-3 --json | jq -r '.[0].claimed_at'
+#+end_src
+
+The identity comes from =VISSUE_AGENT=, then =agent= in =vissue.toml=, then
+=user@host=.
+
+Moving to STARTED by any route takes the claim if no one holds it. BLOCKED
+keeps it, because the holder is still on the issue. Returning to TODO, or
+closing, gives it up and writes a logbook note naming who held it and since
+when, so the history outlives the properties.
+
+=hygiene= groups live claims by holder, with each holder's newest =CLAIMED_AT=
+stamp, and flags holders whose claim is older than =stale_claim_days=
+(default 7). Logbook notes do not count: they do not name who wrote them.
+STARTED issues nobody has claimed are still listed one by one.
+
+To drop every claim stamp one identity still holds, including a stamp left on a closed heading, without changing state:
+
+#+begin_src console
+$ vissue release --holder user@old-laptop --dry-run
+$ vissue release --holder user@old-laptop --why "that laptop is gone"
+$ vissue release --holder impl-A --older-than 7 --why "old panel persona"
+#+end_src
+
+=--dry-run= prints the same report without writing. Each released issue gets a
+logbook note naming who ran the verb and why.
+
+* Report progress on an issue someone else holds
+
+=note= adds a dated entry to the top of an issue's logbook and touches
+nothing else.
+
+#+begin_src console
+$ vissue note parser-k29f "grammar table regenerated; fuzz corpus next"
+parser-k29f: noted
+#+end_src
+
+* Fold in work discovered outside the tracker
+
+Something without write access to the tracker appends plain =* TODO <title>=
+headings to an
+inbox Org file on whatever shared storage it can reach. =fold= turns each
+unstamped heading into a tracked issue, then flips the heading to DONE and
+stamps it with the assigned id in place, so the inbox doubles as its own
+receipt and folding twice creates nothing.
+
+#+begin_src console
+$ vissue fold inbox.org --project parser
+folded 2: parser-x1a2 parser-y3b4
+#+end_src
+
+A =fold= that fails partway still stamps the issues it created, so a rerun
+does not create them twice.
+
+* Project the boards a shared repository shows
+
+A repository several seats share carries read-only mirrors of boards
+that live in other trackers, and inbox and claims files that carry work
+back. Declare them once in the repository's =vissue.toml=:
+
+#+begin_src toml
+[[projection.board]]
+project = "ljos"                          # the project's name on its source
+source  = "vault"                          # a [layouts.*] name, "self", or a path
+mirror  = "Software/ljos/issues-mirror.org"
+inbox   = "Software/ljos/inbox.org"        # optional: * TODO headings become issues
+claims  = "Software/ljos/claims.org"       # optional: * TODO claim ID as AGENT lines
+#+end_src
+
+Then one verb does the round trip: fold each inbox into its source, apply
+each claims file, rewrite each mirror, and name the files to commit.
+
+#+begin_src console
+$ vissue project
+ljos: folded 2: ljos-x1a2 ljos-y3b4
+ljos: wrote Software/ljos/issues-mirror.org
+surf: wrote Software/surf/issues-mirror.org
+commit and push: Software/ljos/inbox.org Software/ljos/issues-mirror.org Software/surf/issues-mirror.org
+#+end_src
+
+A board whose source is not on the seat running the verb is reported and
+left as projected, so a delegate runs the same command and learns which
+boards it can move here. =--check= compares each reachable mirror's stamp
+against its source and exits 1 when one is stale, which is the pre-commit
+check for the repository.
+
+#+begin_src console
+$ vissue project --check
+ljos: source vault is not on this seat; Software/ljos/issues-mirror.org stays as projected
+surf: fresh: Software/surf/issues-mirror.org
+1 board(s) have no source on this seat; run `vissue project` where they do
+#+end_src
+
+=show= on an id that lives only in a mirror answers from the mirror and
+names the inbox, instead of reporting the issue missing:
+
+#+begin_src console
+$ vissue show ljos-kcd6
+* TODO [#A] The seat under a herd :task:
+...
+read-only projection of ljos from vault; write discovered work to Software/ljos/inbox.org
+#+end_src
+
+A claims line is =* TODO claim ID as AGENT=, =* TODO release ID as
+AGENT= or =* TODO done ID as AGENT=; the verb stamps each applied line to
+DONE with its result, so the file is its own receipt and applying twice
+does nothing.
+
+* Split a feature into a board two workers share
+
+A feature becomes one parent issue and tagged children, each blocked on
+the node it cannot start without. Only the frontier is workable, so two
+agents cannot start the terminal UI and the example file at once.
+
+#+begin_src console
+$ vissue create --project keys --type plan "Epic: Colemak leader sequence"
+keys-e0pl  TODO  [#C]  Epic: Colemak leader sequence
+$ vissue create --project keys --type task --parent keys-e0pl --tags catalog \
+    "Catalog of bindable actions"
+keys-cata  TODO  [#C]  Catalog of bindable actions
+$ vissue create --project keys --type task --parent keys-e0pl --tags config \
+    "keys.toml schema and key names"
+keys-toml  TODO  [#C]  keys.toml schema and key names
+$ vissue update keys-toml --block keys-cata
+keys-toml: state TODO -> BLOCKED (auto on block), blocked_by += keys-cata
+$ vissue ready --project keys
+keys-cata              TODO      [#C]  Catalog of bindable actions
+$ vissue tree keys-e0pl
+keys-e0pl TODO      [#C]  Epic: Colemak leader sequence
+  keys-cata TODO      [#C]  Catalog of bindable actions
+  keys-toml BLOCKED   [#C]  keys.toml schema and key names
+    * blocked-by keys-cata
+#+end_src
+
+Parent edges are containment; the =blocks= edges are =:BLOCKED_BY:= and
+are what =ready= reads. A blocker that would close a cycle is rejected.
+Two workers share the frontier by claiming, not by editing a checklist.
+A common pairing is one implementer and one reviewer per node: the
+reviewer is a child issue blocked on the implementation issue, so it
+becomes ready only when the implementer closes. An identity is an opaque
+string; set =VISSUE_AGENT= to something stable enough to recognise later.
+
+#+begin_src console
+$ VISSUE_AGENT=impl vissue claim keys-cata
+claimed keys-cata by impl (TODO -> STARTED)
+$ vissue create --project keys --type task --parent keys-cata --tags review \
+    "Review the bindable-action catalog"
+$ vissue update keys-revw --block keys-cata
+$ VISSUE_AGENT=review vissue ready --project keys
+# empty: the only open work is claimed or blocked
+#+end_src
+
+* See what is due
+
+=agenda= lists open and blocked issues whose deadline or scheduled date falls
+inside a horizon, overdue first. A blocked issue still appears, because its
+date does not stop mattering while it waits.
+
+#+begin_src console
+$ vissue agenda -d 30
+2026-07-23  deadline  12d overdue parser-k29f  STARTED  [#A]  Reject a manifest... (parser)
+#+end_src
+
+Emacs shows the same dates in its own agenda without this command; see
+[[file:emacs.org][Emacs]].
+
+* Watch for changes without re-reading everything
+
+A write advances a generation counter and appends to a log, both beside the
+project directories. A poller compares the counter, then reads only what is
+new.
+
+#+begin_src console
+$ vissue gen
+3167
+$ vissue events --since 3155 -n 5
+$ vissue wait --last 3167 --timeout-ms 30000   # exits 2 on timeout
+$ vissue wait --id parser-1a2b --until-terminal --timeout-ms 30000
+DONE 3182
+$ vissue ping --detail "external change"       # wake pollers by hand
+#+end_src
+
+=wait --until-terminal= needs =--id=. It prints =DONE <gen>= or
+=CANCELLED <gen>= and exits 0, or =TIMEOUT <state> <gen>= and exits 2.
+
+Set =VISSUE_EVENTS=0= to suppress emission when the tracker must stay
+untouched.
+
+* Attach to the optional serve cache
+
+=vissue serve -d= owns the control socket and keeps a parsed catalog in
+memory. Interactive clients attach for =issue/ready= and push
+notifications instead of polling =wait=. The files stay the store: stop
+serve, delete the socket directory, and every CLI verb still works.
+
+#+begin_src console
+$ vissue serve -d
+$ vissue serve status
+live: true
+#+end_src
+
+=initialize= must send a non-empty =agent=. A claim over the socket
+stamps that agent, not the process =VISSUE_AGENT= that started serve.
+The wire is on [[file:control.org][Control]].
+
+* Browse the terminal board
+
+=vissue tui= paints from the files first, then attaches to serve when
+the socket is free. =--offline= never probes a socket and never starts
+serve. A live serve bound to another root stays on the files: the board
+does not send mutations to the wrong vault.
+
+#+begin_src console
+$ vissue tui
+$ vissue tui --offline
+#+end_src
+
+Panes: Ready, List, Claims, Agenda, Search. Detail tabs on the selected
+row: show, excerpt, tree, related, recall. The last is the working set:
+what the node stands on and what those inputs produced. Keys (also on =?=):
+
+| Key | Action |
+|-----+--------|
+| =j=/=k=, arrows | Move |
+| =Tab= / 1-5 | Pane |
+| =Enter= | Focus detail |
+| =p= | Project filter |
+| =/= | Search |
+| =c= | Claim |
+| =n= | Note |
+| =d= | Cite a deed |
+| =s= | Cycle TODO / STARTED / BLOCKED |
+| =D= | DONE (confirm) |
+| =X= | CANCELLED (confirm) |
+| =o= | Open (shared selection) |
+| =y= | Copy id |
+| =R= | Reload |
+| =?= | Help |
+| =q= / =Esc= | Quit / back |
+
+The status line reads =serve:live|offline|mismatch gen=N rev=M agent=...=.
+Body edits stay in the file.
+
+* Summon the desktop palette
+
+=vissue hud= opens on the project list. Enter opens one project's ready
+forest; List / Claims / Agenda then stay inside that project.
+Filters, search, and add sit on one row. =/= focuses search.
+Esc returns to the list. Ready and List nest children under =PARENT=.
+The selected row keeps the issue visible (properties above a wrapping
+body), with tree / related / notes / recall on the right. List titles wrap
+inside the pane. The tree tab expands or collapses the outline. The recall
+tab is the working set: the plan above the issue, each declared input with
+what it produced, and the last thing said about it. A 360-pixel overlay
+has room for three tab labels, so recall sits past the edge of the strip;
+Enter cycles to it.
+Escape on the project list unmaps the overlay; =vissue hud --toggle=
+shows it again. Closing the mapped window quits.
+=n= shows the logbook and writes a note; =d= opens the recall tab and cites a
+deed on the selected issue, refusing a value that is not an accession where you
+can see it. Keys are a catalog;
+=~/.config/vissue/keys.toml= remaps them; reserved =Esc=, =Enter=, =Tab= and =?=.
+=s= cycles TODO/STARTED/BLOCKED, =c= claims, =p= project, =D=/=X= close,
+=o= opens, =?= help, =a= adds. =Tab= or =1=--=4= switch panes.
+
+=--rofi= is the seat dmenu picker. Return opens the heading in
+=$EDITOR=. Alt+c claims. Alt+n notes.
+
+#+begin_src console
+$ vissue hud
+$ vissue hud --rofi
+$ vissue hud --rofi --mode list
+$ vissue hud --rofi --mode new
+#+end_src
+
+* Point at a different layout
+
+Use =--prefix=, =VISSUE_PREFIX=, or a =vissue.toml= at the root:
+
+#+begin_src toml
+prefix = "projects"
+
+[issues]
+default_priority = "B"
+id_length = 5
+stale_claim_days = 3
+#+end_src
+
+Each layer overrides key by key, so a file that tunes one knob leaves the rest
+alone.
+
+* Detect the project
+
+=create= and =q= choose a project in this order and stop at the first name:
+
+- =-p= (also =--project= or =-P=).
+- The current file's project. A working directory inside
+  =<root>/<prefix>/<name>/= means =<name>=. Otherwise a
+  =.project-ctx.toml= in that directory or a parent, carrying
+  =[project] name = "..."=, names it. Inside a git repository the walk
+  stops at that repository's top-level directory.
+- The git repository around the working directory. That is the =origin=
+  remote's repository name, or the top-level directory's name when the
+  repository has no remote.
+- The prefix. =Software=, unless =--prefix=, =VISSUE_PREFIX=, or =prefix=
+  in =vissue.toml= names another.
+
+An issue filed inside a repository lands in that repository's project.
+The context file that counts is the one at or below the repository's
+top-level directory. Outside a repository, a context file in a parent
+directory names the project. The prefix is the last resort for a
+directory that has no project file and is not a repository.
+
+=fold= stops after the context file. With no =-p= and no
+=.project-ctx.toml= it reports an error.
+
+* Know which tracker you are writing to
+
+=create=, =update=, =claim=, and =refile= all write, and claiming counts as a
+write because it stamps the holder onto the issue. When a wrapper or the
+environment sets =VISSUE_ROOT=, a bare =vissue= writes to that tracker from
+any directory. Pass =--root= explicitly for a scratch tracker, and =vissue
+identity= reports which binary and which root are in play before you commit
+to a mutation.
+
+* Ask the binary what it accepts
+
+=vissue surface= walks the parser and prints every subcommand with its aliases and
+long flags as JSON. Read it from a wrapper, a completion table of your own, or a check
+over this command line.
+
+#+begin_src console
+$ vissue surface | jq -r '.[] | select(.hidden == false) | .name'
+$ vissue surface | jq -r '.[] | select(.name == "count") | .flags[]'
+#+end_src
+
+Parsing =--help= answers the same question worse. Help text is laid out for a person,
+so a wrapper reading it breaks the first time a description grows long enough to wrap.
+It also cannot tell a flag from a word in a sentence about one.
+
+* Install shell completions
+
+Generated from the binary's own argument definitions, so they cannot drift.
+
+#+begin_src console
+$ vissue completions bash > /usr/share/bash-completion/completions/vissue
+$ vissue completions zsh  > ~/.zfunc/_vissue
+$ vissue completions fish > ~/.config/fish/completions/vissue.fish
+$ vissue man > ~/.local/share/man/man1/vissue.1
+#+end_src

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 220" role="img" aria-label="vissue">
+  <rect width="820" height="220" fill="#0B0B0A"/>
+  <image href="mark.svg" x="18" y="10" width="200" height="200"/>
+  <text x="250" y="138" font-family="Iowan Old Style, Palatino Linotype, Palatino, Charter, serif" font-size="64" font-weight="600" fill="#F4F0E6" letter-spacing="-1.2">vissue</text>
+</svg>

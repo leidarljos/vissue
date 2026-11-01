@@ -1,0 +1,133 @@
+#+title: Emacs
+#+description: An issues.org is an ordinary Org file. Emacs is a client of it, not of the command.
+#+options: toc:nil num:nil
+
+An =issues.org= is an ordinary Org file. Emacs is a client of it, not of the
+command: the agenda, tag search, and =id:= links work against a tracker with
+nothing installed.
+
+* What makes that true
+
+vissue writes what Org reads, rather than what would be convenient to parse
+back.
+
+| Field                       | Written as                                        | What Org does with it        |
+|-----------------------------+---------------------------------------------------+------------------------------|
+| Deadline, scheduled, closed | The planning line under the heading                | =org-agenda= lists the issue |
+| Type and tags Org can hold  | The heading's own =:bug:parser:= run, aligned to =org-tags-column= | Tag search matches |
+| Identity                    | =:ID:=                                            | =org-id= resolves an =id:= link |
+| Project                     | =#+CATEGORY:= in the preamble                     | The agenda labels rows by project |
+| File protocol               | =#+VISSUE: 1=                                     | On-disk contract; =check= reads it |
+| File tags                   | =#+FILETAGS: :issues:project:noexport:=           | Inherited by every heading; publish skips the file |
+| Fast tags                   | =#+TAGS:= type group plus =docs= / =perf=         | =C-c C-q= has keys |
+| Priorities                  | =#+PRIORITIES: A C C=                             | Range and default cookie; missing =[#X]= is =C= |
+| Shared settings             | Local =#+SETUPFILE:=                              | TODO / TAGS / PRIORITIES merge; URLs unread |
+| Ordered children            | =:ORDERED:= / =:NOBLOCKING:=                      | =ready= waits on earlier open siblings |
+| Workstream override         | =:CATEGORY:= on that heading only                 | That row's agenda label |
+| Keyword cycle               | File-local =#+TODO:= (TODO STARTED BLOCKED, then DONE CANCELLED) | =C-c C-t= walks that sequence |
+| Closed / cancelled          | The TODO keyword (=DONE=, =CANCELLED=)            | =C-c C-t=                       |
+| Bounce / successor          | =:PIVOTED_TO:= / =:DISCOVERED_FROM:=              | Ordinary properties; =id:= links |
+| Disagreeing terminals       | =:SIBLING_TERMINAL:= plus the keyword that won    | Delete the property, then =C-c C-t= |
+
+A verb that cannot be done with those keys does not belong in the tracker.
+=vissue reject= and =vissue resolve= write the same properties; =vissue.el=
+exposes them as =vissue-reject-at-point= and =vissue-resolve-at-point=.
+=wait --until-terminal= and =update --if-gen= are the event bus, not Org,
+and stay on the CLI.
+
+A deadline in a property drawer is invisible to the agenda, because Org reads
+the planning line and nothing else. =TAGS=, =DEADLINE=, and =SCHEDULED= are
+also names Org reserves, so a drawer claiming them is wrong; Org ignores it
+and =org-lint= says so. Nothing vissue writes draws an =org-lint=
+finding.
+
+* Editing a tracker in Emacs
+
+The traffic goes both ways. =C-c C-d=, =C-c C-s=, =C-c C-q=, and marking an
+issue DONE or CANCELLED under =org-log-done= all work on an issue heading, and
+vissue reads back what they write. A bounce typed by hand is =C-c C-t= to
+=CANCELLED=, then =:PIVOTED_TO:= on this heading and =:DISCOVERED_FROM:= on
+the successor.
+
+#+begin_src elisp
+;; Put a tracker in the agenda:
+(setq org-agenda-files
+      (directory-files-recursively "~/notes/Software" "issues\\.org\\'"))
+(org-id-update-id-locations org-agenda-files)
+#+end_src
+
+After that, =M-x org-agenda= lists issues by deadline, =C-c \= matches their
+tags, and an =[[id:parser-k29f]]= link from any other Org file jumps to the
+issue.
+
+* Anything else that writes the file
+
+A second tool is welcome to write an =issues.org= as long as it respects
+Org's own shape. Two rules cover it:
+
+- Take the advisory lock on =<path>.lock= before a read-modify-write cycle.
+  vissue holds it across parse and write; a writer that ignores it can lose an
+  edit that landed in between, with nothing to report it.
+- Put drawers under the heading, after the planning line. Org does not
+  require =:PROPERTIES:= to come first, and the parser no longer does
+  either; a rewrite still emits =:PROPERTIES:= then =:LOGBOOK:= then any
+  other drawer, which is the order =org-log-into-drawer= produces.
+- Do not put an org-gcal event id (=<event>/<calendar>=) on an issue.
+  That form is not a vissue id; the heading is left as Org around the
+  issues. A nested-project id such as =Infra/terra-6cx2= is still
+  ={project}-{suffix}=, even though the project name contains =/=.
+
+vissue keeps whatever it does not understand. CLOCK entries and other opaque
+drawer lines round-trip verbatim and appear in the JSONL export as =raw=, so
+data another tool records survives a vissue rewrite. A =COMMENT= heading
+or a =* Notes= section between issues is kept as Org, not turned into a
+missing =:ID:=. A =#+BEGIN_SRC= / =#+BEGIN_EXAMPLE= / =#+BEGIN:= block is
+literal: a quoted =* TODO= inside one is not an issue. =#+RESULTS:=
+and =#+CALL:= are Babel (manual 16): the payload is the parent
+issue's body, even when it looks like a heading or a property
+drawer. Nothing is evaluated.
+
+The planning line accepts Org's full timestamp, including a range
+=<date>--<date>=, a repeater, and a warning period. File-local =#+TODO:=
+keywords are recognised so a =WAITING= heading does not fail the file.
+The chapter-by-chapter map is [[file:org-syntax.org][Org syntax]].
+
+One line is the exception, and it exists because Org says so: a body line
+beginning =* = opens a headline, which would end the issue at that point and
+leave the rest as a heading carrying no =:ID:=. vissue writes such a line
+indented by one space, so it stays body. Nothing else moves, and a deeper
+=** Scope= is left alone, being a child of the issue rather than the end of
+it. Typing that line in Emacs makes a real heading, so what runs into this is
+a body written by a tool: =create --body-file= and =append= both take
+markdown, where =* = is a bullet.
+
+Line endings are the other thing that does not come back byte for byte. A
+file with CRLF endings, or without a final newline, is read without
+complaint; a write settles the whole file on LF. That shows up once, as a
+whole-file diff, and not again.
+
+* Checking the two agree
+
+=tests/org_interop.sh= drives real Emacs over a real tracker: =org-lint=
+finds nothing, the agenda shows both dates and labels rows by project, tag
+search matches, =org-id= resolves, and then Emacs performs the destructive
+edits and vissue reads the result back unchanged.
+
+#+begin_src console
+$ bash tests/org_interop.sh ./target/release/vissue
+#+end_src
+
+It is run in CI against a real Emacs, because the claim it checks is the whole
+reason the file format is what it is.
+
+* The control socket is attachable
+
+=vissue serve= owns a Unix socket a later Emacs attach can use.
+=vissue.el= is a sibling package, not this repository, and still shells
+out to the CLI. Nothing in this tree is Elisp.
+
+Attach with JSON-RPC JSONL to =$XDG_RUNTIME_DIR/vissue/control.sock=
+(or =VISSUE_CONTROL_SOCKET=). =initialize= with =protocolVersion= 1 and
+a non-empty =agent=. =issue/ready=, =issue/claim=, and =issue/get=
+replace process-file calls. If the socket is down, keep shelling out to
+the CLI. The wire is on [[file:control.org][Control]].

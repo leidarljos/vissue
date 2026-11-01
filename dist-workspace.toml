@@ -1,0 +1,50 @@
+[workspace]
+members = [
+    "cargo:crates/vissue-cli",
+    "cargo:crates/vissue-mcp",
+    "cargo:crates/vissue-hud",
+]
+
+# Config for 'dist' (cargo-dist). `dist generate` writes the release workflow
+# from this file; the checked-in release.yml is a placeholder until the first
+# tag.
+[dist]
+cargo-dist-version = "0.30.3"
+ci = "github"
+# The release workflow is generated, and dependabot keeps the action versions
+# in it current. dist re-generates on every pull request and fails when the
+# checked-in file differs from what it would write, so each of those bumps
+# turned every pull request red on a job that has nothing to do with the
+# change under review.
+#
+# Keeping the newer actions and dropping the equality check is the trade: what
+# is lost is dist noticing that the workflow drifted from its template, and
+# what is gained is a red job meaning something again. Regenerate deliberately
+# with `dist init` when the version above moves.
+allow-dirty = ["ci"]
+installers = ["shell", "powershell"]
+targets = [
+  "aarch64-apple-darwin",
+  "aarch64-unknown-linux-gnu",
+  "aarch64-unknown-linux-musl",
+  "x86_64-apple-darwin",
+  "x86_64-unknown-linux-gnu",
+  "x86_64-unknown-linux-musl",
+  "x86_64-pc-windows-msvc",
+]
+pr-run-mode = "upload"
+github-attestations = true
+# One tag workflow: Release builds archives, then calls publish-crates.yml.
+# Homebrew is not here: there is no HaoZeke/homebrew-tap, and pushing a
+# formula needs write access on that repo which GITHUB_TOKEN does not have.
+publish-jobs = ["./publish-crates"]
+# Caller permissions are a ceiling: without contents:read the reusable
+# workflow cannot check out the tree before cargo publish.
+github-custom-job-permissions = { "publish-crates" = { contents = "read", "id-token" = "write", packages = "write" } }
+
+# GitHub retires the macos-14 image on 2026-11-02 and browned it out for
+# the v0.23.0 release twice; dist 0.30.3 still plans the Apple builds on
+# it. These labels are read at plan time, so no regenerate is needed.
+[dist.github-custom-runners]
+aarch64-apple-darwin = "macos-15"
+x86_64-apple-darwin = "macos-15"

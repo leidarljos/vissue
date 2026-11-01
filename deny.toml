@@ -1,0 +1,41 @@
+[advisories]
+version = 2
+# iced 0.14 still depends on unmaintained font crates. Fail only if a
+# workspace package itself is unmaintained.
+unmaintained = "workspace"
+yanked = "deny"
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[licenses]
+version = 2
+allow = [
+    "Apache-2.0",
+    "BSL-1.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Zlib",
+]
+
+# libfuzzer-sys carries NCSA on top of the usual dual licence, because it
+# wraps LLVM's fuzzer. It arrives through iced's image decoding
+# (image -> ravif -> rav1e) and is only built when fuzzing, so the licence
+# is allowed for that crate rather than for the whole graph.
+exceptions = [
+    { name = "libfuzzer-sys", allow = ["NCSA"] },
+    # ksni is the StatusNotifier tray. Its crate is Unlicense, which is
+    # not on the graph-wide list.
+    { name = "ksni", allow = ["Unlicense"] },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

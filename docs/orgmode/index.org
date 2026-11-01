@@ -1,0 +1,76 @@
+#+title: vissue
+#+description: A plan is a directed acyclic graph of Org headings.
+#+options: toc:nil num:nil
+
+#+begin_export rst
+.. raw:: html
+
+   <div class="vi-hero">
+     <div class="vi-hero-brand">
+       <img class="vi-hero-mark" src="_static/mark.svg" width="64" height="64" alt="" />
+       <div>
+         <p class="vi-hero-name">vissue</p>
+         <p class="vi-hero-tag">What does this node stand on, and who agrees?</p>
+       </div>
+     </div>
+     <p class="vi-hero-tagline">A plan is a directed acyclic graph of Org headings.</p>
+     <div class="vi-hero-pills">
+       <span>Org mode</span>
+       <span>Plain text</span>
+       <span>CLI + MCP</span>
+     </div>
+     <div class="vi-hero-actions">
+       <a class="vi-btn vi-btn-gold" href="getting-started.html">Get started</a>
+       <a class="vi-btn vi-btn-ghost" href="reference.html">Reference</a>
+     </div>
+   </div>
+#+end_export
+
+* Install
+
+#+begin_src console
+$ cargo install vissue-cli
+$ cargo install vissue-mcp
+$ cargo install vissue-hud   # summonable overlay, optional
+#+end_src
+
+Seven crates ship at one version. Tagged releases also carry prebuilt
+archives and a shell installer. Completions and the manual page come
+out of the binary:
+
+#+begin_src console
+$ vissue completions zsh > ~/.zfunc/_vissue
+$ vissue man > ~/.local/share/man/man1/vissue.1
+#+end_src
+
+* First minute
+
+#+begin_src console
+$ mkdir -p /tmp/demo && cd /tmp/demo
+$ vissue create --project parser "Reject a manifest with no header"
+parser-k29f  TODO  [#C]  Reject a manifest with no header
+file: /tmp/demo/Software/parser/issues.org
+#+end_src
+
+That file is the database: one Org heading, ordinary text, nothing beside it.
+The [[file:getting-started.org][tutorial]] continues from this issue.
+
+Wire a coding seat through =ljos-mcp= on the [[file:harness.org][Harness]] how-to.
+
+#+begin_export rst
+.. toctree::
+   :maxdepth: 1
+   :caption: Guides
+   :hidden:
+
+   getting-started
+   howto
+   harness
+   reference
+   control
+   explanation
+   emacs
+   org-syntax
+   ecosystem
+   seat
+#+end_export

@@ -1,0 +1,47 @@
+[package]
+name = "vissue-mcp"
+description = "Model Context Protocol server exposing vissue issue tracking to agents"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }.tar.xz"
+bin-dir = "{ name }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "txz"
+# The release tarball or nothing. A target without one fails here, and
+# `cargo install` builds it from source.
+disabled-strategies = ["quick-install", "compile"]
+
+# dist zips the Windows archive flat.
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }.zip"
+bin-dir = "{ bin }{ binary-ext }"
+pkg-fmt = "zip"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "vissue-mcp"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+rmcp = { version = "3.2", features = ["server", "transport-io", "transport-async-rw", "macros"] }
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std", "signal"] }
+vissue-core = { workspace = true, features = ["schema"] }
+
+[dev-dependencies]
+serde = { workspace = true }
+serde_json.workspace = true
+tempfile.workspace = true

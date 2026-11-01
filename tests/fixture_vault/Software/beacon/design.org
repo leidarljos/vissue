@@ -1,0 +1,11 @@
+#+TITLE: beacon design
+#+DATE: [2026-01-18 Sun]
+#+DESCRIPTION: Design notes for beacon, referenced as an issue parent.
+#+STATUS: Active
+
+* Retry design
+:PROPERTIES:
+:ID:         beacon-design-0001
+:END:
+
+A design document carries an :ID:, so an issue may name it as its parent.

@@ -1,0 +1,992 @@
+#+title: Reference
+#+description: Commands, projects, states, properties, configuration, the control socket, and the crates.
+#+options: toc:nil num:nil
+
+* Commands
+
+| Command                                                                   | Purpose                                                                  |
+|---------------------------------------------------------------------------+--------------------------------------------------------------------------|
+| =create=, =q=                                                             | Add an issue; =q= prints only the new id                                 |
+| =list=, =show=                                                            | Rows of issues; one issue's metadata and body (=--org= for the raw heading) |
+| =update=, =claim=, =release=, =refile=, =reject=, =resolve=               | Change state, priority, blockers, or tags (=-t TAG=, =--untag TAG=); take an issue; drop one holder's claims; move it; redirect; pick a sibling terminal |
+| =note=                                                                    | Add a dated logbook entry; state and claim untouched                     |
+| =append=                                                                  | Record a dated report under the heading, from the words after the id, =--text=, =--file=, or stdin |
+| =body-excerpt=                                                            | A capped preview of an issue's file range; =show --org= for the whole heading |
+| =claims=                                                                  | Every live claim, oldest first: who holds what, for how long             |
+| =vote=                                                                    | Cast this agent's ballot (=--for=), take it back (=--withdraw=, logged), or read the tally; =--json= for the ballot rows |
+| =consensus=                                                               | Weigh the same ballots by who the group listens to; social power and the two ways there is none; =--children= rolls up over a plan; =--trust JSON= lays rows over the configuration |
+| =deed=                                                                    | Cite (=--add=), drop (=--remove=), or list the deeds this issue's work produced; =d= on either board |
+| =recall=                                                                  | The working set for an issue: plan, inputs and their deeds, and its own; =--excerpts= splices in what each input concluded |
+| =backlinks=                                                               | Everything pointing at an id; given a deed accession instead, the issues citing it, across every routed tracker |
+| =--json= on a read                                                        | =list=, =show=, =ready=, =claims=, =digest=, =search=, =children=, =ancestors=, =impact=, =backlinks=, =agenda=, =tree=, =body-excerpt=, =projects=, =recall=, =consensus= |
+| =fold=                                                                    | Turn an inbox file's unstamped =* TODO= headings into issues             |
+| =whoami=                                                                  | The identity a claim would record                                        |
+| =ready=, =count=, =search=, =children=, =ancestors=, =impact=, =related=, =stale= | Query the corpus; bounded dependency and related traversal; =search -p PROJECT= narrows to one project |
+| =agenda=                                                                  | Deadlines and scheduled starts inside a horizon, overdue first           |
+| =export=                                                                  | JSONL, one object per issue                                              |
+| =tree=, =graph=, =cycles=, =waiting-on=                                   | Relationships                                                            |
+| =roadmap=, =mirror=                                                       | Markdown roadmap; read-only Org or markdown projection                   |
+| =project=                                                                 | The projection the repository's =vissue.toml= declares: fold each board's inbox, apply its claims, rewrite its mirror; =--check= exits 1 on a stale mirror |
+| =digest=, =mirror --check=                                                | Corpus digest; whether a mirror is still current                         |
+| =satchel=                                                                 | Pack a slice of the tracker for somebody else: =--out= with =--project= or =--issue=, then =--seal= once the deeds are in, then =--verify= on arrival |
+| =check=, =hygiene=, =normalize=                                           | Validation; rewrite a tracker onto the house Org shape                    |
+| =migrate-ledger=                                                          | Split each =issues.org= into one append-only file per issue; =--dry-run= writes nothing |
+| =gen=, =events=, =wait=, =ping=                                           | Change stream for pollers; =wait --id= =--until-terminal= watches one issue |
+| =projects=, =identity=                                                    | Layout introspection                                                     |
+| =serve=                                                                   | Own the per-user Unix control socket (= -d=, =stop=, =restart=, =status=) |
+| =tui=                                                                     | Terminal board (=--offline= never attaches)                              |
+| =hud=                                                                     | Iced task board; =--rofi= for the dmenu picker (=--mode=) |
+| =keys=                                                                    | The board key catalog; =--check= validates an overlay, =--occupancy= lists taken chords |
+| =completions=, =man=                                                      | Shell completion scripts and the manual page                             |
+| =merge-driver=                                                            | git's merge driver for =issues.org=: merges by heading, keeps a clash as a note; =--install= registers it in this repository |
+| =surface=                                                                 | This binary's own subcommands, aliases and flags as JSON; hidden, and not about the tracker |
+
+* Projects
+
+A project is a directory under the prefix holding one =issues.org=. Naming
+one that does not exist creates it: =create --project=, =q --project=,
+=fold --project= and =refile --to= all file into a new project rather than
+refusing. That is what makes a tracker grow without a setup step, and it
+means a typo files work somewhere real but unwatched. =projects= lists what
+exists, which is the cheap way to check a name before using it.
+
+Names fold case against what is already there, so =--project Atlas= reaches
+an existing =atlas=. A name matching two existing projects by case alone is
+refused rather than guessed at.
+
+=create= and =q= with no project flag take the current file's project, then
+the git repository (the =origin= remote's name, or the top-level directory),
+then the prefix default. Inside a repository the context walk stops at the
+top-level directory, and the repository name follows. =-p= still wins when
+it is given. =fold= does not
+guess a repository: with no flag and no =.project-ctx.toml= it reports an
+error.
+
+* States and priorities
+
+States are =TODO=, =STARTED=, =BLOCKED=, =DONE=, and =CANCELLED=, plus
+whatever the file's =#+TODO:= (or =#+SEQ_TODO:=, =#+TYP_TODO:=) line
+adds: a keyword before the bar is open, one after it closes the issue,
+and =update -s= accepts either. Closing stamps =CLOSED:= on the planning
+line and reopening clears it. A closed issue whose =SCHEDULED:= or
+=DEADLINE:= carries a repeater (=+1w=, =++1w=, =.+1w=) does not close:
+the dates move one interval on as Org moves them, =:LAST_REPEAT:= takes
+the time, and the state returns to =:REPEAT_TO_STATE:= or the first open
+keyword. A statistics cookie on a heading (=[/]=, =[2/5]=, =[%]=) is
+filled on every write from its =:PARENT:= children in the file, or from
+the checkboxes in its body under =:COOKIE_DATA: checkbox=, or from every
+descendant under =recursive=. An issue is
+/ready/ when it is =TODO= or =STARTED=, no id in its =:BLOCKED_BY:= is
+still open, and no earlier open sibling sits under an =:ORDERED:=
+parent (unless this heading has =:NOBLOCKING:=). Priorities are the
+Org cookies the file names in =#+PRIORITIES: highest lowest default=.
+A fresh file writes =#+PRIORITIES: A C C=, so a missing =[#X]= is
+=[#C]=. =create= without =--priority= uses that default; when the
+file (and its local =#+SETUPFILE:=) has no such line, it uses
+=issues.default_priority= from the config.
+
+* Properties
+
+=:ID:= is required. =create= mints one unless =--id= keeps a free
+={project}-= suffix of =0-9a-z=. =project= may contain =/= when the
+tracker lives in a nested directory (=Infra/terra-6cx2=). An org-gcal
+=<event>/<calendar>= value is not an issue id; that heading stays Org
+around the issues.
+=:CREATED:= is set on create. =:PARENT:=,
+=:BLOCKED_BY:=, =:VISSUE_TAGS:=, =:TYPE:=, =:CLAIMED_BY:=, =:CLAIMED_AT:=,
+and =:DISCOVERED_FROM:= are read by the query verbs. =:TYPE:= is also
+written as a heading tag when Org's tag character class allows it, which
+is the form tag search sees. =:BLOCKED_BY:= is the vissue graph;
+=ready= also reads ids out of a =:BLOCKER:= org-edna form, and
+holds later children of an =:ORDERED:= parent. A rewrite
+does not mint =ids(...)=. Any other property is preserved untouched, in
+the order it appears on disk. =check= names a file whose preamble has no =#+VISSUE:= protocol
+stamp, no =#+CATEGORY:=, no =#+TAGS:=, no =#+PRIORITIES:=, or a =#+FILETAGS:= without
+=noexport=, and a project whose types never made it onto the
+heading. A =#+VISSUE:= number newer than this vissue is an error. =search= matches inherited FILETAGS and a =#+TAGS:= group
+tag. An Org-format =mirror= drops a heading tagged =noexport=.
+Local =#+SETUPFILE:= keyword lines merge into TODO / TAGS / PRIORITIES;
+a URL is not fetched. =vissue normalize= rewrites a tracker onto that shape;
+=--dry-run= prints the files that would change.
+
+=:DEEDS:= holds the deed accessions this issue's work produced, in the order
+they were cited, and accepts commas, whitespace, or both like =:BLOCKED_BY:=.
+The tracker cites; it stores no product bytes. =check= warns on a citation that is
+not one, since a hand-edited drawer is how one gets in. =deed --add= refuses a value
+that is not an accession (=deed-<kind>-<slug>=, or a =sha256:= of the deed or
+of one product path), because a citation nothing can resolve fails later and
+somewhere else.
+
+=:BLOCKED_BY:= accepts commas, whitespace, or both. =:PARENT:= may name
+another issue or any Org heading with an =:ID:= under the tracker prefix, so a
+design document can head a work hierarchy. Parent chains must terminate;
+=check= reports a loop.
+
+* What Org owns
+
+Three fields live where Org keeps them rather than in the drawer, because Org
+reads them from there and nowhere else.
+
+| Field                       | Written as                                                          | What it gives                             |
+|-----------------------------+---------------------------------------------------------------------+-------------------------------------------|
+| Deadline, scheduled, closed | The planning line under the heading                                 | =org-agenda= shows the issue              |
+| Type and tags Org can hold  | The heading's own =:bug:parser:= run                                | Tag search and =C-c \= match              |
+| Identity                    | =:ID:=                                                              | =id:= links resolve through =org-id=      |
+| Project                     | =#+CATEGORY:= in the preamble                                       | The agenda labels rows by project         |
+| Workstream override         | =:CATEGORY:= on that heading only                                   | That row's agenda label, not the file's   |
+| Priority range              | =#+PRIORITIES: A C C= in the preamble                               | Missing cookie is =[#C]=; Emacs agrees    |
+| Ordered children            | =:ORDERED:= on the parent                                           | =ready= waits on earlier open siblings    |
+
+A tag Org will not accept in a heading, =needs-review= say, stays in
+=:VISSUE_TAGS:= and still answers =search= and =related=. =create --tags=
+splits a list between the two on Org's own tag character class.
+
+Both shapes are read, so a tracker written before this and one edited in Emacs
+parse the same; the next rewrite settles on the Org shape. =:TAGS:=,
+=:DEADLINE:=, and =:SCHEDULED:= in a drawer are names Org reserves, which
+=org-lint= reports, so they are migrated rather than kept.
+
+* JSONL export schema
+
+Each line is an object with =id=, =project=, =title=, =state=, =priority=,
+=properties=, =deeds=, =org_tags=, =tags=, =all_tags=, =logbook=, =body=,
+=line_start=, and =line_end=.
+
+=deeds= is the citation list typed, in the order it was cited, so a reader does
+not split a drawer string on whichever separator the author used. =:DEEDS:=
+stays in =properties= as well, verbatim, for a reader that wants the drawer.
+
+=org_tags= is the heading's Org tag run; =tags= is the union with
+=:VISSUE_TAGS:=, and is the field to filter on. Logbook entries carry
+=timestamp=, =from=, =to=, and =note=. CLOCK and other opaque drawer lines
+also carry =raw=, the verbatim Org line, so time recorded by another tool
+survives a rewrite.
+
+* Configuration
+
+=<root>/vissue.toml=, then =<root>/<prefix>/issues.config.toml=, each
+overriding the compiled defaults key by key.
+
+| Key                          | Default    | Meaning                                     |
+|------------------------------+------------+---------------------------------------------|
+| =prefix=                     | =Software= | Directory under the root holding projects   |
+| =agent=                      | unset      | Identity a claim records                    |
+| =issues.default_priority=    | =C=        | Cookie when =create= gets none and the file has no =#+PRIORITIES:= |
+| =issues.id_length=           | =4=        | Base36 characters in a generated id suffix  |
+| =issues.stale_claim_days=    | =7=        | When =hygiene= calls a claim stale          |
+| =issues.expect_deeds=        | =false=    | Whether =hygiene= reports work that closed naming no deed |
+| =consensus.self_weight=      | =0.5=      | Weight an agent puts on its own opinion when its trust row does not name it |
+| =consensus.susceptibility=   | =1.0=      | How far an agent moves off the ballot it cast; below 1 anchors it |
+| =consensus.susceptibility_of.<agent>= | unset | That agent's susceptibility, where it differs from the default |
+| =consensus.tolerance=        | =1e-9=     | Largest disagreement that still counts as settled |
+| =consensus.max_iterations=   | =500=      | Rounds before the shares are reported as an estimate |
+| =consensus.trust.<agent>=    | unset      | Weights that agent puts on the others; only the ratios matter |
+
+A short =id_length= is a small space: 2 characters is 1296 ids, and =create=
+reports an exhausted space rather than failing obscurely.
+
+=[[projection.board]]= rows in =<root>/vissue.toml= declare the boards
+the repository projects from other trackers; =project= runs them.
+
+| Key        | Default  | Meaning                                                              |
+|------------+----------+----------------------------------------------------------------------|
+| =project=  | required | The project's name on its source                                     |
+| =source=   | =self=   | This tracker, a =[layouts.*]= name from the user's config, or a path |
+| =mirror=   | required | The mirror file, relative to the root                                |
+| =inbox=    | unset    | An inbox whose unstamped =* TODO= headings =project= folds into the source |
+| =claims=   | unset    | A file of =* TODO claim ID as AGENT=, =release= and =done= lines =project= applies |
+
+A source that is not on the running seat is reported and its board left as
+projected; =show= on an id found only in a mirror answers from the mirror.
+
+A second file, =$XDG_CONFIG_HOME/vissue/config.toml= (or =$VISSUE_CONFIG=),
+maps project names onto other checkouts. It is not part of a tracker
+repository. A named route wins over =--root= and =VISSUE_ROOT=. =--no-route=
+and =VISSUE_NO_ROUTE= ignore the file.
+
+#+begin_src toml
+[layouts.work]
+root = "~/work-notes"
+prefix = "Issues"
+
+[routes]
+parser = "work"
+
+[routes.solver-work]
+layout = "work"
+project_dir = "solver"
+#+end_src
+
+A bare string value is a layout name; the on-disk directory is the route
+key. A table names =layout= and optional =project_dir= so an alias can
+write an existing directory without renaming ids. Roots must be absolute
+after =~= and environment expansion. A =[layouts.*]= whose root and
+prefix equal the process default is not scanned twice.
+
+=create --project parser= writes =~/work-notes/Issues/parser/issues.org=.
+=create --project solver-work= writes =~/work-notes/Issues/solver/issues.org=
+and mints =solver-xxxx= ids. =show= and =claim= search every distinct
+layout. Unscoped =list= / =projects= hide a default-layout directory
+whose name is an identity route key, and they show alias keys.
+
+Destinations are routed too. =refile --to parser= and =reject --project
+parser= put the heading on the routed layout rather than growing a
+=parser= directory under the default root, and a successor minted by
+=reject= avoids ids the routed board already holds.
+
+The route table is a client-side map, so it belongs to the process that
+reads it. =vissue serve= and the clients that talk to it -- the TUI and
+the HUD -- act on the single layout the server was started with. Run one
+server per tracker rather than expecting a routed view through the
+socket.
+
+* Environment
+
+| Variable         | Meaning                                                     |
+|------------------+-------------------------------------------------------------|
+| =VISSUE_ROOT=    | Tracker root; =ISSUE_ROOT= is read first for the ecosystem  |
+| =VISSUE_PREFIX=  | Directory under the root holding one directory per project  |
+| =VISSUE_CONFIG=  | Path to the user-level route table; default is =$XDG_CONFIG_HOME/vissue/config.toml= |
+| =VISSUE_NO_ROUTE= | Non-empty (other than =0= / =false=) ignores the route table |
+| =VISSUE_AGENT=   | Identity a claim or a ballot records, ahead of the config file |
+| =VISSUE_ID_SEED= | Pins the id seed, making a minting sequence reproducible     |
+| =VISSUE_EVENTS=          | =0= suppresses the change stream entirely                          |
+| =VISSUE_CONTROL_SOCKET=  | Unix control socket path                                           |
+| =VISSUE_ACCEPT_TIMEOUT_MS= | Milliseconds to wait for a freshly started owner to accept; default 15000 |
+| =VISSUE_SERVE_LOG=       | Detached serve log; default is =control.log= next to the socket    |
+| =VISSUE_HUD_BIN=         | =vissue hud= launcher override for the =vissue-hud= binary         |
+| =VISSUE_HUD_SUMMON_SOCKET= | HUD show/hide socket; default is =hud.sock= next to the control socket |
+| =VISSUE_HUD_LOG=         | HUD stderr log; default is =hud.log= next to the control socket    |
+| =VISSUE_HUD_NOTIFY=      | =0= turns off the desktop notices the HUD posts on a claim, an unblock, or a move into BLOCKED, FAILED or CANCELLED |
+| =VISSUE_HUD_TRAY=        | =0= leaves the StatusNotifier tray out (Linux); left click toggles the overlay, Quit leaves the HUD alone |
+| =VISSUE_HUD_WINDOW=      | =1= boots the decorated pop-out (=me.rgoswami.vissue-hud.window=) instead of the overlay; unset keeps the overlay |
+
+* Control socket
+
+The wire protocol, framing, and method list are on [[file:control.org][Control]].
+
+=vissue serve= binds =$XDG_RUNTIME_DIR/vissue/control.sock= (or
+=~/.vissue/run/control.sock=). It is Unix-only. =serve -d= detaches after
+the socket accepts; the child is placed in its own process group and can
+still receive SIGHUP from the parent terminal. =serve status= exits 0 when
+the socket is live.
+
+The owner holds an in-memory catalog and answers the v1 methods:
+=issue/list=, =issue/get=, =issue/ready=, =issue/search=, =issue/claims=,
+=issue/agenda=, =issue/show=, =issue/excerpt=, =issue/tree=,
+=issue/related=, =issue/children=, =issue/ancestors=, =issue/impact=,
+=issue/backlinks=, =issue/open=, =issue/create=, =issue/update=,
+=issue/claim=, =issue/release=, =issue/note=, =issue/refile=, =project/list=,
+=events/since=, =events/gen=, and =identity/get=. =initialize= requires a
+non-empty =agent=. Mutations use that connection agent, or an optional
+per-call =agent=; they never read =VISSUE_AGENT= for the RPC. After a
+catalog rebuild the owner pushes =vault/changed=. =issue/open= sets the
+shared selection and pushes =issue/selected=. Serve is a cache: a crash
+loses nothing, and the CLI still talks to the files.
+
+=vissue tui= is the interactive board. First paint is the files
+(=revision= 0). Unless =--offline=, it attaches to a live socket or
+starts =serve -d= on the same root, prefix, and socket. A mismatch
+stays offline and refuses mutations against the other vault. Status:
+=serve:live|offline|mismatch gen=N rev=M agent=...=. Keys are on =?=.
+On Windows only =tui --offline= runs.
+
+=vissue hud= opens on the project list. Opening a project shows Ready /
+List / Claims / Agenda for that project. Search is a field. The selected
+issue stays on screen, with properties above a wrapping body and tree,
+related, and notes as tabs. List titles wrap inside the pane. The tree
+tab expands or collapses the outline. Escape on the project list
+unmaps the overlay; =vissue hud --toggle= shows it again. Closing the
+mapped window quits.
+=--rofi= is the seat dmenu picker. Return opens the heading in
+=$EDITOR=. Alt+c claims. Alt+n notes. =--mode list|claims|stale|new=
+changes the picker list.
+
+=P= (=window.popout=, remappable in =keys.toml=) opens the board in a
+decorated window of its own and takes the overlay down; closing that
+window hides the HUD and leaves it running.
+=VISSUE_HUD_WINDOW=1= starts in that decorated window instead of the
+overlay, so a nested X walk can crop a managed client. The HUD posts a desktop
+notice when an issue is claimed, comes unblocked, or moves into BLOCKED,
+FAILED or CANCELLED, with the board in view or not, and on Linux sits in
+the StatusNotifier tray.
+
+* Exit statuses
+
+| Status | Meaning                                                        |
+|--------+----------------------------------------------------------------|
+|      0 | Success, including a reader that closed the pipe               |
+|      1 | Failure, a stale =mirror --check=, a failing =check=, =consensus --gate= with nothing settled, or =serve status= when not live |
+|      2 | =wait= timed out without the generation advancing, or =wait --until-terminal= timed out |
+
+* MCP server
+
+=vissue-mcp= speaks the Model Context Protocol over stdio and calls the
+library in process. It resolves its root from =VISSUE_ROOT= and
+=VISSUE_PREFIX=. Tools mirror the CLI verbs. An agent never =Write=s or
+=StrReplace=s an =issues.org=; these tools and the =vissue= command are
+the writers.
+
+Read one issue or many: =vissue_list=, =vissue_ready=, =vissue_show=,
+=vissue_count=, =vissue_search=, =vissue_claims=, =vissue_agenda=,
+=vissue_body_excerpt=, =vissue_org=, =vissue_export=.
+
+Change one: =vissue_create=, =vissue_update=, =vissue_claim=, =vissue_release=,
+=vissue_note=,
+=vissue_append=, =vissue_refile=, =vissue_fold=, =vissue_reject=, =vissue_resolve=,
+=vissue_vote=, =vissue_deed=.
+
+Work a node: =vissue_recall= before starting, to open what the plan says the
+work stands on; =vissue_deed= when it finishes, to name what it produced;
+=vissue_consensus= before acting on what a plurality looks like.
+
+Hand work over: =vissue_satchel= packs a slice of the tracker into a
+directory somebody else can open; =vissue_satchel_seal= remanifests it after
+the deed store fills the payload; =vissue_satchel_verify= checks what arrived.
+
+Issues are addressable as resources at =vissue://issue/{id}= and projects at
+=vissue://project/{name}=, both rendered as Org. Projects are listed; issues
+arrive through the template, because a list a client pages through to find one
+id is worse than a pattern it fills in.
+
+** Prompts
+
+Three prompts carry what a tool description cannot: an order, and the reason
+the order is what it is.
+
+| Prompt             | Arguments                  | What it sequences                              |
+|--------------------+----------------------------+------------------------------------------------|
+| =pack_a_slice=     | =projects=, =issues=, =out= | Closure, then the other two stores, then seal  |
+| =pick_up_work=     | =project=                  | Ready, recall, claim, cite, close              |
+| =check_citations=  | =issue=                    | Evidenced, still the tip, what waits on it     |
+
+=pack_a_slice= seals last on purpose: a manifest written before the deed store
+and the pack have filled the payload proves only what was enumerated first.
+=pick_up_work= reads ready rather than open, because open includes the blocked
+and working that set is how one task gets started twice. =check_citations=
+asks three questions that are not the same question, and a deed can pass any
+two of them.
+
+Completion covers prompt arguments as well as the resource template: an
+=issue= or =issues= argument completes from the ids, a =project= or =projects=
+argument from the project list, and a comma separated argument completes its
+last field. The specification does not complete tool arguments, and this is
+where argument completion belongs anyway: a tool that answers a question hands
+ids back, so a caller working from an answer already has them.
+
+* The operation set
+
+=schema/vissue.capnp= states the verb set once, naming each verb on all three
+surfaces: the subcommand, the socket method, and the MCP tool. Three tests read it
+and fail by name until their surface satisfies it, one per crate.
+
+Each surface used to declare its own verbs in its own idiom, so a verb could exist
+on one and not the others, and did: =vote= shipped on the command line alone, and
+=append= had no socket method for as long as the socket existed. The
+reference-completeness tests stayed green through both, because they ask whether
+the docs list what exists rather than whether what should exist does.
+
+A verb that should not reach a surface leaves that field empty and gives its reason
+in =note=; the checks skip those, so a deliberate omission reads differently from a
+forgotten one. =normalize= is the only one today, and the reason is that rewriting
+every heading in a corpus is not a thing to hand an agent.
+
+Fields are in there too, each named per surface, because naming a verb on each
+surface stops the verb going missing and says nothing about the surfaces disagreeing
+on what a field is called or whether they all take it.
+
+Each field also carries its Rust type per surface, because a name check cannot see a
+type change: a field going from a number to a string keeps its name. Per surface
+rather than once, since two genuinely differ, =priority= being =Option<String>= as a
+tool argument and =Option<char>= on the socket, and =force= being =Option<bool>= and
+=bool=. A field also carries =omittable= for a parameter a caller may leave out
+whatever its type says: =force=, =dry_run=, =last= and =projects= are plain types
+behind serde's =default=, so the type reads as required while every caller omits
+them, and what a caller must send is the contract.
+
+Three names per field rather than one canonical name, because some divergence is
+forced and some is real. =--type= cannot be a Rust field called =type= and =--for=
+cannot be one called =for=, both being keywords, so =create= pairs =type= with
+=issue_type= and =vote= pairs =for= with =choice=. The issue being acted on is
+positional on the command line, =id= on the socket and =issue_id= as a tool
+argument, which is a difference a caller has to know. =agent= exists only on the
+socket, because only there is there a connection whose identity can be overridden.
+Recording the set is honest where one name would either lie or forbid a spelling.
+
+A positional argument carries an empty =cli= and its own names on the other two
+surfaces. Six methods were about a parameter no row named, because =Field= was
+written around flags: =issue/create= takes a title, =issue/search= takes a query,
+and =issue/tree=, =issue/ancestors=, =issue/impact= and =issue/related= take an id.
+
+** Each surface answers for itself
+
+Each of the three checks asks its surface rather than reading the source that
+declares it.
+
+The command line answers through =vissue surface=, a hidden subcommand that walks
+the built =clap::Command= and emits every subcommand with its aliases and long flags.
+A flag is checked because the parser accepts it, not because a line of help spelled
+it in a recognisable way.
+
+Hidden because it describes the tool and not the tracker, and somebody reading
+=--help= is looking for the second. Hidden is not secret. It runs, it is documented
+here, and a wrapper needing to know what this binary accepts asks it instead of
+parsing help output.
+
+One JSON array, one object per subcommand, in the order clap keeps them:
+
+#+begin_src console
+$ vissue surface
+[
+  {
+    "aliases": [],
+    "flags": ["project", "state", "ready", "root", "prefix", "no-route", "help"],
+    "hidden": false,
+    "name": "count"
+  },
+  ...
+]
+#+end_src
+
+| Field      | Meaning                                                                  |
+|------------+--------------------------------------------------------------------------|
+| =name=     | The subcommand as clap spells it                                         |
+| =hidden=   | Whether =--help= lists it                                                |
+| =aliases=  | Other names this same verb answers to, taking the same flags             |
+| =flags=    | Long flags, without dashes, including the global ones every subcommand carries |
+
+Short forms are absent because each is an alias for a long one, and a positional
+argument is absent because it has no flag to name: =create= takes its title
+positionally, so =title= is in no =flags= list. The schema records both, which is why
+the checks read positional parameters from there rather than from here.
+
+The tools answer through an MCP =tools/list= over stdio, which returns the same
+schema an agent is given: each argument's name, its JSON type, and whether it is
+required. This catches what a source scan cannot. A =#[serde(rename)]= leaves the
+Rust field name in place, so scanning the struct for it passes while an agent is sent
+a name the tool rejects.
+
+The socket answers by refusing. A parameter is present because the method refuses a
+value of the wrong type for it, and required because the method refuses the request
+without it. Nothing executes: every request is built to fail at decode, and the
+=-32602= that comes back is the parameter check refusing it, so a mutating method can
+be asked this without writing anything.
+
+What makes that last one mean anything is a check on the baseline. If the schema does
+not name every parameter a method requires, a request built from the schema is refused
+whatever else is done to it, and every wrong-type check would pass by refusing a
+request that was already being refused. That guard is what found the six methods
+above.
+
+Reading source was the wrong tool for this, and was wrong three times. Deriving an
+argument type from a tool's name reported six tools as unimplemented, because several
+tools share one struct. The scan for the parameter type a handler decodes found
+something for every method and the right thing for none.
+
+One scan remains, for the list of dispatched method names, because it is the one
+question no handshake can answer. A client can ask whether a named method answers. It
+cannot ask for the names it has not been told.
+
+** The other direction
+
+Three checks run schema to surface, and three run back. That direction was missing
+everywhere at first: every tool the server exposes, every method it dispatches, every
+flag a verb takes and every alias it answers to must appear in a schema row.
+
+Flags clap puts on every subcommand are listed once as =globalFlags= and subtracted,
+so a per-verb row stays about what the verb takes. A local-only verb is skipped
+because its flags are about the process rather than an operation.
+
+A check that only runs schema to surface catches a verb the schema names and the
+surface lacks. It is blind to one that exists and the schema omits, which is the same
+asymmetry that let verbs drift to begin with. Adding the reverse found three:
+=normalize= had a tool the schema denied, and =vissue_org= and =vissue_mirror_check=
+were in no row. Those last two are operations the command line reaches through a flag
+rather than a verb: =show --org= and =mirror --check=. Such a row carries no
+subcommand, says so in =note=, and has to reach some surface even so.
+
+An alias is one verb under two spellings, taking the same flags either way. =q= was
+recorded as an alias of =create= and is a subcommand of its own, taking three of
+create's fields and rejecting =--body= and =--priority=, so a row of ten fields
+answered for a verb that accepts three. It has its own row and a =shorthandFor=,
+which has to name a verb that exists, reaches the socket if the shorthand mutates,
+and takes every field the shorthand takes.
+
+They found real gaps on their first runs. The flag check caught that pair of
+invented =title= flags and a =--blocked-by= that is really =--block=. The tool check
+caught MCP =create= taking neither =deadline= nor =scheduled=, both of which the
+subcommand has always taken, so an agent could not set a date a person could. Nothing
+was wrong on either side in isolation, which is why only a check across the pair
+finds it.
+
+The schema's constant is compiled into a committed Rust file and read through the
+pure-Rust runtime, so the checks read the schema's own bytes. Building and testing
+need no Cap'n Proto toolchain; regenerating after a schema edit does, and
+=schema/README.md= says how.
+
+* Control socket coverage
+
+Every verb that changes a file has a method: =issue/create=, =issue/update=,
+=issue/claim=, =issue/release=, =issue/note=, =issue/append=, =issue/refile=, =issue/reject=,
+=issue/resolve=, =issue/vote=, =issue/deed=, =issue/fold=, =issue/normalize=.
+
+The reads have methods too: =issue/list=, =issue/show=, =issue/get=,
+=issue/search=, =issue/tree=, =issue/ready=, =issue/agenda=, =issue/claims=,
+=issue/children=, =issue/ancestors=, =issue/impact=, =issue/backlinks=,
+=issue/related=, =issue/recall=, =issue/consensus=, =issue/excerpt=, =issue/open=,
+=issue/check=, =issue/count=,
+=issue/cycles=, =issue/digest=, =issue/export=, =issue/graph=, =issue/roadmap=,
+=issue/stale=, =issue/hygiene=, =issue/waiting_on=, =issue/mirror=,
+=project/list=, =identity/get=, =events/gen=, =events/since=, =events/ping=,
+=events/wait=.
+
+The last thirteen of those were absent until recently, so a socket client shelled
+out for =check=, =graph=, =wait= and the rest. That cost a subprocess rather than
+correctness, which is why it outlived the write gap. =events/wait= is the one that
+made closing it worthwhile: a verb whose whole job is to block until something
+changes is what a connection is good at and a subprocess is bad at.
+
+Reads that produce a report answer with =report=, the same text the subcommand
+prints, because inventing a structure per report would be a second contract to keep
+in step with the first. =issue/check= adds =errors= and =warnings= beside it, since
+the subcommand exits non-zero on an error count and a client needs that signal
+without reading prose. =issue/digest= and =events/wait= answer with fields, both
+having something better than text to give.
+
+The socket stays optional. Correctness does not need it, because the advisory lock
+serialises a direct write just as well, and a client mixing the two paths is not
+corrupting anything. What being complete buys is that a client no longer has to
+shell out for one verb: before this, =append= existed only on the command line, so
+a socket client's writes went behind the server's back and its change stream had a
+hole exactly where those writes were.
+
+Follow the graph: =vissue_tree=, =vissue_graph=, =vissue_children=,
+=vissue_ancestors=, =vissue_impact=, =vissue_backlinks=,
+=vissue_waiting_on=, =vissue_related=, =vissue_cycles=.
+
+Watch for change: =vissue_gen=, =vissue_events=, =vissue_wait=,
+=vissue_ping=, =vissue_digest=.
+
+Check and project: =vissue_check=, =vissue_hygiene=, =vissue_normalize=,
+=vissue_roadmap=, =vissue_mirror=, =vissue_mirror_check=.
+
+Ask about the layout: =vissue_projects=, =vissue_whoami=, =vissue_identity=.
+
+The server grants write access to every project under its root. Point it at a
+tracker root you are willing to let the caller edit, not at a home directory.
+
+* Ids
+
+A suffix is picked by hashing the project name and the issue's title with xxh3,
+keyed by a seed, then stepping one at a time through the base-36 space from there
+until a free one is found. Hashed start, systematic walk.
+
+Minting is therefore a function of its inputs. The same project, title and seed
+ask for the same id every time, so a mint can be replayed and reasoned about
+rather than depending on what nanosecond it ran in.
+
+It also keeps two agents apart without coordination in the ordinary case: two
+creates with different titles start from different points, so neither has to see
+the other's write to avoid it. Two agents asking for the same title at the same
+moment do want one suffix, and the reservation settles that: the first takes it and
+the second walks one along.
+
+The walk is the half that matters for correctness. Hashing every probe
+independently draws with replacement and can miss a free suffix that exists: with
+1295 of 1296 taken, 2592 independent draws find the survivor about six times in
+seven. Stepping visits each suffix once, so a free one is found whenever there is
+one, and a full space is an error rather than a spin.
+
+The seed is the clock unless =VISSUE_ID_SEED= pins it. Pinning makes a minting
+sequence reproducible, which is what lets a test about racing creates have any
+power: with a clock seed two racers never collide by luck, so such a test passes
+whether or not the reservation is read under the lock.
+
+Ids must be unique across every layout a project appears on, which is why a mint
+locks the twin files rather than only the one it writes.
+
+* Concurrency
+
+Every read-modify-write cycle takes a process-local mutex and an advisory lock
+on =issues.org.lock=, then writes through a temporary that is flushed to the
+device, uniquely named, and renamed into place. A cycle over several files takes
+the locks in sorted order and counts a file once however it was spelled: the
+mutex is keyed on the resolved path, so two roots that are links to one tree
+would otherwise take the same non-reentrant mutex twice and hang. Concurrent creates from
+several processes therefore neither lose headings nor collide on the
+temporary, and a crash mid-write leaves the previous file rather than a
+truncated one. Any other tool writing the same file is expected to take that
+lock too.
+
+The lock covers one project file. Adding a blocker reads the whole corpus for
+the acyclicity check inside that lock, so it sees every write that has landed;
+two blockers added at the same moment in different project files can still
+close a cycle between them. =check= and =cycles= report one if it happens.
+
+What holds this up is tested rather than asserted, and each guard was checked by
+removing the lock it guards:
+
+- every mutating verb at once from separate processes against one file, and all of
+  them land; without the file lock three of eleven headings vanish;
+- creates racing across two roots for one project name, none sharing an id; with
+  the reservation read before the lock instead of after, every id is minted twice;
+- twelve agents claiming one issue at once, exactly one winning and the rest
+  refused; without the file lock six of them believe they hold it;
+- separate processes emitting change events, no sequence handed out twice; without
+  the advisory half of the events lock, sequences duplicate heavily.
+
+Two of those need a detail to have any power at all, and both details were found
+by removing the lock and watching the test stay green.
+
+The racing-creates test pins =VISSUE_ID_SEED=. Left to the clock, two racers draw
+from 36^4 suffixes and never collide by luck, so the test passed with the
+reservation bug in place. Pinned, both probe the same suffix first and a stale
+reservation collides on the first attempt.
+
+The events test needs one project per subject to mean anything. With every
+subject in one file the issues lock already serialises the pipeline and the events
+lock never contends, so a version of that test using one project passed with the
+advisory lock removed. Separate files take separate issues locks, which is when the
+events sequence can actually be raced.
+
+No queue or broker sits in front of this. The advisory lock is the serialisation
+point and any tool writing these files is expected to take it; =serve= exists for
+clients that want one connection and a change stream, not because correctness needs
+a mediator.
+
+A mint locks more than the file it writes. Routing can put one project name on
+several layouts, and an id has to be unique across them, so =create= and a
+=reject= successor lock every twin file for that project and read their ids after
+the locks are held. Reading them before, which is what an eager id list amounts
+to, lets two creates in two roots each see the other's file as it was and choose
+one suffix twice; =find_by_id= then reports =DuplicateId= and neither issue is
+reachable by id.
+
+Votes are per identity and a recast replaces the ballot, so two agents voting at
+once cannot overwrite each other while one agent changing its mind does not leave
+two ballots.
+
+*The change stream is a signal, not a history.* An event is emitted after the file
+lock is released, so sequences are unique, which is tested across processes, and two
+changes to different project files can reach the log in the opposite order to the one
+they reached disk in. A consumer that treats a notification as "something moved, go
+and look" is correct. One that reconstructs history from the order of the log is not,
+and no ordering is promised to it.
+
+Emitting inside the lock would order the log, at the cost of holding a file lock
+across another write for every state change. That trade was declined: the log's
+purpose is to wake a poller, and a poller re-reads state.
+
+*A cycle can be closed across two project files.* Adding a blocker checks acyclicity
+inside the lock on its own file, so it sees every write that has landed there. Two
+blockers added at the same moment in different files can still close a cycle between
+them, and =check= and =cycles= report it afterwards rather than preventing it.
+
+Locking every file the check reads would prevent it and would serialise every blocker
+edit in the corpus against every other, since the check reads all of it. For a
+tracker whose blockers are added by hand a few at a time, an after-the-fact report
+is the better side of that trade. This is a decision rather than an oversight, which
+is why it is written here.
+
+* Votes
+
+Reachable from all three surfaces, because the point is agents rather than a
+person at a prompt: =vote= on the command line, =vissue_vote= over MCP, and
+=issue/vote= on the control socket. The socket and MCP ballots name the calling
+agent rather than the server process, so one server serving several agents records
+which of them voted.
+
+=vote ID --for CHOICE= records one ballot for the identity =whoami= reports, and
+=vote ID= prints the tally without casting. Ballots live in a =:VOTES:= drawer on
+the heading, one line each, so the file shows who thinks what without a tool.
+
+One ballot per identity. Casting again replaces it and says what changed, which
+keeps an agent that reconsiders from appearing twice. A drawer edited by hand into
+two lines for one name collapses to the last of them on the next read, because the
+tally counts on the invariant.
+
+An identity may not contain a colon followed by a space. A choice may, which is
+why the line splits on the first one, and an identity holding one would be read
+back as a shorter name with the rest of itself attached to the choice. =vote=
+refuses rather than filing the ballot under an agent that never voted.
+
+Lines the parser does not recognise are kept where they are, so a comment left in
+the drawer survives the next vote.
+
+The tally distinguishes five outcomes, because a count that calls them all
+agreement is worth nothing:
+
+- *unanimous*, when at least two ballots all hold one choice;
+- *majority*, when one choice holds more than half of them;
+- *plurality only*, when one choice leads without a majority;
+- *no consensus*, when the lead is tied;
+- *one ballot only*, when a single agent has voted, which nobody has agreed with.
+
+A tally never says *consensus*. That word belongs to =vissue consensus=,
+which weighs the same ballots by who listens to whom, and the unanimous
+and majority lines name it.
+
+A choice is one line and may contain a colon, so ="ship: after the audit"= is a
+vote and not a parse error.
+
+* Consensus
+
+=vote= counts. =consensus= weighs the same ballots by how much the group
+listens to the agent that cast each one, using DeGroot's model: every agent
+replaces its opinion with the weighted average of the opinions it trusts, and
+the iteration is run to where it settles.
+
+Nothing new is cast. An agent that voted =ship= starts with all of its opinion
+on =ship=, so the limit is how much of the group's weight ends up on each
+option that was already on the ballot.
+
+Trust lives in the configuration, so it is versioned with the tracker:
+
+#+begin_src toml
+[consensus]
+self_weight = 0.5
+
+[consensus.trust]
+reviewer = { maintainer = 3.0, worker = 1.0 }
+worker = { maintainer = 1.0 }
+#+end_src
+
+Only the ratios matter; each row is normalised. Weight on an agent that cast no
+ballot is dropped, because it has no opinion to average and keeping it would
+scale down everyone who did vote. An agent whose row does not name itself keeps
+=self_weight= on its own opinion; an agent with no row at all listens to itself
+with =self_weight= and splits the rest equally over the others.
+
+That default is why the verb is safe on a tracker nobody has configured: every
+agent listens to every other equally, the influence matrix is doubly
+stochastic, and the consensus is the tally as a fraction. Configuration only
+ever moves weight away from that.
+
+The report prints the count and the weighted position together, because the
+useful thing about the weighted answer is where it differs, and a reader shown
+one of them cannot tell whether the trust rows did anything. It also prints
+each agent's *social power*: the left Perron vector of the influence matrix,
+which is the weighting the consensus applies to the ballots. An agent nobody
+listens to has power zero, and its ballot moves the group by nothing.
+
+=susceptibility= chooses the model. At =1.0=, the default, an agent gives up its
+own starting position entirely and the group converges on one number: that is
+DeGroot. Below it, an agent moves that fraction of the way toward what it hears
+and keeps the rest of its own ballot, which is Friedkin and Johnsen's
+generalisation. Two things follow, and both suit a tracker of reviewed work:
+
+#+begin_src console
+$ vissue consensus api-3xq7
+  anchored after 13 round(s), susceptibility 0.60
+    alice                    ship 0.634
+    bob                      ship 0.634
+    carol                    hold 0.854
+  spread 0.488: what the group keeps disagreeing about after listening
+  mean of those positions
+    hold                     0.528
+    ship                     0.472
+#+end_src
+
+The group settles while still disagreeing, and the report says where each agent
+landed rather than naming one position none of them holds. And any anchor at all
+makes the step a contraction, so the periodic case below cannot arise.
+
+Susceptibility is a diagonal rather than one number, because a maintainer who
+has read the code for years and a reviewer seeing it for the first time are not
+equally movable. =consensus.susceptibility= is what an agent gets when nothing
+names it; =[consensus.susceptibility_of]= names one:
+
+#+begin_src toml
+[consensus]
+susceptibility = 0.9
+
+[consensus.susceptibility_of]
+maintainer = 0.1
+#+end_src
+
+Rows merge agent by agent, like the trust rows. Where the agents differ the
+report puts the value on each row instead of on the header, since one number
+over rows that used several would be the wrong number for all but one of them.
+
+There are two ways there is no consensus to report under a full susceptibility,
+and they are different failures:
+
+- *split*, when the trust graph holds more than one closed group. Two review
+  teams that cite only each other never converge on anything, whatever the
+  arithmetic does. The report names each group and what it settled on:
+
+  #+begin_src console
+  no consensus: the trust graph holds 2 group(s) that do not listen to each other
+    alice, bob                       ship 1.000
+    carol, dave                      hold 1.000
+  #+end_src
+- *oscillating*, when the one closed group has a period. A pair who listen only
+  to each other and not at all to themselves swap opinions forever.
+
+Both are decided from which weights are positive rather than from whether the
+numbers stopped moving: DeGroot's iteration converges exactly when the graph
+has one closed group every agent can reach and that group is aperiodic. A
+group that mixes slowly stops moving long before its agents agree, so reading
+the arithmetic would report a division that is not there.
+
+=consensus --gate= adds an exit status for a shell hook, and prints the report
+either way, so a hook that fails leaves the reason on screen rather than sending
+a reader back to run it again without the flag. On one issue it exits non-zero
+unless the group agreed and one choice leads, since a plurality, a tie, a split
+and an oscillation are all cases where acting on the number is acting on
+agreement that is not there. Over =--children= it exits non-zero when any child
+settled split or carries no ballots, which are the two rows a parent cannot
+decide on a child's behalf.
+
+=consensus ID --gate --quorum N= also exits non-zero when fewer than N
+identities voted. One ballot settles on itself, so without a quorum the gate
+passes on whoever voted first. The report still prints, and the shortfall goes
+to stderr.
+
+=consensus --json= gives the same result as structure: the choice set, each
+agent's limit and social power, the settling (=agreed=, =split=, =oscillating=),
+whether the iteration ran out of rounds, and the factions when there are any.
+
+=consensus <plan> --children= answers the other question, whether an epic can
+close. It is a report over the children and not an average of them, and the
+reasons are worth stating because the average is the obvious implementation:
+no weighting over children can be picked without a judgement the tracker has no
+basis for, and an equal-weight one lets an epic split finely outvote one split
+coarsely; a child that settled split has no single position to fold in; and a
+child nobody voted on is absent rather than neutral, which matters because
+unvoted is the common case.
+
+So the rows stay rows. It says how many children carry ballots, what each holds,
+whether the ones that were voted on point the same way, which settled split, and
+how many carry no ballots at all.
+
+=max_iterations= bounds the work. Reaching it does not change the verdict,
+which the structure already settled; the shares are then reported as an
+estimate and the line says so.
+
+* Working memory
+
+An agent about to work a node needs what the node stands on. The tracker
+already records that: =:PARENT:= is the plan it sits inside, =:BLOCKED_BY:= is
+what has to exist first, =:DISCOVERED_FROM:= is where a bounced issue came
+from. =recall= walks those three and prints the result.
+
+#+begin_src console
+$ vissue recall keys-tuih
+keys-tuih              BLOCKED   Terminal UI set_keymap and overlay on_key  (keys)
+
+Plan
+  keys-e0pl              TODO      Epic: Colemak leader sequence
+
+Inputs
+  keys-ovly              DONE      Overlay on_key  [blocked-by]
+    deed-patch-overlay
+    note: landed without the modifier table
+  keys-toml              DONE      keys.toml schema and key names  [blocked-by]
+    (no deeds cited)
+    note: the names follow xkbcommon, not Emacs
+
+Produced
+  (nothing cited yet)
+
+Body
+  The overlay's on_key has to reach set_keymap without the board
+  knowing which layout is loaded.
+#+end_src
+
+A =:PARENT:= that names a design document rather than an issue is named in the
+plan too, marked as a heading outside the tracker, because that document is
+what the reader should open.
+
+A claim is where an agent starts, so it says where the working set is:
+
+#+begin_src console
+$ vissue claim keys-tuih
+claimed keys-tuih by impl (BLOCKED -> STARTED)
+  `recall keys-tuih` for 1 declared input, a plan above it
+#+end_src
+
+A node that stands on nothing gets no such line. Read off the heading already
+in hand, so taking a node costs what it did.
+
+What an input *produced* is the point. =deed= cites the accessions
+[[https://leidarljos.github.io/deedar/][deedar]] minted for the products of a
+unit of work, and =recall= hands them to the next unit, which opens them with
+=deedar get= instead of rereading a transcript:
+
+#+begin_src console
+$ deedar create patch --id deed-patch-overlay --name "overlay on_key" ...
+$ vissue deed keys-ovly --add deed-patch-overlay
+keys-ovly: deeds += deed-patch-overlay
+keys-ovly: 1 deed
+  deed-patch-overlay
+$ deedar get $(vissue recall keys-tuih --deeds-only)
+#+end_src
+
+On a tracker where the next unit is expected to open the last one's product,
+set =issues.expect_deeds = true= and =hygiene= reports every issue that closed
+citing nothing. Off by default: plenty of issues produce nothing a deed store
+would hold, and a checklist that flags every answered question stops being
+read.
+
+=--excerpts= adds a capped excerpt of each input's heading. What an input
+concluded is in its body, since =append= writes the report there and the deed
+names the product rather than the reasoning. Off unless asked, because the
+common case wants the accessions and a working set carrying four screens of
+prose is one nobody reads. The excerpt goes through the same path
+=body-excerpt= uses, so it is capped and an input whose body looks like
+credential material is suppressed rather than spliced into a model's context.
+
+Each input also carries the last note in its logbook. An input that closed
+without naming a product would otherwise hand the next unit its title and
+nothing else, and the last thing said about it is what a reader falls back on.
+
+The blocker walk is one hop by default. A deed records its own =sources= and
+=deedar trail= walks them, so a second hop here would re-derive, less well, a
+graph the deed store already holds. =--depth= widens it when the inputs cited
+nothing.
+
+Nothing is scored and nothing is embedded. =recall= answers what the plan says
+the work stands on; =related= answers which other issues resemble it, ranks
+them, and prints the evidence for each -- including =deed:<accession>= when two
+issues cite one deed, which is a declared fact and scores with the edges rather
+than with the resemblances. Mixing the two would make the exact
+answer look like the ranked one.
+
+* Performance
+
+=scripts/bench/synth_tracker.py= writes a deterministic tracker of N issues
+over P projects; =scripts/bench/time_cli.sh= times the read verbs over it and
+reports the minimum of R runs. Ten thousand issues over twenty projects, 4.4 MB
+of Org, on a shared 32-core node:
+
+| verb    | before  | after  |
+|---------+---------+--------|
+| list    | 905 ms  | 75 ms  |
+| ready   | 1026 ms | 88 ms  |
+| agenda  | 884 ms  | 64 ms  |
+| count   | 527 ms  | 58 ms  |
+| check   | 380 ms  | 81 ms  |
+
+Two causes. Every verb over all visible projects loaded the whole tracker once
+per project; it now loads each layout once. The rest was the allocator freeing
+a corpus the process was about to exit with; the command line skips the free,
+the library does not. What remains is comparison on property lookups and
+output formatting.
+
+* Crates
+
+The workspace publishes seven crates at one version.
+
+| Crate            | What                                        |
+|------------------+---------------------------------------------|
+| =vissue-cli=     | The =vissue= binary                         |
+| =vissue-mcp=     | Model Context Protocol server               |
+| =vissue-hud=     | Summonable iced board (=vissue-hud= binary) |
+| =vissue-core=    | Model, store, queries, and org projection   |
+| =vissue-control= | JSON-RPC control wire                       |
+| =vissue-serve=   | Unix-socket owner                           |
+| =vissue-tui=     | Terminal board library                      |
+
+Install the binaries with =cargo install vissue-cli=, =cargo install
+vissue-mcp=, and =cargo install vissue-hud=.

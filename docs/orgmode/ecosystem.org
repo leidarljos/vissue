@@ -1,0 +1,133 @@
+#+title: Org ecosystem
+#+description: Protocol 1 is the tracker contract, not parity with every Org package.
+#+options: toc:nil num:nil
+
+Protocol 1 is the tracker contract, not parity with every Org
+package. A rewrite keeps a name it does not own. This page is the
+inventory of what that means.
+
+The Org 9.8 chapter map is [[file:org-syntax.org][Org syntax]]. This file is the ELPA /
+contrib / MELPA set that writes into the same drawer or preamble.
+
+* Own (vissue writes)
+
+| Name | Why |
+|------+-----|
+| =#+VISSUE:= | On-disk protocol. Independent of the crate and of the control socket. |
+| =#+CATEGORY:= =#+FILETAGS:= =#+TAGS:= =#+TODO:= | Agenda label, inherited tags, type group, house cycle. |
+| =#+PRIORITIES:= | House range =A C C=. A missing cookie is =[#C]=. |
+| =#+EXCLUDE_TAGS:= =#+SELECT_TAGS:= | Publish filter defaults (=noexport= / =export=). |
+| =:ID:= | org-id. Required. |
+| =:CREATED:= | org-expiry / capture stamp. |
+| =:TYPE:= =:PARENT:= =:BLOCKED_BY:= =:VISSUE_TAGS:= | Tracker graph and type. |
+| =:CLAIMED_BY:= =:CLAIMED_AT:= =:FILES:= =:VERIFY:= | Claim and close-out. |
+| =:DISCOVERED_FROM:= =:PIVOTED_TO:= =:SIBLING_TERMINAL:= | Bounce / sibling race. |
+| Planning =DEADLINE:= =SCHEDULED:= =CLOSED:= | Org agenda dates; =CLOSED:= is stamped on close and cleared on reopen (org-log-done). |
+| Heading tags for a legal =TYPE= | Org tag search. |
+
+* Read (interpret, do not mint)
+
+| Name | Package | What vissue does |
+|------+---------+------------------|
+| =:BLOCKER:= | GNU ELPA org-edna; org-contrib org-depend | =ids(...)= and a bare id list feed =ready=. A real edna form (=prev-sibling=, =headings=) stays. Never written. |
+| =:Effort:= / =:EFFORT:= | Org effort; edna sorts by it | Read; =check= rejects a value Org will not parse. |
+| =#+TODO:= extras | Org 5.2 | A file-local keyword is an issue, and a legal =update -s=; the bar decides whether it closes. |
+| Repeaters on =SCHEDULED:= / =DEADLINE:= | Org 8.3.3 | Closing a repeating task moves its dates one interval on (=+=, =++=, =.+=), writes =:LAST_REPEAT:=, and returns the state to =:REPEAT_TO_STATE:= or the first open keyword. |
+| Statistics cookies =[/]= =[%]= | Org 5.5 | Filled on every write from the =:PARENT:= children in the file; =:COOKIE_DATA:= =checkbox= counts the body's boxes, =recursive= every descendant. |
+| =#+SETUPFILE:= | Org 17.8 | Local files only. Keyword lines merge into TODO / TAGS / PRIORITIES. URLs unread. |
+| =#+PRIORITIES:= | Org 5.4 | File range and default cookie. |
+| =:ORDERED:= =:NOBLOCKING:= | Org 5.7 | Sibling gate in =ready=. |
+| =:ID:= =<event>/<calendar>= | org-gcal | Not an issue id. The heading stays Org around the issues. A nested-project vissue id (=Infra/terra-6cx2=) is still ={project}-{suffix}=. |
+| FILETAGS inheritance | Org 6.1 | =search= / =show= match inherited tags. Not copied onto the heading. |
+| =#+TAGS:= groups | Org 6.2 / 6.3 | Exclusive braces; =[ group : members ]= expands in =search=. |
+
+* Preserve (never mint, never drop, never rename)
+
+A rewrite already keeps unknown properties and extra drawers. These
+are the names a vault file is likely to carry, so they are named
+rather than left implicit.
+
+** Annotation
+
+| Name | Package |
+|------+---------|
+| =NOTER_DOCUMENT= =NOTER_PAGE= and =NOTER_*= overrides | org-noter. Notes are child headlines and stay in the parent body. |
+| =INTERLEAVE_PDF= =INTERLEAVE_PAGE_NOTE= | Interleave. Do not rewrite to =NOTER_*=. |
+| =org-remark-*= =org-remark-file= | GNU ELPA org-remark (usually a notes file, not the tracker). |
+
+** Knowledge
+
+| Name | Package |
+|------+---------|
+| =ROAM_REFS= =ROAM_ALIASES= =ROAM_EXCLUDE= | org-roam v2 |
+| =#+identifier:= =#+signature:= =#+reviewdate:= | denote (front matter; not the issue =:ID:=) |
+| =#+BEGIN: denote-*= | denote-org |
+| =BRAIN_PARENTS= =BRAIN_CHILDREN= =BRAIN_FRIENDS= =BRAIN_EDGE_*= =NICKNAMES= | org-brain. Not =:PARENT:=. |
+
+** GTD / people
+
+| Name | Package |
+|------+---------|
+| =ORG_GTD= =ORG_GTD_*= =PREVIOUS_ORG_GTD= | org-gtd v4. Do not fold =ORG_GTD_DEPENDS_ON= into =BLOCKED_BY=. |
+| =TRIGGER= | org-edna and org-gtd share the name. Left as edna. |
+| =dowith= =doat= =on= =at= =with= | org-secretary. Not a claim. |
+| =notify= | GNU ELPA org-notify |
+| =REL= | boxy-headings |
+| =EMAIL= =PHONE= =ADDRESS= =BIRTHDAY= =ALIAS= =NICKNAME= | org-contacts |
+
+** Drill / Anki
+
+| Name | Package |
+|------+---------|
+| =DRILL_*= =LEARN_DATA= tags =drill= =leech= | org-drill |
+| =FC_*= extra drawer =:REVIEW_DATA:= tags =fc= =suspended= | org-fc |
+| =ANKI_*= | org-anki / anki-editor |
+
+** Calendar
+
+| Name | Package |
+|------+---------|
+| =calendar-id= =ETag= extra drawer =:org-gcal:= | org-gcal. Its =:ID:= is =<event>/<calendar>=, not org-id. Do not "fix" it. |
+| =OLDID= =LOCATION= | org-caldav |
+
+** Export / cite / transclude
+
+| Name | Package |
+|------+---------|
+| =EXPORT_*= =#+hugo_*= | ox-hugo |
+| =#+PANDOC_*= | ox-pandoc |
+| =#+BIBLIOGRAPHY:= =#+CITE_EXPORT:= =#+PRINT_BIBLIOGRAPHY:= =[cite:]= | Org 15 / citar / org-ref |
+| =#+transclude:= | org-transclusion. Do not promote a transcluded =* TODO= into an issue. |
+| =#+DOWNLOADED:= | org-download |
+| =#+BEGIN: invoice= =WORK= =RATE= | org-invoice |
+| =#+BEGIN: propview= | org-collector |
+| =RESET_CHECK_BOXES= =LIST_EXPORT_BASENAME= =PRINT_EXPORT= | org-checklist |
+| =EXPIRY= | org-expiry |
+| =CUSTOM_ID= =DIR= =ATTACH_DIR= =STYLE= =LAST_REPEAT= | Org core |
+| tag =ATTACH= =ignore= =ARCHIVE= | org-attach; ox-extra; Org archive |
+
+** Ignore (nothing to integrate)
+
+These packages write no tracker names. org-modern, org-superstar,
+org-appear, and org-tree-slide are overlays. consult-org, org-ql
+saved views, and org-super-agenda live in Emacs variables and
+already read the TODO / tags / properties we write. deft is a
+filename search. org-pomodoro only leaves =CLOCK:= lines, which
+are already preserved. There is no on-disk contract to own.
+
+* Collisions a rewrite must not "fix"
+
+| Name | Trap |
+|------+------|
+| =ID= | org-gcal stores =<event_id>/<calendar_id>=. Only treat a vissue / org-id token as an issue id. |
+| =CREATED= | org-journal writes =YYYYMMDD=, not an Org stamp. Leave it if it is not a stamp. |
+| =CATEGORY= | Agenda label and org-gtd area of focus share the key. |
+| =TRIGGER= | org-edna and org-gtd. |
+| =PARENT= vs =BRAIN_PARENTS= / =ORG_GTD_DEPENDS_ON= | Different graphs. |
+
+* Sources
+
+- Org 9.8 manual, especially 6, 7.2, 13.2, 17.8
+- GNU ELPA: org, org-edna, org-remark, org-transclusion, org-contacts, org-notify, denote
+- org-contrib 0.8: org-depend, org-expiry, org-checklist, org-learn, org-secretary, org-invoice, org-collector, ox-extra
+- MELPA: org-noter, org-roam, org-gtd, org-journal, org-ql, org-super-agenda, org-drill, org-fc, org-anki, org-caldav, org-gcal, ox-hugo, ox-pandoc, org-brain, org-download

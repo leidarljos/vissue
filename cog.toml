@@ -1,0 +1,30 @@
+from_latest_tag = true
+ignore_merge_commits = true
+# Towncrier owns CHANGELOG.md; cog still makes the version commit and the tag.
+disable_changelog = true
+disable_bump_commit = false
+tag_prefix = "v"
+branch_whitelist = ["main"]
+
+pre_bump_hooks = [
+    # Every surface that names a version moves together, then the curated
+    # fragments become the release section, then the whole gate has to pass
+    # before a tag exists.
+    "bash scripts/sync-version.sh {{version}}",
+    "uvx towncrier build --yes --version {{version}}",
+    "bash tests/release_surface.sh",
+]
+
+[commit_types]
+feat = { changelog_title = "Added" }
+fix = { changelog_title = "Fixed" }
+docs = { changelog_title = "Documentation" }
+chore = { changelog_title = "Maintenance" }
+refactor = { changelog_title = "Changed" }
+test = { changelog_title = "Tests" }
+style = { changelog_title = "Style" }
+perf = { changelog_title = "Performance" }
+
+[changelog]
+path = "CHANGELOG.md"
+authors = [{ username = "HaoZeke", signature = "Rohit Goswami" }]

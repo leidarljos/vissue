@@ -1,0 +1,680 @@
+#+title: Explanation
+#+description: Why the design is what it is.
+#+options: toc:nil num:nil
+
+Why the design is what it is. For what the commands do, read [[file:reference.org][Reference]];
+for a guided path through them, [[file:getting-started.org][Getting started]].
+
+* Why the file is the database
+A tracker that owns its own store forces a sync problem on everyone who
+also wants the data in git. Keeping the org file authoritative removes
+that problem: review happens in the diff, history comes from the log,
+and any editor that speaks orgmode is a client [1]. Each command pays a
+linear scan of the files it needs, which stays cheap until the issue
+count grows large enough to notice.
+
+* Why Org owns the dates and the tags
+
+Storing a deadline in a property drawer makes it invisible to =org-agenda=,
+which reads the planning line and nothing else. A tracker whose dates only its
+own tool can see is a worse tracker, and the tool grows an =agenda= verb to
+paper over it.
+
+Worse, =TAGS=, =DEADLINE=, and =SCHEDULED= are names Org reserves for its own
+special properties, so a drawer claiming them is wrong; Org ignores it and
+=org-lint= says so. Writing them where Org keeps them costs nothing and gives
+the agenda, tag search, and every other Org tool. See [[file:emacs.org][Emacs]] for what
+that enables.
+
+* What the design costs
+
+There is no index, so a query is a parse. There is no transaction across two
+projects, so a cross-project move writes the target first and leaves a
+duplicate id, which =check= reports, rather than a hole if it fails. Two
+writers are serialised by a lock rather than merged. Each is a deliberate
+trade for the file staying readable by anything.
+
+* What scores and lines do instead
+
+Taskwarrior prints a score. Its urgency is a weighted sum over
+priority, project, due date, age, tags, and annotations, and its sync
+merges through a server by timestamps. vissue does not score the ready
+set. =ready= keeps a TODO or STARTED issue when no open =BLOCKED_BY=
+target holds it, and when no earlier unfinished sibling holds it under
+an =ORDERED= parent. An issue left =BLOCKED= stays out after its
+blockers close. Priority is an Org cookie. The house range is =[#A]= to
+=[#C]=, and a file may name another range. =related= is a separate sum,
+printed with the terms that fired, and it is not the ready order. Sync
+is git on the org files a person edits, merged by heading. todo.txt puts a task on one line (=x 2016-05-20 (A) Call
+Mom +Family @phone=). The line is flat and greppable, and it has no
+identity past the text. vissue puts the task under a heading with a
+property drawer, so =:ID:=, =:BLOCKED_BY:= and the logbook survive an
+edit that changes the words.
+
+* Why HTN, work stealing, and citation graphs all fit
+A markdown task list is a total order dressed as a document.
+Hierarchical task-network planning [3], [4] is how a plan becomes a
+network of actions; vissue does not search that network, it stores it.
+Least-commitment planning [2] is why the stored order is a partial
+order: the terminal UI cannot start before the overlay exists, but the
+catalog and an unrelated docs pass can run together. Work stealing [9]
+and rebuild DAGs [8] are why the query that matters is the set of open
+sources, not a serial schedule [7]. Claiming a source is the same
+interface as assigning a bug [11].
+
+Citation graphs [12], [13], [14], [17] are the other declared-edge
+discipline. OokCite is where that stack was searched, collected, and
+run: identity and cite edges are truth; PageRank and text are ranking
+features; a neighborhood query does not mint a new citation. =related=
+is that split on issue headings. Extracted memory graphs [24], [25], [26] are
+the refusal: they build a second store from prose. Hogan's knowledge
+graph [23] is the headings a human already wrote.
+
+* What =ready= is, exactly
+
+Let $I$ be the issues in the corpus and $B(i) \subseteq I$ the ids listed in
+issue $i$'s =:BLOCKED_BY:=. Write $\mathrm{open}(i)$ for the states an issue
+can still be worked from or waited on, that is anything but =DONE= and
+=CANCELLED=. Then
+
+$$
+\mathrm{ready} = \{\, i \in I : \mathrm{state}(i) \in \{\texttt{TODO},
+\texttt{STARTED}\} \;\wedge\; \forall\, b \in B(i) \cap I,\ \neg\,\mathrm{open}(b) \,\}.
+$$
+
+Three consequences are worth stating because they are choices, not accidents.
+
+The intersection with $I$ is deliberate: a blocker id that names nothing in
+the corpus does *not* hold an issue back. A typo would otherwise park work
+forever with no way to see why, so the dangling edge is reported by =check=
+and ignored by =ready=.
+
+=STARTED= is in the set. An issue someone is already on stays ready, because
+the question =ready= answers is "may this be worked", not "is this untouched".
+=claims= is what separates the two.
+
+The set is computed over the whole corpus, not per project. A blocker in
+another project blocks, so =ready --project p= can be smaller than the ready
+set of $p$ read alone.
+
+* Why the order is a partial order
+
+$B$ induces a relation on $I$: $b \prec i$ when $b \in B(i)$. vissue keeps its
+transitive closure irreflexive, which is to say the graph stays acyclic, and
+refuses an edge that would close a cycle.
+
+The alternative is a total order, the shape of a numbered list or a sprint
+backlog. A total order over-specifies: it asserts that the terminal UI
+comes after the schema *and* that the docs pass comes after the catalog, when
+only the first is true. The partial order says exactly what is known.
+=ready= is the TODO and STARTED issues that no open blocker holds, and
+that no earlier unfinished sibling holds when the parent is =ORDERED=.
+That is the set that can proceed in parallel.
+
+Acyclicity is checked at two moments and they are not the same check.
+=update --block= tests the prospective edge against the corpus read inside the
+lock, so a cycle is refused before it is written. =check= and =cycles= test
+the corpus as it stands, catching an edge added by hand in an
+editor, or two edges added at the same instant in different project files.
+
+* How =related= ranks
+
+The score is a sum of independently earned terms, and every term that fired is
+printed as evidence. For a candidate $j$ against target $i$:
+
+$$
+S(i,j) \;=\; 1000\,e(i,j) \;+\; \frac{100}{d(i,j)} \;+\; 25\,\lvert T_i \cap T_j
+\rvert \;+\; 2\,[\,p_i = p_j\,] \;+\!\!\sum_{w \in W_i \cap W_j}\!\! \mathrm{idf}(w)^2
+$$
+
+where $e$ counts the explicit relations that hold between the two
+(=blocked_by=, =blocks=, =parent=, =child=, =discovered_from=, =source_of=,
+=pivoted_to=, =successor_of=, =org_link=), $d$ is the hop distance in the undirected graph of those same
+declared edges, $T$ is the tag set, $p$ the project, $W$ the term set of the
+title, body, type and tags, and
+
+$$
+\mathrm{idf}(w) \;=\; \ln\!\frac{\lvert I \rvert + 1}{\mathrm{df}(w) + 1} \;+\; 1 .
+$$
+
+The constants are a lexicographic ordering wearing the clothes of a sum. A
+single declared relation is worth 1000; a rare term is worth at most about
+$(\ln \lvert I \rvert)^2$, which for a corpus of ten thousand issues stays
+under 100. So no amount of shared vocabulary promotes a candidate above
+something you actually wrote down, which is the property that matters: the
+ranking may reorder guesses among themselves, but it may not outvote a fact.
+
+Squaring the idf rather than summing it serves that end. It widens the gap
+between a term that appears twice and one that appears everywhere, so
+=keymap= carries the match and =the= carries nothing. Stop words are dropped
+outright, and tokens shorter than three characters with them.
+
+* What each verb costs
+
+There is no index. The file is the store, so a query is a parse, and the
+table is:
+
+| Verb                                    | Cost                                                |
+|-----------------------------------------+-----------------------------------------------------|
+| =create=, =update=, =claim=, =note=     | Parse and rewrite one project file, under its lock  |
+| =list=, =count=, =export= (one project) | Parse that project                                  |
+| =ready=, =check=, =search=, =claims=    | Parse every project: $O(\lvert I \rvert)$           |
+| =tree=, =graph=, =cycles=, =backlinks=  | Parse every project, then $O(\lvert I \rvert + \lvert E \rvert)$ |
+| =related=                               | The above, plus a term index over the corpus        |
+| =recall=                                | Parse every project, then the parent chain and a bounded blocker walk |
+| =deed=                                  | Parse and rewrite one project file, under its lock  |
+| =consensus=                             | Parse one project file, then $O(rn^2m)$ over $n$ voters, $m$ options, $r$ rounds |
+| =gen=                                   | Read one integer                                    |
+
+That last row is why the change stream exists. A poller asking whether
+anything moved should not pay for a corpus parse to find out nothing
+did, so =gen= reads a counter and =events= reads only the tail of a log.
+
+The consensus row looks worse than it is: $n$ is the number of agents that
+voted on one issue, which is a handful, and the rounds are geometric in the
+mixing rate.
+
+The costs are linear and the constant is a file read. Measured on a synthetic
+tracker of 20,000 issues across 10 projects, every issue carrying a parent and
+a blocker, release build and warm page cache: =recall= 78 ms, =related= 155 ms,
+=ready= 512 ms, =gen= under a millisecond. At 5,000 issues those are 20, 36, 90
+and under one. That stays comfortable into the tens of thousands of issues and
+would not stay comfortable into the millions.
+That is the trade the format makes: no schema migration, and a backlog that
+diffs. An optional =vissue serve= is a cache of that parse plus a push of
+=vault/changed=; it is not a second store. Crashing it loses nothing, and
+every verb still works with it down.
+
+* Why =recall= is not retrieval
+
+An agent about to work a node needs what the node stands on. The usual answer
+is to build an index of everything the project ever said and ask it, at work
+time, which of that resembles the node: embeddings, a keyword score, a fused
+rank, a cutoff. Agent memory systems are largely this, and they report how well
+it works as a recall-at-k against a benchmark corpus.
+
+vissue does not have that question, because the corpus already answers it.
+=:BLOCKED_BY:= is what has to exist first. =:PARENT:= is the plan the node
+belongs to. =:DISCOVERED_FROM:= is where a bounce came from. Those are not
+inferred, they were written down by whoever split the work, and they are the
+same edges =ready= reads to decide the node could be started at all. =recall=
+walks them.
+
+That is a different kind of answer, not a better score on the same one. There
+is no k, no threshold, and nothing to tune, because there is no ranking: the
+set is what the plan says, and it is right or the plan is wrong. It cannot
+drift, because there is no second index to go stale. It is auditable,
+because every member of the set is there for a named edge a reader can see in
+the file. And it costs one parse of the corpus.
+
+Three designs answer the same question and it is worth being precise about
+what each actually does, because they are not competing implementations of one
+idea.
+
+| Design                        | Where the context comes from                    | What can go wrong                                     |
+|-------------------------------+-------------------------------------------------+-------------------------------------------------------|
+| Extracted memory store        | An index built from the transcript: keywords, embeddings, an entity graph, fused and cut off at k [24], [25], [26] | The right thing ranks below the cutoff, or the index drifts from what the files now say |
+| Harness-owned working set     | A view derived from the turn's own event log, compacted to fit  | What reaches the model is chosen by a compaction policy rather than by what the task needs |
+| A walk of declared edges      | =:PARENT:=, =:BLOCKED_BY:=, =:DISCOVERED_FROM:=, and the deeds those nodes cited | The plan is wrong, or nobody declared the edge        |
+
+Walking a dependency graph for context is not a new idea and this is not the
+first system to do it. ContextWeaver [38] organises an agent's interaction trace
+into a graph of reasoning steps and selects the ancestors a step relies on;
+LEDGER [39] does dependency-aware retrieval over the structure of a document.
+Both report the same finding from the other direction, that embeddings do not
+reliably carry a structural relation, which is the reason to walk edges at all.
+
+The difference here is where the graph comes from. In those systems it is
+derived: something reads the trace, or the document, and infers what depends on
+what. Here it was written down by whoever split the work, before any of it ran,
+and it is the same graph the scheduler reads. =ready= and =recall= consult one
+set of edges. An edge that is wrong is not a bad retrieval, it is a node that
+should never have been startable, and it surfaces as a planning error rather
+than a context one. That coupling is available only because the tracker is the
+plan: a memory layer bolted beside an agent has no scheduler to agree with.
+
+The first two rows answer for anything that was ever said: one by searching an
+index built over it, the other by carrying a compacted view of it forward. That
+is the right shape for a question with no structure behind it, and a seat
+running this tracker will usually run such a store too; what is wrong is using
+it for a question the plan already answers. This one answers only for
+what somebody wrote down as a dependency, which is a much smaller claim and the
+reason it can be exact. A tracker whose edges are careless gets a working set to
+match, and no retrieval quality would have rescued it: the failure has moved
+from the memory system into the plan, where a person can see it and =check=
+can complain about it.
+
+CoALA [32] is the taxonomy this field argues in, and naming which part of it
+this is keeps the comparison honest. A language agent has a working memory for
+the turn it is in, and optional long-term stores that are episodic, semantic, or
+procedural. =recall= builds the *working* memory, and builds it from the plan
+rather than by retrieving over the others. The deeds are episodic and live in the
+deed store, which keeps the bytes and the provenance rather than a summary. There
+is no semantic store here and no procedural one: nothing distils facts out of what
+happened or learns a routine from it, and a tracker that started doing so would be
+extracting the second graph =related= exists to refuse [24], [25], [26].
+
+That also settles what the published numbers do and do not say. The memory
+systems report recall over long chat histories: LongMemEval [33] scores five
+abilities across sessions, LoCoMo [34] scores conversations of hundreds of turns.
+Those are the right measure for a store that answers from a transcript, and the
+wrong one here, because there is no transcript to answer from and no ranking that
+could score better or worse at any k. What is measurable about this design is
+what it costs, which is the table further down.
+
+The price is real and worth stating. A node whose plan is wrong gets a working
+set that is wrong in the same way, and no amount of retrieval quality would
+have saved it. Something relevant that nobody declared an edge to will not
+appear. =related= exists for exactly that gap: it ranks by resemblance, prints
+the evidence for each hit, and writes nothing back [24], [25], [26]. Keeping
+the two verbs apart is what stops the exact answer from being reported in the
+same shape as the guess.
+
+* Why there is nothing to poison
+
+The attack a memory system has to answer is poisoning: content an agent reads
+becomes a memory that steers it later. It works well. Reported injection rates
+run above 90% from a handful of crafted documents in a corpus of millions, and
+the defenses that were tried -- guard models, embedding sanitisation,
+prompt-based detection -- did not stop it [37]. The uncomfortable part is the
+general shape of it: the write and retrieval policies that make a memory system
+good at long-horizon work are the same ones that widen the surface [36].
+
+This design has no such surface, and the reason is structural rather than a
+defense bolted on. Nothing an agent reads becomes part of a working set. A member
+of one is there because some issue carries =:BLOCKED_BY:=, =:PARENT:=, or
+=:DISCOVERED_FROM:= naming it, and those are written only by a tracker mutation:
+under the file lock, by a named identity, with a logbook line. =fold=, the one
+verb that ingests a file, creates issues carrying a title and a body and no edges
+at all, so a folded heading reaches nobody's working set until somebody
+separately declares one.
+
+That is not a claim that a tracker cannot be attacked. An agent with write access
+can add an edge, and the issue it names is then in the working set exactly as
+designed. The difference is that adding it is an act with an author, a timestamp,
+and a diff, rather than a consequence of having read something. The failure mode
+moves from invisible to reviewable, which is the trade the rest of this page keeps
+making.
+
+The products keep a guarantee of their own. A deed's bytes are frozen under a
+keyed hash over the canonical record, and =deedar evidence= checks the deed, its
+bytes, and every deed in its =sources= before a working set is worth trusting; a
+citation that resolves to nothing fails loudly rather than quietly [30].
+
+* Why a deed rather than a summary
+
+An input to a node is only useful if the next unit can open what it produced.
+The tempting shortcut is to have the finishing unit write a summary of its work
+into the tracker, and the next one read that. A summary is lossy in a way
+nobody notices until it matters. It is written before anyone knows what the
+next unit will need. It cannot be checked against what was actually made. A
+second summary of a summary loses more.
+
+So the tracker stores an accession and not a description.
+[[https://leidarljos.github.io/deedar/][deedar]] mints a deed for the product,
+freezes it, and issues evidence over its bytes; =:DEEDS:= holds that id. The
+next unit opens the deed itself, and =deedar trail= walks what it was built
+from, which is why =recall= only needs one blocker hop: the rest of the chain
+is on the deeds, recorded by the units that made them rather than reconstructed
+by the one reading them [30].
+
+The separation is the point. vissue owns the order of the work; the deed store
+owns the products and their provenance. Neither holds a copy of the other, so
+there is nothing to keep in sync.
+
+That leaves one join worth naming. A deed records the agent that produced it and,
+optionally, the live assignment it was produced under, which for
+[[https://leidarljos.github.io/claimdag/][claimdag]] is a =WorkId=. So a product
+can be traced three ways at once: the tracker node it was for, from the issue
+that cites it; the run that made it, from the deed's =producedBy=; and the
+inputs it was built on, from the deed's =sources=. Three tools, one id each, no
+shared store between them.
+
+* What a seat remembers, and what a node stands on
+
+This is not the only memory a seat runs, and the distinction between them is the
+useful part rather than a rivalry.
+
+[[https://leidarljos.github.io/packset/][packset]] is a pack of typed atoms with one
+writer, a card or two of standing prose, and a search projection over the atoms.
+Every harness on the seat is a client of the same store, so what one of them
+learns is not private to it. It is addressed by retrieval, through an inverted
+index and optionally embeddings.
+
+=recall= is addressed by the plan. The two are answering different questions:
+
+| Question                                  | Addressed by | Why that way                                              |
+|-------------------------------------------+--------------+-----------------------------------------------------------|
+| What do I know, standing, across sessions? | retrieval    | Nothing in the corpus says which fact this moment needs   |
+| What does this node stand on?              | a walk       | Something does: whoever split the work wrote the edges    |
+
+So the rule is not that retrieval is the wrong tool. It is that you walk
+structure where structure exists, and retrieve where it does not. A seat wants
+both, and running one of them for the other's question is where the cost shows
+up: retrieving over a plan gives a ranked guess at an answer the plan states
+exactly, and walking edges for standing knowledge finds nothing, because nobody
+declared an edge to a preference.
+
+Forgetting falls out of the same split, and it is the sharper half of it.
+
+A pack accumulates. Something written a year ago is still in it, so a pack has to
+decide what fades, and packset decides it as a voter rather than as a deletion:
+an exponential half-life on an atom's age, multiplied into the merge, with the
+standing sources exempt and the whole thing off unless a half-life is configured.
+Nothing is removed. An atom that stops winning is still there to be found by a
+narrower query, which is the right call for a store whose writes were deliberate
+enough to be worth keeping.
+
+A working set has nothing to forget. It is not a store: it is recomputed from the
+current edges on every call, so an edge somebody removed is gone from the next
+answer without a policy, and one they added is present without an ingest. There
+is no half-life to tune because there is no accumulation to tune it against.
+
+That is the trade in one line. A pack buys recall across sessions and pays for it
+with a forgetting policy. A walk buys exactness and pays for it by answering only
+about the work somebody drew edges around.
+
+One identifier crosses all three, and it is the deed accession. This tracker
+holds them in =:DEEDS:= and refuses a value that is not one; a deed holds the
+node's id back in =producedBy.activityId=; and a pack atom can carry one in the
+=entities= field its own similarity already runs over. Nothing else crosses. A
+workspace name belongs to the pack and an issue id to the tracker, so the
+accession is the one string all three can hold without any of them reading
+another's store.
+
+That is what makes two commands enough to check a citation wherever it is kept:
+
+#+begin_src console
+$ vissue recall <id> --deeds-only | deedar evidence -   # the bytes are intact
+$ vissue recall <id> --deeds-only | deedar current -    # and still the tip
+#+end_src
+
+Both take a list on standard input, so neither knows which store handed it one,
+and both exit non-zero on a bad set so either can gate a hook. The second is the
+one worth having: a citation is written once and the deed it names can be
+superseded afterwards, which nothing holding a citation can notice on its own.
+
+The property the three share is the one that matters for [[*Why there is nothing to poison][poisoning]].
+Neither extracts. A packset atom is written by somebody
+saying *Remember:*, an edge here is written by a tracker mutation, and a deed is
+minted by the unit that made the product. Across the whole seat, memory is
+something a named actor decided to write, and that is what keeps the surface
+small: there is no path from "an agent read this" to "an agent now believes
+this".
+
+* Why a tally is not a consensus
+
+=vote= counts ballots and refuses to call a plurality agreement. That is as far
+as counting goes, and it is not far enough: agents are not interchangeable. A
+maintainer, a reviewer whose last two calls were wrong, and a worker that has
+seen this file once each cast one ballot, and a count says the three are worth
+the same.
+
+DeGroot [27] is the standard model of the thing a count is missing. Each agent
+replaces its opinion with the weighted average of the opinions it listens to,
+and the iteration is run to where it settles. What comes out is not just a
+weighted number: the left Perron vector of the influence matrix is each agent's
+*social power*, the weight its ballot actually carried, and it is measured
+rather than declared. An agent nobody listens to has power zero however loudly
+it voted [29].
+
+The interesting output is the one a count cannot produce at all. DeGroot's
+iteration reaches agreement exactly when the trust graph has one closed group
+every agent can reach and that group is aperiodic [28]. Two review teams that
+cite only each other never converge, whatever the arithmetic does. That is a
+fact about the reviewers, and reporting it as a number would be worse than
+reporting nothing.
+
+vissue decides which of those cases holds from the graph rather than from the
+iteration, by finding the closed strongly connected components and their
+period. Deciding it from the arithmetic means asking whether a number stopped
+moving, and a group that mixes slowly stops moving long before its members
+agree, which reads as a division that is not there.
+
+With no trust configured every agent listens to every other equally, the matrix
+is doubly stochastic, and the consensus is the tally as a fraction.
+Configuration only moves weight away from that, so nothing surprising happens
+to a tracker nobody has set up.
+
+DeGroot is the first model of a family rather than the last word on it. Friedkin
+and Johnsen [31] generalise it with a susceptibility: an agent moves part of the
+way toward what it hears and keeps the rest of the ballot it actually cast. It is
+a diagonal and not a scalar, which is the part that carries the meaning: a
+maintainer and a first-time reviewer are not equally movable, and a model that
+gave them one number would be averaging exactly what it was brought in to
+separate. At
+full susceptibility it is DeGroot again, which is what makes the knob safe to
+have. Below it, two things change and both suit a tracker of reviewed work. The
+step becomes a contraction, so the periodic case cannot arise: any anchor at all
+settles. And the group settles while still disagreeing, which for reviewers is
+the truthful outcome, since nobody expects one to abandon their own reading
+because the room leaned the other way. What is reported is then each agent's
+position and the spread between them, because a single number would name a
+position none of them holds.
+
+Work on language-model deliberation [35] argues that both models capture only the pull of
+the group and not an agent's own internal conviction, and recovers a hidden
+anchor from the deliberation itself. That is a step past what a tracker can do.
+This has the ballot an agent cast, not the belief behind it, and the
+susceptibility anchors on the ballot, which is the part that was written down.
+
+What is here is the one model, run to its fixed point on the ballots of one
+issue. Where the interesting question is the model itself -- what a family of
+update rules does to a population, how bounded confidence or activity driving
+changes the outcome --
+[[https://github.com/seldon-code/seldon][seldon]] simulates those, and this is
+not the place to reimplement it.
+
+* Why =related= does not write edges
+
+Walk =:PARENT:=, =:BLOCKED_BY:=, =:DISCOVERED_FROM:=, and Org links
+first. Score leftover term overlap second [22]. Print the evidence.
+Write nothing back. Promoting a derived neighbor into =:BLOCKED_BY:=
+would be the same mistake as treating a PageRank score as a new
+citation [14], [17].
+
+* Why =show= does not print the body
+=show= returns metadata and =file:line_start-line_end=. An editor or an
+reader opens that range when it wants the prose. Keeping prose out of the
+command output is what stops a status check from turning into a wall of
+text.
+
+* Concurrency
+Every read-modify-write cycle takes a process-local mutex and an
+advisory lock on =issues.org.lock=, then writes through a temporary that
+is flushed to the device, uniquely named, and renamed into place.
+Concurrent creates from several processes therefore neither lose
+headings nor collide on the temporary file, and a crash mid-write leaves
+the previous file rather than a truncated one.
+
+The lock covers one project file. Adding a blocker reads the whole
+corpus for the acyclicity check inside that lock, so it sees every write
+that has landed; two blockers added at the same moment in /different/
+project files can still close a cycle between them. =check= and =cycles=
+report one if it happens, and neither is expensive to run from CI.
+
+* How to audit a citation
+A paper earns a slot only if it maps onto a verb or property in this
+repository. The relation is one of four:
+
+| Relation   | Meaning                                                                                              |
+|------------+------------------------------------------------------------------------------------------------------|
+| implements | The library runs this algorithm or formula.                                                          |
+| stores     | The file is the persistent form of this object's output. The planner, not vissue, produces the object. |
+| analogizes | Same interface, different domain. The mapping must name the issue property.                          |
+| refuses    | Cited so the opposite choice is checkable.                                                           |
+
+A vibe match does not count. SPECTER does not justify =BLOCKED_BY=
+because vissue does not embed papers. Zep does not justify =related=
+because =related= does not extract a temporal knowledge graph. Both
+still belong, under analogizes and refuses. The working bibliography
+lives in the OokCite collection =vissue-dag=; every DOI below was
+resolved there before it was pasted.
+
+| Claim in the tracker                           | Site in the code                                  | Paper                                                                                   | Relation   |
+|------------------------------------------------+---------------------------------------------------+-----------------------------------------------------------------------------------------+------------|
+| The file is the store                          | =issues.org=, Org drawers                         | Schulte et al. [1]                                                                      | implements |
+| A plan splits into tagged children             | =--parent=, =--type=, =--tags=                    | Erol et al. [3]; Nau et al. [4]                                                         | stores     |
+| Order is a partial order, not a list           | =:BLOCKED_BY:=                                    | Weld [2]                                                                                | stores     |
+| The graph stays acyclic                        | =DependencyGraph=, =cycles=                       | Kahn [5]; Tarjan [6]                                                                    | implements |
+| Several nodes can run at once                  | =ready=                                           | Coffman and Graham [7]; Mokhov et al. [8]                                               | analogizes |
+| Two workers do not take the same node          | =claim=, =VISSUE_AGENT=                           | Blumofe and Leiserson [9]; Anvik et al. [11]                                            | analogizes |
+| Logbook order is happened-before               | =:LOGBOOK:=                                       | Lamport [10]                                                                            | analogizes |
+| Edges are declared influence                   | =:BLOCKED_BY:=, =:PARENT:=                        | Garfield [12]; Pinski and Narin [13]                                                    | analogizes |
+| Neighborhood walks declared edges first        | =related=, =ancestors=, =impact=                  | Brin and Page [14]; Kleinberg [15]; Haveliwala [16]; Gleich [17]                        | analogizes |
+| Cite-edge as a positive neighbor               | OokCite encoder research, not this binary         | Cohan et al. [18]; Ostendorff et al. [19]; Singh et al. [20]; Reimers and Gurevych [21] | analogizes |
+| Leftover term overlap                          | =related= idf                                     | Sparck Jones [22]                                                                       | implements |
+| Issues are the entities                        | headings with =:ID:=                              | Hogan et al. [23]                                                                       | analogizes |
+| Do not extract a second graph                  | =related= writes nothing                          | Rasmussen et al. [24]; Edge et al. [25]; Gutierrez et al. [26]                          | refuses    |
+| Opinions average over declared trust           | =consensus=, =[consensus.trust]=                  | DeGroot [27]                                                                            | implements |
+| When there is a consensus to reach             | closed components and their period                | Berger [28]                                                                             | implements |
+| Social power is measured, not declared         | the left Perron vector in =consensus=             | Golub and Jackson [29]                                                                  | implements |
+| A product is named, not described              | =:DEEDS:=, =deed=, =recall=                       | Simmhan et al. [30]                                                                     | analogizes |
+| Opinion stays anchored to the ballot           | =consensus.susceptibility=                        | Friedkin and Johnsen [31]                                                               | implements |
+| Working memory is one kind of four             | =recall=, and the three it does not build         | Sumers et al. [32]                                                                      | analogizes |
+| Conversational recall is another question      | not measured here; the section says why           | Wu et al. [33]; Maharana et al. [34]                                                    | refuses    |
+| The anchor is the ballot, not a belief         | =susceptibility= anchors what was cast            | Pokharel and Dantu [35]                                                                 | refuses    |
+| Nothing an agent reads becomes memory          | =recall= walks declared edges; =fold= writes none | Sunil et al. [37]                                                                       | refuses    |
+| No extraction, no consolidation, no forgetting | a deed is frozen when it is made                  | Hu et al. [36]                                                                          | refuses    |
+| An ancestor walk is prior art                  | =recall=, and where its graph comes from          | Wu et al. [38]; Wang et al. [39]                                                        | analogizes |
+
+# vale off
+* References
+Resolved and collected through OokCite into =vissue-dag=. Each entry has
+a relation in the audit table above.
+
+1. E. Schulte, D. Davison, T. Dye, and C. Dominik, "A Multi-Language
+   Computing Environment for Literate Programming and Reproducible
+   Research," /Journal of Statistical Software/, 2012, doi:
+   [[https://doi.org/10.18637/jss.v046.i03][10.18637/jss.v046.i03]].
+2. D. S. Weld, "An Introduction to Least Commitment Planning," /AI
+   Magazine/, 1994, doi:
+   [[https://doi.org/10.1609/aimag.v15i4.1109][10.1609/aimag.v15i4.1109]].
+3. K. Erol, J. Hendler, and D. S. Nau, "Complexity results for HTN
+   planning," /Annals of Mathematics and Artificial Intelligence/, 1996,
+   doi: [[https://doi.org/10.1007/bf02136175][10.1007/bf02136175]].
+4. D. S. Nau, T.-C. Au, O. Ilghami, U. Kuter, J. W. Murdock, D. Wu, and
+   F. Yaman, "SHOP2: An HTN Planning System," /Journal of Artificial
+   Intelligence Research/, 2003, doi:
+   [[https://doi.org/10.1613/jair.1141][10.1613/jair.1141]].
+5. A. B. Kahn, "Topological sorting of large networks," /Communications
+   of the ACM/, 1962, doi:
+   [[https://doi.org/10.1145/368996.369025][10.1145/368996.369025]].
+6. R. Tarjan, "Depth-First Search and Linear Graph Algorithms," /SIAM
+   Journal on Computing/, 1972, doi:
+   [[https://doi.org/10.1137/0201010][10.1137/0201010]].
+7. E. G. Coffman and R. L. Graham, "Optimal scheduling for two-processor
+   systems," /Acta Informatica/, 1972, doi:
+   [[https://doi.org/10.1007/bf00288685][10.1007/bf00288685]].
+8. A. Mokhov, N. Mitchell, and S. Peyton Jones, "Build systems a la
+   carte," /Proceedings of the ACM on Programming Languages/, 2018, doi:
+   [[https://doi.org/10.1145/3236774][10.1145/3236774]].
+9. R. D. Blumofe and C. E. Leiserson, "Scheduling multithreaded
+   computations by work stealing," /Journal of the ACM/, 1999, doi:
+   [[https://doi.org/10.1145/324133.324234][10.1145/324133.324234]].
+10. L. Lamport, "Time, clocks, and the ordering of events in a
+    distributed system," /Communications of the ACM/, 1978, doi:
+    [[https://doi.org/10.1145/359545.359563][10.1145/359545.359563]].
+11. J. Anvik, L. Hiew, and G. C. Murphy, "Who should fix this bug?,"
+    2006, doi:
+    [[https://doi.org/10.1145/1134285.1134336][10.1145/1134285.1134336]].
+12. E. Garfield, "Citation Indexes for Science," /Science/, 1955, doi:
+    [[https://doi.org/10.1126/science.122.3159.108][10.1126/science.122.3159.108]].
+13. G. Pinski and F. Narin, "Citation influence for journal aggregates
+    of scientific publications: Theory, with application to the
+    literature of physics," /Information Processing & Management/, 1976,
+    doi:
+    [[https://doi.org/10.1016/0306-4573(76)90048-0][10.1016/0306-4573(76)90048-0]].
+14. S. Brin and L. Page, "The anatomy of a large-scale hypertextual Web
+    search engine," /Computer Networks and ISDN Systems/, 1998, doi:
+    [[https://doi.org/10.1016/s0169-7552(98)00110-x][10.1016/s0169-7552(98)00110-x]].
+15. J. M. Kleinberg, "Authoritative sources in a hyperlinked
+    environment," /Journal of the ACM/, 1999, doi:
+    [[https://doi.org/10.1145/324133.324140][10.1145/324133.324140]].
+16. T. H. Haveliwala, "Topic-sensitive PageRank," 2002, doi:
+    [[https://doi.org/10.1145/511446.511513][10.1145/511446.511513]].
+17. D. F. Gleich, "PageRank Beyond the Web," /SIAM Review/, 2015, doi:
+    [[https://doi.org/10.1137/140976649][10.1137/140976649]].
+18. A. Cohan, S. Feldman, I. Beltagy, D. Downey, and D. Weld, "SPECTER:
+    Document-level Representation Learning using Citation-informed
+    Transformers," 2020, doi:
+    [[https://doi.org/10.18653/v1/2020.acl-main.207][10.18653/v1/2020.acl-main.207]].
+19. M. Ostendorff, N. Rethmeier, I. Augenstein, B. Gipp, and G. Rehm,
+    "Neighborhood Contrastive Learning for Scientific Document
+    Representations with Citation Embeddings," 2022, doi:
+    [[https://doi.org/10.48550/arXiv.2202.06671][10.48550/arXiv.2202.06671]].
+20. A. Singh, M. D'Arcy, A. Cohan, D. Downey, and S. Feldman,
+    "SciRepEval: A Multi-Format Benchmark for Scientific Document
+    Representations," 2023, doi:
+    [[https://doi.org/10.18653/v1/2023.emnlp-main.338][10.18653/v1/2023.emnlp-main.338]].
+21. N. Reimers and I. Gurevych, "Sentence-BERT: Sentence Embeddings
+    using Siamese BERT-Networks," 2019, doi:
+    [[https://doi.org/10.48550/arXiv.1908.10084][10.48550/arXiv.1908.10084]].
+22. K. S. Jones, "A statistical interpretation of term specificity and
+    its application in retrieval," /Journal of Documentation/, 1972,
+    doi: [[https://doi.org/10.1108/eb026526][10.1108/eb026526]].
+23. A. Hogan et al., "Knowledge Graphs," /ACM Computing Surveys/, 2022,
+    doi: [[https://doi.org/10.1145/3447772][10.1145/3447772]].
+24. P. Rasmussen, P. Paliychuk, T. Beauvais, J. Ryan, and D. Chalef,
+    "Zep: A Temporal Knowledge Graph Architecture for Agent Memory,"
+    2025, doi:
+    [[https://doi.org/10.48550/arXiv.2501.13956][10.48550/arXiv.2501.13956]].
+25. D. Edge et al., "From Local to Global: A Graph RAG Approach to
+    Query-Focused Summarization," 2024, doi:
+    [[https://doi.org/10.48550/arXiv.2404.16130][10.48550/arXiv.2404.16130]].
+26. B. J. Gutierrez, Y. Shu, Y. Gu, M. Yasunaga, and Y. Su, "HippoRAG:
+    Neurobiologically Inspired Long-Term Memory for Large Language Models,"
+    2024, doi:
+    [[https://doi.org/10.48550/arXiv.2405.14831][10.48550/arXiv.2405.14831]].
+27. M. H. DeGroot, "Reaching a Consensus," /Journal of the American
+    Statistical Association/, 1974, doi:
+    [[https://doi.org/10.1080/01621459.1974.10480137][10.1080/01621459.1974.10480137]].
+28. R. L. Berger, "A Necessary and Sufficient Condition for Reaching a
+    Consensus Using DeGroot's Method," /Journal of the American Statistical
+    Association/, 1981, doi:
+    [[https://doi.org/10.1080/01621459.1981.10477662][10.1080/01621459.1981.10477662]].
+29. B. Golub and M. O. Jackson, "Naive Learning in Social Networks and the
+    Wisdom of Crowds," /American Economic Journal: Microeconomics/, 2010,
+    doi: [[https://doi.org/10.1257/mic.2.1.112][10.1257/mic.2.1.112]].
+30. Y. L. Simmhan, B. Plale, and D. Gannon, "A survey of data provenance in
+    e-science," /ACM SIGMOD Record/, 2005, doi:
+    [[https://doi.org/10.1145/1084805.1084812][10.1145/1084805.1084812]].
+31. N. E. Friedkin and E. C. Johnsen, "Social influence and opinions," /The
+    Journal of Mathematical Sociology/, 1990, doi:
+    [[https://doi.org/10.1080/0022250X.1990.9990069][10.1080/0022250X.1990.9990069]].
+32. T. R. Sumers, S. Yao, K. Narasimhan, and T. L. Griffiths, "Cognitive
+    Architectures for Language Agents," 2023, doi:
+    [[https://doi.org/10.48550/arXiv.2309.02427][10.48550/arXiv.2309.02427]].
+33. D. Wu et al., "LongMemEval: Benchmarking Chat Assistants on Long-Term
+    Interactive Memory," 2024, doi:
+    [[https://doi.org/10.48550/arXiv.2410.10813][10.48550/arXiv.2410.10813]].
+34. A. Maharana, D.-H. Lee, S. Tulyakov, M. Bansal, F. Barbieri, and Y. Fang,
+    "Evaluating Very Long-Term Conversational Memory of Language-Model Agents," 2024, doi:
+    [[https://doi.org/10.48550/arXiv.2402.17753][10.48550/arXiv.2402.17753]].
+35. A. Pokharel and R. Dantu, "Hidden Anchors in Multi-Agent Language-Model Deliberation,"
+    2026, doi:
+    [[https://doi.org/10.48550/arXiv.2606.19494][10.48550/arXiv.2606.19494]].
+36. Y. Hu et al., "Memory in the Age of AI Agents," 2025, doi:
+    [[https://doi.org/10.48550/arXiv.2512.13564][10.48550/arXiv.2512.13564]].
+37. B. R. Sunil, I. Sinha, P. Maheshwari, S. Todmal, S. Malik, and S. M. Mishra,
+    "Memory Poisoning Attack and Defense on Memory Based Language-Model Agents," 2026, doi:
+    [[https://doi.org/10.48550/arXiv.2601.05504][10.48550/arXiv.2601.05504]].
+38. Y. Wu et al., "ContextWeaver: Selective and Dependency-Structured Memory
+    Construction for Language-Model Agents," 2026, doi:
+    [[https://doi.org/10.48550/arXiv.2604.23069][10.48550/arXiv.2604.23069]].
+39. M. H. Wang et al., "LEDGER: Scaling Agentic Document Editing with
+    Dependency-aware Graph Retrieval," 2026, doi:
+    [[https://doi.org/10.48550/arXiv.2606.28379][10.48550/arXiv.2606.28379]].
+
+See also the [[https://orgmode.org/manual/][Org mode manual]], the
+[[https://modelcontextprotocol.io/][Model Context Protocol]],
+[[https://github.com/petgraph/petgraph][petgraph]],
+[[https://github.com/mitchmindtree/daggy][daggy]], the
+[[https://taskwarrior.org/docs/][Taskwarrior docs]], the
+[[https://github.com/todotxt/todo.txt][todo.txt format]], and the
+[[https://github.com/in-toto/attestation][in-toto attestation framework]], whose
+functionaries, links, and layout are the vocabulary a deed is built on. That last
+one is a link rather than a numbered entry because its paper is in USENIX
+Security proceedings, which mint no DOI, and every numbered entry above resolved
+through OokCite before it was pasted.
+# vale on

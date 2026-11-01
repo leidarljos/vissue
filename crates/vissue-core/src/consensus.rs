@@ -1,0 +1,1310 @@
+//! DeGroot and Friedkin-Johnsen consensus over the ballots on one issue.
+//!
+//! Each agent's opinion is a distribution over the choices on the ballots,
+//! one-hot at the start. The step is `x(t+1) = Λ W x(t) + (I - Λ) x(0)` with
+//! `W` the row-stochastic trust matrix from `[consensus.trust]` and `Λ` the
+//! diagonal of susceptibilities. `Λ = I` is DeGroot (doi:10.1080/01621459.1974.10480137):
+//! the group agrees exactly when the trust graph has one closed, aperiodic
+//! group every agent reaches (Berger, doi:10.1080/01621459.1981.10477662), and
+//! the limit weights each ballot by the left Perron vector of `W`. Below one it
+//! is Friedkin-Johnsen (doi:10.1080/0022250X.1990.9990069): the run always
+//! settles, on agents that still differ. With no rows configured `W` is
+//! doubly stochastic and the consensus is the tally as a fraction.
+
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+
+use serde::{Deserialize, Serialize};
+
+use petgraph::algo::kosaraju_scc;
+use petgraph::graph::{DiGraph, NodeIndex};
+
+use crate::config::ConsensusSection;
+use crate::ops::Ballot;
+
+/// Where the influence matrix came from, for a reader wondering why a result
+/// looks the way it does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TrustSource {
+    /// No row in the configuration named any agent that voted.
+    Default,
+    /// At least one voting agent had a configured row.
+    Configured,
+}
+
+/// Whether the iteration settled, and on what.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Settling {
+    /// Every agent holds the same opinion: a consensus.
+    Agreed,
+    /// The iteration reached a fixed point on which agents still differ, which
+    /// means the trust graph holds more than one closed group.
+    Split,
+    /// No fixed point inside the iteration budget: a periodic trust graph, which
+    /// is what a pair that listen only to each other and not at all to
+    /// themselves produce.
+    Oscillating,
+    /// Settled while still holding different opinions: the anchored case.
+    /// Not a split, and not one number for the group.
+    Anchored,
+}
+
+/// One agent's row of the result.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentLimit {
+    /// Identity that cast the ballot.
+    pub agent: String,
+    /// The choice it voted for.
+    pub voted: String,
+    /// Where that agent's opinion ended up, aligned with [`Outcome::choices`].
+    /// The opinion it started with, when the trust graph never settles.
+    pub limit: Vec<f64>,
+    /// How much of the consensus this agent's ballot accounts for, when the
+    /// group agreed. `None` when it did not, because a split group has no single
+    /// weighting to report.
+    pub power: Option<f64>,
+    /// How far this agent was allowed to move off its own ballot.
+    pub susceptibility: f64,
+}
+
+/// The result of running DeGroot over one issue's ballots.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Outcome {
+    /// Distinct choices, sorted, indexing every `limit` vector.
+    pub choices: Vec<String>,
+    /// One row per voting agent, sorted by identity.
+    pub agents: Vec<AgentLimit>,
+    /// Whether the iteration settled, and on what.
+    pub settling: Settling,
+    /// The shared limit when the group agreed, aligned with `choices`.
+    pub consensus: Option<Vec<f64>>,
+    /// Agents grouped by the opinion they settled on, when they did not agree.
+    pub factions: Vec<Vec<String>>,
+    /// Rounds the iteration took.
+    pub rounds: usize,
+    /// Whether the iteration stopped because it ran out of rounds rather than
+    /// because it settled. The shares are then an estimate, not the limit.
+    pub budget_reached: bool,
+    /// Whether any voting agent had a configured trust row.
+    pub trust: TrustSource,
+    /// The susceptibility an agent gets when nothing names it. One is DeGroot;
+    /// below one is Friedkin and Johnsen. A named agent carries its own on
+    /// [`AgentLimit::susceptibility`].
+    pub susceptibility: f64,
+    /// The largest gap left between any two agents on any one choice; the
+    /// disagreement an anchored group keeps.
+    pub spread: f64,
+}
+
+impl Outcome {
+    /// The winning choice and its share when the group agreed and one choice
+    /// leads; `None` on a split, an oscillation, or a tie.
+    #[must_use]
+    pub fn leader(&self) -> Option<(&str, f64)> {
+        let consensus = self.consensus.as_ref()?;
+        let mut ranked: Vec<(usize, f64)> = consensus.iter().copied().enumerate().collect();
+        ranked.sort_by(|a, b| b.1.total_cmp(&a.1));
+        let (top, share) = *ranked.first()?;
+        if ranked.len() > 1 && (ranked[1].1 - share).abs() < TIE_EPS {
+            return None;
+        }
+        Some((self.choices[top].as_str(), share))
+    }
+}
+
+impl Outcome {
+    /// Whether a gate over this issue passes: agreed, and one choice leads.
+    #[must_use]
+    pub fn settled(&self) -> bool {
+        self.settling == Settling::Agreed && self.leader().is_some()
+    }
+}
+
+/// Two shares this close are a tie; coarser than the settling tolerance.
+const TIE_EPS: f64 = 1e-6;
+
+/// Settle `ballots` under `cfg`: DeGroot at susceptibility one, Friedkin-Johnsen
+/// below it. Empty when nobody voted; one ballot settles on itself.
+#[must_use]
+pub fn settle(ballots: &[Ballot], cfg: &ConsensusSection) -> Outcome {
+    let agents: Vec<&Ballot> = {
+        let mut sorted: Vec<&Ballot> = ballots.iter().collect();
+        sorted.sort_by(|a, b| a.agent.cmp(&b.agent));
+        sorted
+    };
+    let choices: Vec<String> = agents
+        .iter()
+        .map(|b| b.choice.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let n = agents.len();
+    let m = choices.len();
+    if n == 0 {
+        return Outcome {
+            choices,
+            agents: Vec::new(),
+            settling: Settling::Agreed,
+            consensus: None,
+            factions: Vec::new(),
+            rounds: 0,
+            budget_reached: false,
+            trust: TrustSource::Default,
+            susceptibility: cfg.susceptibility,
+            spread: 0.0,
+        };
+    }
+
+    let names: Vec<&str> = agents.iter().map(|b| b.agent.as_str()).collect();
+    let (weights, trust) = influence(&names, cfg);
+    let pull: Vec<f64> = names
+        .iter()
+        .map(|name| {
+            cfg.susceptibility_of
+                .get(*name)
+                .copied()
+                .unwrap_or(cfg.susceptibility)
+        })
+        .collect();
+
+    // One-hot on the choice cast; a match so there is no panicking path.
+    let mut opinion = vec![vec![0.0f64; m]; n];
+    for (i, ballot) in agents.iter().enumerate() {
+        if let Some(at) = choices.iter().position(|c| *c == ballot.choice) {
+            opinion[i][at] = 1.0;
+        }
+    }
+
+    // Any anchor makes the step a contraction, so the structural question is
+    // asked only of the unanchored run; a slow chain must not read as a split.
+    let anchored = pull.iter().any(|value| *value < 1.0);
+    let settling = if anchored {
+        Settling::Anchored
+    } else {
+        match structure(&weights) {
+            Structure::Convergent => Settling::Agreed,
+            Structure::Split => Settling::Split,
+            Structure::Periodic => Settling::Oscillating,
+        }
+    };
+    let start = opinion.clone();
+    let rounds = iterate(&mut opinion, &weights, &start, &pull, cfg, settling);
+    let consensus = (settling == Settling::Agreed).then(|| opinion[0].clone());
+    // Social power is the left Perron vector of the trust matrix, which weighs
+    // the ballots into the one position the group reached. Under an anchor
+    // there is no one position, so there is nothing for it to weigh.
+    let power = (settling == Settling::Agreed).then(|| social_power(&weights, cfg));
+    let factions = match settling {
+        Settling::Split => group_by_limit(&names, &opinion, cfg.tolerance),
+        // Nothing converged on, so there is no position to group agents by.
+        Settling::Agreed | Settling::Oscillating | Settling::Anchored => Vec::new(),
+    };
+    let spread = spread(&opinion, m);
+
+    Outcome {
+        choices,
+        agents: agents
+            .iter()
+            .enumerate()
+            .map(|(i, ballot)| AgentLimit {
+                agent: ballot.agent.clone(),
+                voted: ballot.choice.clone(),
+                limit: opinion[i].clone(),
+                power: power.as_ref().map(|p| p[i]),
+                susceptibility: pull[i],
+            })
+            .collect(),
+        settling,
+        consensus,
+        factions,
+        rounds,
+        budget_reached: settling != Settling::Oscillating && rounds >= cfg.max_iterations,
+        trust,
+        susceptibility: cfg.susceptibility,
+        spread,
+    }
+}
+
+/// The consensus on one issue of a tracker, under that tracker's trust rows.
+///
+/// # Errors
+///
+/// Returns an error if `id` is not in the corpus, the corpus cannot be read, or
+/// the configuration names a weight the iteration cannot use.
+pub fn of_issue(layout: &crate::config::Layout, id: &str) -> crate::error::Result<Outcome> {
+    of_issue_with(layout, id, &[])
+}
+
+/// [`of_issue`] with `rows` laid over the configured trust, pair by pair.
+///
+/// # Errors
+///
+/// As [`of_issue`].
+pub fn of_issue_with(
+    layout: &crate::config::Layout,
+    id: &str,
+    rows: &[(String, String, f64)],
+) -> crate::error::Result<Outcome> {
+    of_issue_anchored(layout, id, rows, &[])
+}
+
+/// [`of_issue_with`] with per-agent susceptibilities laid over
+/// `[consensus.susceptibility_of]`: a persona's own anchor, in `[0, 1]`,
+/// where 0 never moves off its ballot and 1 is plain DeGroot.
+///
+/// # Errors
+///
+/// Returns an error when the issue is not in the corpus or the config does
+/// not load.
+pub fn of_issue_anchored(
+    layout: &crate::config::Layout,
+    id: &str,
+    rows: &[(String, String, f64)],
+    anchors: &[(String, f64)],
+) -> crate::error::Result<Outcome> {
+    let ballots = crate::ops::ballots(layout, id)?;
+    let mut cfg = crate::config::VissueConfig::load(layout)?.consensus;
+    for (from, to, weight) in rows {
+        cfg.trust
+            .entry(from.clone())
+            .or_default()
+            .insert(to.clone(), *weight);
+    }
+    for (agent, s) in anchors {
+        cfg.susceptibility_of.insert(agent.clone(), *s);
+    }
+    Ok(settle(&ballots, &cfg))
+}
+
+/// Per-agent susceptibilities as `{"agent": s, ...}`, each in `[0, 1]`.
+///
+/// # Errors
+///
+/// Returns an error when the text is not a JSON object of numbers in range.
+pub fn anchor_rows(raw: &str) -> crate::error::Result<Vec<(String, f64)>> {
+    let bad = |what: &str| crate::error::Error::from(anyhow::anyhow!("susceptibility-of: {what}"));
+    let value: serde_json::Value =
+        serde_json::from_str(raw).map_err(|e| bad(&format!("not JSON: {e}")))?;
+    let map = value
+        .as_object()
+        .ok_or_else(|| bad("expected an object of agent to number"))?;
+    map.iter()
+        .map(|(agent, v)| match v.as_f64() {
+            Some(s) if (0.0..=1.0).contains(&s) => Ok((agent.clone(), s)),
+            _ => Err(bad(&format!("{agent}: a number in [0, 1]"))),
+        })
+        .collect()
+}
+
+/// Trust rows as `[[from, to, weight], ...]` or `[{from, to, weight}, ...]`.
+///
+/// # Errors
+///
+/// Returns an error when the text is not one of those two shapes, or a weight
+/// is not a positive number.
+pub fn trust_rows(raw: &str) -> crate::error::Result<Vec<(String, String, f64)>> {
+    let bad = |what: &str| crate::error::Error::from(anyhow::anyhow!("trust: {what}"));
+    let value: serde_json::Value =
+        serde_json::from_str(raw).map_err(|e| bad(&format!("not JSON: {e}")))?;
+    let rows = value.as_array().ok_or_else(|| bad("expected an array"))?;
+    rows.iter()
+        .map(|row| {
+            let (from, to, weight) = if let Some(items) = row.as_array() {
+                match items.as_slice() {
+                    [f, t, w] => (f.as_str(), t.as_str(), w.as_f64()),
+                    _ => return Err(bad("a tuple is [from, to, weight]")),
+                }
+            } else {
+                (
+                    row.get("from").and_then(serde_json::Value::as_str),
+                    row.get("to").and_then(serde_json::Value::as_str),
+                    row.get("weight").and_then(serde_json::Value::as_f64),
+                )
+            };
+            match (from, to, weight) {
+                (Some(f), Some(t), Some(w)) if w > 0.0 && !f.is_empty() && !t.is_empty() => {
+                    Ok((f.to_string(), t.to_string(), w))
+                }
+                _ => Err(bad("a row needs from, to and a positive weight")),
+            }
+        })
+        .collect()
+}
+
+/// What each child of `plan` settled on, one row per child; nothing is folded
+/// across children.
+///
+/// # Errors
+///
+/// Returns an error if `plan` is not in the corpus, the corpus cannot be read,
+/// or the configuration names a weight the iteration cannot use.
+pub fn of_plan(
+    layout: &crate::config::Layout,
+    plan: &str,
+) -> crate::error::Result<crate::views::PlanConsensus> {
+    use crate::views::{ChildConsensus, PlanConsensus};
+
+    let recs = crate::catalog::load_recs(layout)?;
+    let service = crate::catalog::CatalogService::from_recs(&recs);
+    let parent = service.detail(plan)?;
+    let cfg = crate::config::VissueConfig::load(layout)?.consensus;
+
+    let mut children = Vec::new();
+    for hit in service.children(plan)? {
+        let ballots = crate::ops::ballots(layout, &hit.id)?;
+        let outcome = (!ballots.is_empty()).then(|| settle(&ballots, &cfg));
+        children.push(ChildConsensus {
+            id: hit.id,
+            state: hit.state,
+            title: hit.title,
+            ballots: ballots.len(),
+            settling: outcome.as_ref().map(|o| o.settling),
+            holds: outcome.as_ref().and_then(|o| {
+                o.leader()
+                    .map(|(choice, share)| (choice.to_string(), share))
+            }),
+        });
+    }
+
+    Ok(PlanConsensus {
+        plan: parent.id,
+        title: parent.title,
+        children,
+    })
+}
+
+/// The row-stochastic influence matrix over `names`. A configured row is
+/// normalised as written, with `self_weight` on the diagonal unless the row
+/// names it; weight on a non-voter is dropped. An agent with no usable row
+/// keeps `self_weight` and splits the rest equally.
+fn influence(names: &[&str], cfg: &ConsensusSection) -> (Vec<Vec<f64>>, TrustSource) {
+    let n = names.len();
+    let mut weights = vec![vec![0.0f64; n]; n];
+    let mut source = TrustSource::Default;
+    for (i, name) in names.iter().enumerate() {
+        let row = &mut weights[i];
+        let configured = cfg.trust.get(*name).map(|spec| {
+            let mut named = 0usize;
+            for (j, other) in names.iter().enumerate() {
+                if let Some(w) = spec.get(*other)
+                    && *w > 0.0
+                {
+                    row[j] = *w;
+                    named += 1;
+                }
+            }
+            (named > 0, spec.contains_key(*name))
+        });
+        match configured {
+            Some((true, names_itself)) => {
+                source = TrustSource::Configured;
+                if names_itself {
+                    normalise(row, 1.0);
+                } else {
+                    normalise(row, 1.0 - cfg.self_weight);
+                    row[i] += cfg.self_weight;
+                }
+            }
+            _ => {
+                if n == 1 {
+                    row[i] = 1.0;
+                } else {
+                    let share = (1.0 - cfg.self_weight) / ((n - 1) as f64);
+                    for weight in row.iter_mut() {
+                        *weight = share;
+                    }
+                    row[i] = cfg.self_weight;
+                }
+            }
+        }
+    }
+    (weights, source)
+}
+
+/// Scale `row` so it sums to `total`. A row that sums to nothing is left alone;
+/// the caller only calls this on a row with a positive entry.
+fn normalise(row: &mut [f64], total: f64) {
+    let sum: f64 = row.iter().sum();
+    if sum <= 0.0 {
+        return;
+    }
+    for weight in row.iter_mut() {
+        *weight *= total / sum;
+    }
+}
+
+/// What the trust graph alone determines: agreement iff one closed, aperiodic
+/// group every agent reaches (Berger, doi:10.1080/01621459.1981.10477662).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Structure {
+    /// One closed group, aperiodic: every agent converges on it.
+    Convergent,
+    /// More than one closed group: agents inside different ones never agree.
+    Split,
+    /// One closed group with a period: opinions cycle instead of settling.
+    Periodic,
+}
+
+/// Classify the trust graph `i -> j` for every positive weight agent `i` puts on
+/// agent `j`.
+fn structure(weights: &[Vec<f64>]) -> Structure {
+    let n = weights.len();
+    let mut graph = DiGraph::<usize, ()>::with_capacity(n, n);
+    let nodes: Vec<NodeIndex> = (0..n).map(|i| graph.add_node(i)).collect();
+    for (i, row) in weights.iter().enumerate() {
+        for (j, weight) in row.iter().enumerate() {
+            if *weight > 0.0 {
+                graph.add_edge(nodes[i], nodes[j], ());
+            }
+        }
+    }
+    let components = kosaraju_scc(&graph);
+    let mut component_of = vec![0usize; n];
+    for (at, component) in components.iter().enumerate() {
+        for node in component {
+            component_of[graph[*node]] = at;
+        }
+    }
+    let closed: Vec<usize> = components
+        .iter()
+        .enumerate()
+        .filter(|(at, component)| {
+            !component.iter().any(|node| {
+                graph
+                    .neighbors(*node)
+                    .any(|to| component_of[graph[to]] != *at)
+            })
+        })
+        .map(|(at, _)| at)
+        .collect();
+    // A row-stochastic matrix always has at least one closed group, so the only
+    // interesting count is more than one.
+    let [only] = closed[..] else {
+        return Structure::Split;
+    };
+    if period(&graph, &components[only], &component_of, only) == 1 {
+        Structure::Convergent
+    } else {
+        Structure::Periodic
+    }
+}
+
+/// The period of one strongly connected component: the gcd over its edges of
+/// `level(u) + 1 - level(v)` on a breadth-first layering.
+fn period(
+    graph: &DiGraph<usize, ()>,
+    component: &[NodeIndex],
+    component_of: &[usize],
+    at: usize,
+) -> usize {
+    let Some(&root) = component.first() else {
+        return 1;
+    };
+    let mut level: HashMap<NodeIndex, i64> = HashMap::from([(root, 0)]);
+    let mut queue = VecDeque::from([root]);
+    while let Some(node) = queue.pop_front() {
+        let depth = level[&node];
+        for to in graph.neighbors(node) {
+            if component_of[graph[to]] != at || level.contains_key(&to) {
+                continue;
+            }
+            level.insert(to, depth + 1);
+            queue.push_back(to);
+        }
+    }
+    let mut divisor = 0i64;
+    for node in component {
+        let Some(&depth) = level.get(node) else {
+            continue;
+        };
+        for to in graph.neighbors(*node) {
+            if component_of[graph[to]] != at {
+                continue;
+            }
+            if let Some(&other) = level.get(&to) {
+                divisor = gcd(divisor, depth + 1 - other);
+            }
+        }
+    }
+    let period = divisor.unsigned_abs() as usize;
+    period.max(1)
+}
+
+fn gcd(a: i64, b: i64) -> i64 {
+    let (mut a, mut b) = (a.abs(), b.abs());
+    while b != 0 {
+        let t = b;
+        b = a % b;
+        a = t;
+    }
+    a
+}
+
+/// Iterate `x_i(t+1) = λ_i (W x(t))_i + (1 - λ_i) x_i(0)` and return the
+/// rounds. A convergent unanchored graph runs until the agents agree; a split
+/// or anchored one runs to a fixed point; a periodic one is not run.
+fn iterate(
+    opinion: &mut Vec<Vec<f64>>,
+    weights: &[Vec<f64>],
+    start: &[Vec<f64>],
+    pull: &[f64],
+    cfg: &ConsensusSection,
+    settling: Settling,
+) -> usize {
+    if settling == Settling::Oscillating {
+        return 0;
+    }
+    let n = opinion.len();
+    let m = opinion.first().map_or(0, Vec::len);
+    for round in 0..cfg.max_iterations {
+        if settling == Settling::Agreed && spread(opinion, m) < cfg.tolerance {
+            return round;
+        }
+        let mut next = vec![vec![0.0f64; m]; n];
+        let mut step = 0.0f64;
+        for i in 0..n {
+            for c in 0..m {
+                let mut acc = 0.0;
+                for (j, row) in opinion.iter().enumerate() {
+                    acc += weights[i][j] * row[c];
+                }
+                let value = pull[i] * acc + (1.0 - pull[i]) * start[i][c];
+                next[i][c] = value;
+                step = step.max((value - opinion[i][c]).abs());
+            }
+        }
+        *opinion = next;
+        if matches!(settling, Settling::Split | Settling::Anchored) && step < cfg.tolerance {
+            return round + 1;
+        }
+    }
+    cfg.max_iterations
+}
+
+/// The largest disagreement between any two agents on any one choice.
+fn spread(opinion: &[Vec<f64>], m: usize) -> f64 {
+    let mut worst = 0.0f64;
+    for c in 0..m {
+        let mut low = f64::INFINITY;
+        let mut high = f64::NEG_INFINITY;
+        for row in opinion {
+            low = low.min(row[c]);
+            high = high.max(row[c]);
+        }
+        worst = worst.max(high - low);
+    }
+    worst
+}
+
+/// The left Perron vector of `weights`, by power iteration: each agent's share
+/// of the limit. Defined only when the group agreed.
+fn social_power(weights: &[Vec<f64>], cfg: &ConsensusSection) -> Vec<f64> {
+    let n = weights.len();
+    let mut power = vec![1.0 / (n as f64); n];
+    for _ in 0..cfg.max_iterations {
+        let mut next = vec![0.0f64; n];
+        for j in 0..n {
+            for (i, row) in weights.iter().enumerate() {
+                next[j] += power[i] * row[j];
+            }
+        }
+        let step = next
+            .iter()
+            .zip(&power)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f64, f64::max);
+        power = next;
+        if step < cfg.tolerance {
+            break;
+        }
+    }
+    let sum: f64 = power.iter().sum();
+    if sum > 0.0 {
+        for weight in &mut power {
+            *weight /= sum;
+        }
+    }
+    power
+}
+
+/// Agents that settled on the same opinion, as sorted groups.
+fn group_by_limit(names: &[&str], opinion: &[Vec<f64>], tolerance: f64) -> Vec<Vec<String>> {
+    let mut groups: Vec<(Vec<f64>, Vec<String>)> = Vec::new();
+    for (i, name) in names.iter().enumerate() {
+        let row = &opinion[i];
+        match groups.iter_mut().find(|(seen, _)| {
+            seen.iter()
+                .zip(row)
+                .all(|(a, b)| (a - b).abs() < tolerance.max(TIE_EPS))
+        }) {
+            Some((_, members)) => members.push((*name).to_string()),
+            None => groups.push((row.clone(), vec![(*name).to_string()])),
+        }
+    }
+    groups.into_iter().map(|(_, members)| members).collect()
+}
+
+/// Options an agent still leads with when the settle did not reach one
+/// position, and that option is not the unique plurality. Each pair is the
+/// option and the agents who still lead with it. Empty when the group
+/// agreed, or when the spread has closed, or when every agent leads the
+/// same option.
+#[must_use]
+pub fn dissent_claims(outcome: &Outcome) -> Vec<(String, Vec<String>)> {
+    if outcome.spread < 1e-6 || outcome.agents.is_empty() || outcome.settling == Settling::Agreed {
+        return Vec::new();
+    }
+    let mut leads: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for agent in &outcome.agents {
+        let Some((at, max)) = agent
+            .limit
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.total_cmp(b.1).then(a.0.cmp(&b.0)))
+        else {
+            continue;
+        };
+        let tied = agent
+            .limit
+            .iter()
+            .filter(|value| (**value - max).abs() < 1e-9)
+            .count();
+        if tied != 1 {
+            continue;
+        }
+        leads
+            .entry(outcome.choices[at].clone())
+            .or_default()
+            .push(agent.agent.clone());
+    }
+    if leads.len() <= 1 {
+        return Vec::new();
+    }
+    let plurality = leads.values().map(Vec::len).max().unwrap_or(0);
+    let winners = leads
+        .values()
+        .filter(|agents| agents.len() == plurality)
+        .count();
+    leads
+        .into_iter()
+        .filter(|(_, agents)| winners > 1 || agents.len() != plurality)
+        .collect()
+}
+
+/// The plain count, for the line that shows what the weighting changed.
+#[must_use]
+pub fn tally(ballots: &[Ballot]) -> BTreeMap<String, Vec<String>> {
+    let mut counts: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for ballot in ballots {
+        counts
+            .entry(ballot.choice.clone())
+            .or_default()
+            .push(ballot.agent.clone());
+    }
+    counts
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dissent_is_every_lead_except_a_unique_plurality() {
+        let outcome = Outcome {
+            choices: vec!["hold".into(), "ship".into()],
+            agents: vec![
+                AgentLimit {
+                    agent: "a".into(),
+                    voted: "ship".into(),
+                    limit: vec![0.1, 0.9],
+                    power: None,
+                    susceptibility: 0.3,
+                },
+                AgentLimit {
+                    agent: "b".into(),
+                    voted: "ship".into(),
+                    limit: vec![0.2, 0.8],
+                    power: None,
+                    susceptibility: 0.3,
+                },
+                AgentLimit {
+                    agent: "rock".into(),
+                    voted: "hold".into(),
+                    limit: vec![1.0, 0.0],
+                    power: None,
+                    susceptibility: 0.0,
+                },
+            ],
+            settling: Settling::Anchored,
+            consensus: None,
+            factions: Vec::new(),
+            rounds: 4,
+            budget_reached: false,
+            trust: TrustSource::Default,
+            susceptibility: 0.5,
+            spread: 0.9,
+        };
+        assert_eq!(
+            dissent_claims(&outcome),
+            vec![("hold".into(), vec!["rock".into()])]
+        );
+        let mut agreed = outcome.clone();
+        agreed.settling = Settling::Agreed;
+        agreed.spread = 0.0;
+        assert!(dissent_claims(&agreed).is_empty());
+    }
+
+    /// Anchors parse as an object of agent to a number in [0, 1]; anything
+    /// else is refused with the agent named.
+    #[test]
+    fn anchor_rows_take_an_object_in_range() {
+        let rows = anchor_rows(r#"{"reviewer": 0.3, "author": 1}"#).expect("parses");
+        assert_eq!(
+            rows,
+            vec![("author".to_string(), 1.0), ("reviewer".to_string(), 0.3)]
+        );
+        assert!(anchor_rows(r#"{"reviewer": 1.5}"#).is_err());
+        assert!(anchor_rows(r#"[["reviewer", 0.3]]"#).is_err());
+    }
+
+    fn ballot(agent: &str, choice: &str) -> Ballot {
+        Ballot {
+            agent: agent.to_string(),
+            choice: choice.to_string(),
+            stamp: "[2026-09-07 Mon]".to_string(),
+            used: None,
+            confidence: None,
+        }
+    }
+
+    fn share(outcome: &Outcome, choice: &str) -> f64 {
+        let at = outcome
+            .choices
+            .iter()
+            .position(|c| c == choice)
+            .expect("choice");
+        outcome.consensus.as_ref().expect("consensus")[at]
+    }
+
+    /// Rows laid over the configuration parse from either JSON shape and are
+    /// refused when malformed.
+    #[test]
+    fn trust_rows_take_tuples_or_objects() {
+        let rows = trust_rows(r#"[["a","b",2.0],{"from":"b","to":"a","weight":1}]"#).unwrap();
+        assert_eq!(
+            rows,
+            vec![("a".into(), "b".into(), 2.0), ("b".into(), "a".into(), 1.0)]
+        );
+        assert!(trust_rows("{}").is_err());
+        assert!(trust_rows(r#"[["a","b"]]"#).is_err());
+        assert!(trust_rows(r#"[["a","b",0]]"#).is_err());
+        assert!(trust_rows("not json").is_err());
+    }
+
+    /// Nothing configured: the limit is the tally as a fraction.
+    #[test]
+    fn without_configuration_the_consensus_is_the_tally_as_a_fraction() {
+        let cfg = ConsensusSection::default();
+        let ballots = [
+            ballot("alice", "ship"),
+            ballot("bob", "ship"),
+            ballot("carol", "hold"),
+        ];
+        let outcome = settle(&ballots, &cfg);
+        assert_eq!(outcome.settling, Settling::Agreed);
+        assert!((share(&outcome, "ship") - 2.0 / 3.0).abs() < 1e-6);
+        assert!((share(&outcome, "hold") - 1.0 / 3.0).abs() < 1e-6);
+        assert_eq!(outcome.leader().map(|(c, _)| c), Some("ship"));
+        for row in &outcome.agents {
+            assert!((row.power.expect("power") - 1.0 / 3.0).abs() < 1e-6);
+        }
+    }
+
+    /// The case the verb exists for: a plurality that the group's own weighting
+    /// reverses. Two agents vote ship, one votes hold, both of the two listen to
+    /// the third, and the third mostly listens to itself.
+    #[test]
+    fn trust_can_move_the_group_off_the_plurality() {
+        let mut cfg = ConsensusSection::default();
+        cfg.trust.insert(
+            "alice".to_string(),
+            BTreeMap::from([("carol".to_string(), 1.0)]),
+        );
+        cfg.trust.insert(
+            "bob".to_string(),
+            BTreeMap::from([("carol".to_string(), 1.0)]),
+        );
+        cfg.trust.insert(
+            "carol".to_string(),
+            BTreeMap::from([("carol".to_string(), 4.0), ("alice".to_string(), 1.0)]),
+        );
+        let ballots = [
+            ballot("alice", "ship"),
+            ballot("bob", "ship"),
+            ballot("carol", "hold"),
+        ];
+        let outcome = settle(&ballots, &cfg);
+        assert_eq!(outcome.settling, Settling::Agreed);
+        assert_eq!(
+            outcome.leader().map(|(c, _)| c),
+            Some("hold"),
+            "the plurality is ship; the group listens to carol: {outcome:?}"
+        );
+        let power = |who: &str| {
+            outcome
+                .agents
+                .iter()
+                .find(|a| a.agent == who)
+                .expect("agent")
+                .power
+                .expect("power")
+        };
+        assert!(power("carol") > power("alice"), "{outcome:?}");
+        // Nobody listens to bob, and an opinion nobody listens to moves the
+        // group by nothing at all. A count cannot express that.
+        assert!(power("bob") < 1e-6, "{outcome:?}");
+    }
+
+    /// The limit is `πᵀ x(0)`: social power is the weighting the consensus
+    /// applies to the ballots, not a separate statistic that happens to be
+    /// printed beside it.
+    #[test]
+    fn the_consensus_is_the_ballots_weighted_by_social_power() {
+        let mut cfg = ConsensusSection::default();
+        cfg.trust.insert(
+            "alice".to_string(),
+            BTreeMap::from([("bob".to_string(), 3.0), ("carol".to_string(), 1.0)]),
+        );
+        cfg.trust.insert(
+            "bob".to_string(),
+            BTreeMap::from([("carol".to_string(), 1.0)]),
+        );
+        let ballots = [
+            ballot("alice", "ship"),
+            ballot("bob", "hold"),
+            ballot("carol", "hold"),
+        ];
+        let outcome = settle(&ballots, &cfg);
+        assert_eq!(outcome.settling, Settling::Agreed);
+        for (at, choice) in outcome.choices.iter().enumerate() {
+            let weighted: f64 = outcome
+                .agents
+                .iter()
+                .map(|a| {
+                    let vote = f64::from(u8::from(a.voted == *choice));
+                    a.power.expect("power") * vote
+                })
+                .sum();
+            assert!(
+                (weighted - outcome.consensus.as_ref().expect("consensus")[at]).abs() < 1e-6,
+                "{choice}: {weighted} vs {outcome:?}"
+            );
+        }
+    }
+
+    /// Two groups that cite only each other never converge, and DeGroot says so
+    /// rather than averaging across them. Reporting that is the point: it is a
+    /// fact about the reviewers, not a number to round.
+    #[test]
+    fn two_closed_groups_do_not_reach_a_consensus() {
+        let mut cfg = ConsensusSection::default();
+        for (who, whom) in [
+            ("alice", "bob"),
+            ("bob", "alice"),
+            ("carol", "dave"),
+            ("dave", "carol"),
+        ] {
+            cfg.trust
+                .insert(who.to_string(), BTreeMap::from([(whom.to_string(), 1.0)]));
+        }
+        let ballots = [
+            ballot("alice", "ship"),
+            ballot("bob", "ship"),
+            ballot("carol", "hold"),
+            ballot("dave", "hold"),
+        ];
+        let outcome = settle(&ballots, &cfg);
+        assert_eq!(outcome.settling, Settling::Split, "{outcome:?}");
+        assert!(outcome.consensus.is_none());
+        assert!(outcome.leader().is_none());
+        assert_eq!(outcome.factions.len(), 2, "{:?}", outcome.factions);
+        assert_eq!(
+            outcome.factions[0],
+            vec!["alice".to_string(), "bob".to_string()]
+        );
+    }
+
+    /// A pair that listen only to each other and not at all to themselves swap
+    /// opinions forever. Periodicity is a different failure from a split, and
+    /// calling it one would suggest the two sides had settled.
+    #[test]
+    fn a_periodic_trust_graph_is_reported_as_oscillating() {
+        let mut cfg = ConsensusSection {
+            self_weight: 0.0,
+            max_iterations: 50,
+            ..ConsensusSection::default()
+        };
+        cfg.trust.insert(
+            "alice".to_string(),
+            BTreeMap::from([("bob".to_string(), 1.0)]),
+        );
+        cfg.trust.insert(
+            "bob".to_string(),
+            BTreeMap::from([("alice".to_string(), 1.0)]),
+        );
+        let ballots = [ballot("alice", "ship"), ballot("bob", "hold")];
+        let outcome = settle(&ballots, &cfg);
+        assert_eq!(outcome.settling, Settling::Oscillating, "{outcome:?}");
+        assert!(outcome.consensus.is_none());
+    }
+
+    /// Weight on an agent that never voted has no opinion behind it. Keeping it
+    /// in the row would scale down everyone who did vote, so a trusted absentee
+    /// would quietly pull the result toward the truster's own position.
+    #[test]
+    fn weight_on_an_agent_that_did_not_vote_is_dropped() {
+        let ballots = [ballot("alice", "ship"), ballot("bob", "hold")];
+        let mut with_absentee = ConsensusSection::default();
+        with_absentee.trust.insert(
+            "alice".to_string(),
+            BTreeMap::from([("absent".to_string(), 9.0), ("bob".to_string(), 1.0)]),
+        );
+        let mut without = ConsensusSection::default();
+        without.trust.insert(
+            "alice".to_string(),
+            BTreeMap::from([("bob".to_string(), 1.0)]),
+        );
+
+        assert_eq!(
+            settle(&ballots, &with_absentee).agents,
+            settle(&ballots, &without).agents,
+            "nine parts trust in an agent that did not vote changed the answer"
+        );
+    }
+
+    /// A group that mixes slowly still agrees.
+    #[test]
+    fn a_slowly_mixing_group_still_reaches_a_consensus() {
+        let cfg = ConsensusSection {
+            self_weight: 0.99,
+            max_iterations: 40,
+            ..ConsensusSection::default()
+        };
+        let ballots = [
+            ballot("alice", "ship"),
+            ballot("bob", "ship"),
+            ballot("carol", "hold"),
+        ];
+        let outcome = settle(&ballots, &cfg);
+        assert_eq!(outcome.settling, Settling::Agreed, "{outcome:?}");
+        assert!(
+            outcome.budget_reached,
+            "40 rounds cannot settle this one, and the report has to say so"
+        );
+    }
+
+    /// An anchor is what keeps a minority position from being averaged away.
+    /// Under DeGroot the whole group lands on one number; under an anchor the
+    /// agent that voted the other way is still visibly holding it.
+    #[test]
+    fn an_anchor_leaves_the_minority_still_holding_its_position() {
+        let ballots = [
+            ballot("alice", "ship"),
+            ballot("bob", "ship"),
+            ballot("carol", "hold"),
+        ];
+        let unanchored = settle(&ballots, &ConsensusSection::default());
+        assert_eq!(unanchored.settling, Settling::Agreed);
+        assert!(unanchored.spread < 1e-6, "{unanchored:?}");
+
+        let anchored = settle(
+            &ballots,
+            &ConsensusSection {
+                susceptibility: 0.6,
+                ..ConsensusSection::default()
+            },
+        );
+        assert_eq!(anchored.settling, Settling::Anchored, "{anchored:?}");
+        assert!(anchored.consensus.is_none(), "no one position to report");
+        assert!(
+            anchored.spread > 0.1,
+            "the disagreement is the result: {anchored:?}"
+        );
+        let hold = anchored
+            .choices
+            .iter()
+            .position(|c| c == "hold")
+            .expect("hold");
+        let carol = anchored
+            .agents
+            .iter()
+            .find(|a| a.agent == "carol")
+            .expect("carol");
+        let alice = anchored
+            .agents
+            .iter()
+            .find(|a| a.agent == "alice")
+            .expect("alice");
+        assert!(
+            carol.limit[hold] > alice.limit[hold],
+            "carol voted hold and stays nearer it: {anchored:?}"
+        );
+    }
+
+    /// The anchored limit is the fixed point of `x = λ W x + (1 - λ) x(0)`.
+    /// Asserting the equation rather than a number is what makes this a test of
+    /// the model rather than of the arithmetic that happened to run.
+    #[test]
+    fn the_anchored_limit_solves_the_friedkin_johnsen_equation() {
+        let mut cfg = ConsensusSection {
+            susceptibility: 0.7,
+            ..ConsensusSection::default()
+        };
+        // A diagonal rather than one number, since that is what the model says
+        // and a scalar would let the wrong arithmetic pass this.
+        cfg.susceptibility_of.insert("carol".to_string(), 0.25);
+        cfg.trust.insert(
+            "alice".to_string(),
+            BTreeMap::from([("carol".to_string(), 2.0), ("bob".to_string(), 1.0)]),
+        );
+        let ballots = [
+            ballot("alice", "ship"),
+            ballot("bob", "ship"),
+            ballot("carol", "hold"),
+        ];
+        let outcome = settle(&ballots, &cfg);
+        assert_eq!(outcome.settling, Settling::Anchored);
+
+        let names: Vec<&str> = outcome.agents.iter().map(|a| a.agent.as_str()).collect();
+        let (weights, _) = influence(&names, &cfg);
+        for (i, row) in outcome.agents.iter().enumerate() {
+            for (c, choice) in outcome.choices.iter().enumerate() {
+                let neighbours: f64 = outcome
+                    .agents
+                    .iter()
+                    .enumerate()
+                    .map(|(j, other)| weights[i][j] * other.limit[c])
+                    .sum();
+                let own = f64::from(u8::from(row.voted == *choice));
+                let pull = row.susceptibility;
+                let want = pull * neighbours + (1.0 - pull) * own;
+                assert!(
+                    (want - row.limit[c]).abs() < 1e-6,
+                    "{} on {choice}: {want} vs {}",
+                    row.agent,
+                    row.limit[c]
+                );
+            }
+        }
+    }
+
+    /// The susceptibility is a diagonal: a named agent uses its own value.
+    #[test]
+    fn a_named_agent_carries_its_own_susceptibility() {
+        let mut cfg = ConsensusSection {
+            susceptibility: 0.9,
+            ..ConsensusSection::default()
+        };
+        cfg.susceptibility_of.insert("maintainer".to_string(), 0.1);
+        let ballots = [
+            ballot("maintainer", "hold"),
+            ballot("newcomer", "ship"),
+            ballot("other", "ship"),
+        ];
+        let outcome = settle(&ballots, &cfg);
+        assert_eq!(outcome.settling, Settling::Anchored);
+
+        let of = |who: &str| {
+            outcome
+                .agents
+                .iter()
+                .find(|a| a.agent == who)
+                .expect("agent")
+        };
+        assert!((of("maintainer").susceptibility - 0.1).abs() < f64::EPSILON);
+        assert!((of("newcomer").susceptibility - 0.9).abs() < f64::EPSILON);
+
+        // The one that barely moves ends up nearest what it voted for.
+        let hold = outcome
+            .choices
+            .iter()
+            .position(|c| c == "hold")
+            .expect("hold");
+        assert!(
+            of("maintainer").limit[hold] > of("newcomer").limit[hold],
+            "{outcome:?}"
+        );
+    }
+
+    /// Susceptibility zero is the stubborn end of the model: the agent listens,
+    /// and does not move at all. Worth pinning because it is the one value where
+    /// the anchor term is the whole update.
+    #[test]
+    fn an_agent_at_zero_never_leaves_its_ballot() {
+        let mut cfg = ConsensusSection::default();
+        cfg.susceptibility_of.insert("rock".to_string(), 0.0);
+        let ballots = [
+            ballot("rock", "hold"),
+            ballot("a", "ship"),
+            ballot("b", "ship"),
+        ];
+        let outcome = settle(&ballots, &cfg);
+        let hold = outcome
+            .choices
+            .iter()
+            .position(|c| c == "hold")
+            .expect("hold");
+        let rock = outcome
+            .agents
+            .iter()
+            .find(|a| a.agent == "rock")
+            .expect("rock");
+        assert!(
+            (rock.limit[hold] - 1.0).abs() < 1e-9,
+            "it voted hold and never moved: {outcome:?}"
+        );
+        // And the others still moved toward it, so this is not a frozen run.
+        let a = outcome.agents.iter().find(|x| x.agent == "a").expect("a");
+        assert!(a.limit[hold] > 0.0, "{outcome:?}");
+    }
+
+    /// A configuration that names nobody is the scalar case, and it has to stay
+    /// exactly the scalar case: the diagonal is a generalisation, not a change.
+    #[test]
+    fn naming_nobody_is_the_scalar_case() {
+        let ballots = [ballot("a", "ship"), ballot("b", "hold")];
+        let scalar = ConsensusSection {
+            susceptibility: 0.5,
+            ..ConsensusSection::default()
+        };
+        let mut spelled_out = scalar.clone();
+        for who in ["a", "b"] {
+            spelled_out.susceptibility_of.insert(who.to_string(), 0.5);
+        }
+        assert_eq!(
+            settle(&ballots, &scalar).agents,
+            settle(&ballots, &spelled_out).agents
+        );
+    }
+
+    /// Any anchor at all makes the step a contraction, so the pair that swap
+    /// opinions forever under DeGroot settle instead. The periodic case is a
+    /// property of the unanchored model, not of the group.
+    #[test]
+    fn an_anchor_removes_the_periodic_case() {
+        let mut cfg = ConsensusSection {
+            self_weight: 0.0,
+            susceptibility: 0.9,
+            max_iterations: 500,
+            ..ConsensusSection::default()
+        };
+        cfg.trust.insert(
+            "alice".to_string(),
+            BTreeMap::from([("bob".to_string(), 1.0)]),
+        );
+        cfg.trust.insert(
+            "bob".to_string(),
+            BTreeMap::from([("alice".to_string(), 1.0)]),
+        );
+        let ballots = [ballot("alice", "ship"), ballot("bob", "hold")];
+
+        let unanchored = settle(
+            &ballots,
+            &ConsensusSection {
+                susceptibility: 1.0,
+                ..cfg.clone()
+            },
+        );
+        assert_eq!(unanchored.settling, Settling::Oscillating);
+
+        let anchored = settle(&ballots, &cfg);
+        assert_eq!(anchored.settling, Settling::Anchored, "{anchored:?}");
+        assert!(
+            !anchored.budget_reached,
+            "a contraction settles well inside the budget: {anchored:?}"
+        );
+    }
+
+    /// Full susceptibility is exactly DeGroot, which is what makes the knob
+    /// safe to add: a tracker that never sets it sees the model it had.
+    #[test]
+    fn full_susceptibility_is_the_unanchored_model() {
+        let ballots = [
+            ballot("alice", "ship"),
+            ballot("bob", "hold"),
+            ballot("carol", "ship"),
+        ];
+        let default = settle(&ballots, &ConsensusSection::default());
+        let explicit = settle(
+            &ballots,
+            &ConsensusSection {
+                susceptibility: 1.0,
+                ..ConsensusSection::default()
+            },
+        );
+        assert_eq!(default.settling, explicit.settling);
+        assert_eq!(default.agents, explicit.agents);
+        assert_eq!(default.consensus, explicit.consensus);
+    }
+
+    /// An exact tie is not a lead. Reporting the first of two equal options as
+    /// the group's position is how a coin toss becomes a decision.
+    #[test]
+    fn an_exact_tie_has_no_leader() {
+        let cfg = ConsensusSection::default();
+        let ballots = [ballot("alice", "ship"), ballot("bob", "hold")];
+        let outcome = settle(&ballots, &cfg);
+        assert_eq!(outcome.settling, Settling::Agreed);
+        assert!(outcome.leader().is_none(), "{outcome:?}");
+    }
+
+    /// One ballot settles on itself immediately. The verb still has to say that
+    /// nobody has agreed with it, which the caller does from the agent count.
+    #[test]
+    fn a_single_ballot_settles_on_itself() {
+        let cfg = ConsensusSection::default();
+        let outcome = settle(&[ballot("alice", "ship")], &cfg);
+        assert_eq!(outcome.settling, Settling::Agreed);
+        assert_eq!(outcome.agents.len(), 1);
+        assert!((share(&outcome, "ship") - 1.0).abs() < 1e-9);
+        assert!((outcome.agents[0].power.unwrap() - 1.0).abs() < 1e-9);
+    }
+
+    /// No ballots is not a consensus of zero agents that agree; it is nothing to
+    /// report, and the caller says so.
+    #[test]
+    fn no_ballots_leaves_no_consensus_to_report() {
+        let outcome = settle(&[], &ConsensusSection::default());
+        assert!(outcome.agents.is_empty());
+        assert!(outcome.consensus.is_none());
+        assert!(outcome.leader().is_none());
+    }
+
+    /// Every row of the influence matrix sums to one, whatever units the trust
+    /// was written in. This is what makes the iteration an averaging rather than
+    /// a growth, and a row that did not would send an opinion off to infinity.
+    #[test]
+    fn every_influence_row_is_stochastic() {
+        let mut cfg = ConsensusSection::default();
+        cfg.trust.insert(
+            "alice".to_string(),
+            BTreeMap::from([("bob".to_string(), 7.5), ("carol".to_string(), 0.25)]),
+        );
+        cfg.trust.insert(
+            "bob".to_string(),
+            BTreeMap::from([("bob".to_string(), 4.0), ("alice".to_string(), 1.0)]),
+        );
+        let (weights, source) = influence(&["alice", "bob", "carol"], &cfg);
+        assert_eq!(source, TrustSource::Configured);
+        for row in &weights {
+            let sum: f64 = row.iter().sum();
+            assert!((sum - 1.0).abs() < 1e-12, "{row:?} sums to {sum}");
+        }
+        // bob named itself, so its own weight is what the row said rather than
+        // the default: 4 of 5.
+        assert!((weights[1][1] - 0.8).abs() < 1e-12, "{:?}", weights[1]);
+        // alice did not, so it keeps self_weight and splits the rest by ratio.
+        assert!((weights[0][0] - cfg.self_weight).abs() < 1e-12);
+    }
+}

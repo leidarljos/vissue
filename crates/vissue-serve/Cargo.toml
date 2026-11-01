@@ -1,0 +1,39 @@
+[package]
+name = "vissue-serve"
+description = "Unix-socket control owner for vissue: bind, detach, and handshake"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+fs2.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+vissue-control.workspace = true
+vissue-core.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.31", default-features = false, features = ["signal"] }
+notify = "8"
+tokio = { version = "1", features = [
+    "io-util",
+    "macros",
+    "net",
+    "rt-multi-thread",
+    "signal",
+    "sync",
+    "time",
+] }
+
+[dev-dependencies]
+tempfile.workspace = true

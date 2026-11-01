@@ -1,0 +1,606 @@
+/* leiðarljós theme for the Shibuya project docs.
+   One file, the same in every crate. The tokens are the ones in
+   leidarljos.github.io/site.css and DESIGN.md: a paper scheme (cream page,
+   ink type) and a desk scheme (warm dark page, cream type), one gold accent.
+   Shibuya sets html.light or html.dark from localStorage._theme, the key
+   the main site's scheme switch also writes, so one choice holds across
+   every page under leidarljos.github.io. */
+
+:root {
+  /* Brand constants. Rules below use the role tokens, not these. */
+  --ll-ink: #0b0b0a;
+  --ll-cream: #f4f0e6;
+  --ll-gold: #e6a23c;
+
+  --ll-serif: "Source Serif 4", "Iowan Old Style", Palatino, "Palatino Linotype",
+    Charter, Georgia, serif;
+  --ll-sans: "Source Sans 3", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --ll-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas,
+    monospace;
+
+  --sy-f-text: var(--ll-sans);
+  --sy-f-heading: var(--ll-serif);
+  --sy-f-mono: var(--ll-mono);
+}
+
+/* Paper scheme. Also the static default, before the head script runs. */
+:root,
+html.light {
+  --ll-bg: #f6f2e8;
+  --ll-fg: #15130f;
+  --ll-fg-2: #2a2620;
+  --ll-accent: #7f520b;      /* gold as text on paper, 6.0:1 */
+  --ll-accent-soft: #b07a22; /* hover borders, not text */
+  --ll-line: #ddd5c3;
+  --ll-line-2: #c8bda5;
+  --ll-mute: #47423a;
+  --ll-mute-2: #5c564b;
+  --ll-panel: #efe9dc;
+  --ll-panel-2: #e7e0d0;
+  --ll-pin-opacity: 0.2;
+}
+
+/* Desk scheme. */
+html.dark {
+  --ll-bg: #33302a;
+  --ll-fg: #f4f0e6;
+  --ll-fg-2: #e8e2d4;
+  --ll-accent: #e6a23c;
+  --ll-accent-soft: #9a6410;
+  --ll-line: #514e47;
+  --ll-line-2: #645b48;
+  --ll-mute: #b9b3a6;
+  --ll-mute-2: #aea89b;
+  --ll-panel: #3a3630;
+  --ll-panel-2: #3f3c36;
+  --ll-pin-opacity: 0.16;
+  --syntax-dark-comment: #9da7b1;
+  --syntax-dark-comment-hashbang: #9da7b1;
+  --syntax-dark-comment-multiline: #9da7b1;
+  --syntax-dark-comment-single: #9da7b1;
+  --syntax-dark-comment-special: #9da7b1;
+}
+
+/* Map the role tokens onto Shibuya's own. */
+:root,
+html.light,
+html.dark {
+  --sy-c-background: var(--ll-bg);
+  --sy-c-background-contrast: var(--ll-fg);
+  --sy-c-background-dropback: color-mix(in srgb, var(--ll-bg) 85%, transparent);
+  --sy-c-surface: var(--ll-panel);
+  --sy-c-overlay: color-mix(in srgb, var(--ll-ink) 40%, transparent);
+  --sy-c-text: var(--ll-mute);
+  --sy-c-light: var(--ll-mute);
+  --sy-c-bold: var(--ll-fg);
+  --sy-c-heading: var(--ll-fg);
+  --sy-c-link: var(--ll-fg);
+  --sy-c-link-hover: var(--ll-accent);
+  --sy-c-divider: var(--ll-line);
+  --sy-c-border: var(--ll-line-2);
+  --sy-c-foot-background: var(--ll-bg);
+  --sy-c-foot-text: var(--ll-mute);
+  --sy-c-foot-divider: var(--ll-line);
+  --yue-c-text: var(--ll-mute);
+  --yue-c-heading: var(--ll-fg);
+  --yue-c-bold: var(--ll-fg);
+  --yue-c-link: var(--ll-fg);
+  --yue-c-code: var(--ll-fg);
+}
+
+html[data-accent-color="gold"] {
+  --accent-9: var(--ll-gold);
+  --accent-10: #eeb257;
+  --accent-11: var(--ll-accent);
+  --accent-12: var(--ll-fg);
+  --accent-contrast: var(--ll-ink);
+  --accent-a2: color-mix(in srgb, var(--ll-gold) 8%, transparent);
+  --accent-a3: color-mix(in srgb, var(--ll-gold) 16%, transparent);
+  --accent-a4: color-mix(in srgb, var(--ll-gold) 22%, transparent);
+  --accent-a9: var(--ll-gold);
+  --accent-a11: var(--ll-accent);
+}
+
+html,
+body {
+  background: var(--ll-bg);
+  color: var(--ll-mute);
+}
+
+html { scrollbar-color: var(--ll-line-2) var(--ll-bg); }
+::selection { background: var(--ll-gold); color: var(--ll-ink); }
+input, textarea { caret-color: var(--ll-accent); }
+
+/* Type: Source Serif 4 for headings, Source Sans 3 for reading, IBM Plex
+   Mono for commands, as DESIGN.md records. */
+body,
+.sy-head,
+.sy-lside,
+.sy-rside,
+.sy-foot {
+  font-family: var(--ll-sans);
+}
+
+.sy-main h1,
+.sy-main h2,
+.sy-main h3,
+.sy-main h4,
+.yue h1,
+.yue h2,
+.yue h3,
+.yue h4 {
+  font-family: var(--ll-serif);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  color: var(--ll-fg);
+  text-wrap: balance;
+}
+.yue h1 { font-size: clamp(2.2rem, 5vw, 3.2rem); line-height: 1.08; }
+.yue h2 { font-size: clamp(1.45rem, 2.6vw, 1.9rem); line-height: 1.2; }
+.yue h3 { font-size: 1.2rem; line-height: 1.25; letter-spacing: -0.01em; }
+.yue h4 { font-size: 1.05rem; line-height: 1.3; letter-spacing: 0; }
+
+.yue {
+  font-size: 1.0625rem;
+  line-height: 1.7;
+  letter-spacing: 0.008em;
+  max-width: 66ch;
+}
+.yue strong, .yue b { color: var(--ll-fg); }
+.yue table, table.docutils { font-variant-numeric: lining-nums tabular-nums; }
+
+code, pre, kbd, samp, .highlight { font-family: var(--ll-mono); }
+.yue :not(pre) > code,
+.yue code.literal {
+  font-size: 0.86em;
+  color: var(--ll-fg);
+  background: var(--ll-panel-2);
+  border: 1px solid var(--ll-line);
+  border-radius: 2px;
+  padding: 0.05em 0.3em;
+}
+
+p, li, td, .vi-hero-tagline { overflow-wrap: break-word; }
+
+/* Links: the text color, underlined; gold marks hover and the current page,
+   as on the main site. Gold does not recolor running text. */
+.yue a,
+.sy-main a.reference {
+  color: var(--ll-fg);
+  text-decoration: underline;
+  text-decoration-color: var(--ll-line-2);
+  text-underline-offset: 0.18em;
+  text-decoration-thickness: 1px;
+  border-bottom: 0;
+}
+.yue a:hover,
+.sy-main a.reference:hover {
+  color: var(--ll-accent);
+  text-decoration-color: currentColor;
+  text-decoration-thickness: 2px;
+}
+.yue a:has(> code) { text-decoration-color: var(--ll-line-2); }
+
+/* Side navigation reads as a list, not a row of gold links. */
+.globaltoc a,
+.sy-rside a,
+.localtoc a {
+  color: var(--ll-mute);
+  text-decoration: none;
+}
+.globaltoc a:hover,
+.sy-rside a:hover,
+.localtoc a:hover,
+.sy-head a:hover {
+  color: var(--ll-accent);
+}
+.globaltoc a.current,
+.globaltoc li.current > a,
+.localtoc li.active > a,
+.sy-head-links a[aria-current="page"] {
+  color: var(--ll-accent);
+}
+
+/* The project header keeps Shibuya's layout, in the site's ground and line. */
+.sy-head {
+  background: var(--sy-c-background-dropback);
+  border-bottom: 1px solid var(--ll-line);
+}
+.sy-head-brand img {
+  height: 1.85rem;
+  width: auto;
+  max-height: 1.85rem;
+  border-radius: 6px;
+}
+.sy-head-brand strong { font-family: var(--ll-serif); font-weight: 600; }
+.searchbox input,
+.sy-head .searchbox {
+  background: var(--ll-panel);
+  border-color: var(--ll-line);
+  border-radius: 4px;
+  color: var(--ll-fg);
+}
+.searchbox input::placeholder { color: var(--ll-mute-2); }
+
+/* Focus: 2px gold outline, 3px offset, everywhere. */
+:focus-visible,
+a:focus-visible,
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--ll-accent);
+  outline-offset: 3px;
+}
+
+/* Terminal surfaces stay ink in both schemes (Shibuya's dark_code). */
+.yue pre,
+.highlight pre,
+pre.literal-block {
+  border-radius: 2px;
+  border: 1px solid #2a2824;
+}
+/* On the desk the hairline follows the page's line token. */
+html.dark .yue pre,
+html.dark .highlight pre,
+html.dark pre.literal-block { border-color: var(--ll-line); }
+
+/* Admonitions: a flat plate with a 1px line, no colored side tab. */
+.yue .admonition,
+.yue div.admonition {
+  background: var(--ll-panel);
+  border: 1px solid var(--ll-line);
+  border-radius: 8px;
+  box-shadow: none;
+  padding: 0.9rem 1.15rem;
+}
+.yue .admonition-title,
+.yue p.admonition-title {
+  font-family: var(--ll-serif);
+  font-weight: 600;
+  color: var(--ll-fg);
+  background: transparent;
+}
+
+/* Tables: hairlines, cells inset from the edge. */
+.yue table,
+table.docutils {
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+  border-collapse: collapse;
+}
+.yue div.table-wrapper,
+div.table-wrapper {
+  overflow-x: auto;
+  max-width: 100%;
+  border: 0;
+  padding: 0;
+}
+.yue th,
+.yue td {
+  padding: 0.45rem 0.75rem;
+  border-bottom: 1px solid var(--ll-line);
+}
+.yue th {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ll-fg);
+  text-align: left;
+}
+
+/* The site strip: one row over every crate's docs, as the main site's nav. */
+.ll-strip {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem 1rem;
+  padding: 0 max(1rem, calc((100% - 90rem) / 2));
+  border-bottom: 1px solid var(--ll-line);
+  background: var(--ll-bg);
+  font: 400 0.92rem/1.3 var(--ll-sans);
+}
+.ll-strip a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 44px;
+  color: var(--ll-mute);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.ll-strip a:hover { color: var(--ll-accent); }
+.ll-strip .ll-brand {
+  flex: none;
+  font: 600 1.05rem/1 var(--ll-serif);
+  letter-spacing: -0.01em;
+  color: var(--ll-fg);
+}
+.ll-strip .ll-brand img { width: 1.15rem; height: 1.15rem; }
+.ll-strip ul {
+  display: flex;
+  align-items: center;
+  gap: 0 0.95rem;
+  margin: 0;
+  padding: 0 0 0 1rem;
+  list-style: none;
+  border-left: 1px solid var(--ll-line);
+  overflow-x: auto;
+  scrollbar-width: none;
+  min-width: 0;
+}
+.ll-strip ul::-webkit-scrollbar { display: none; }
+.ll-strip ul img {
+  width: 1.1rem;
+  height: 1.1rem;
+
+}
+.ll-strip a[aria-current="page"] {
+  color: var(--ll-fg);
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--ll-gold);
+}
+.ll-strip .ll-site {
+  margin-left: auto;
+  display: flex;
+  gap: 0 1rem;
+  flex: none;
+}
+@media (max-width: 720px) {
+  .ll-strip .ll-site { display: none; }
+  .ll-strip ul {
+    mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent);
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent);
+  }
+  .ll-strip ul { padding-left: 0.75rem; }
+  .ll-strip ul img { display: none; }
+}
+
+/* The pin watermark, as on the main site: fixed, behind the page, clear of
+   the header and its search box. */
+body::before {
+  content: "";
+  pointer-events: none;
+  position: fixed;
+  bottom: -5rem;
+  right: -8rem;
+  width: min(42vw, 22rem);
+  height: min(42vw, 22rem);
+  opacity: var(--ll-pin-opacity);
+  background: url("https://leidarljos.github.io/pin.svg") no-repeat center / contain;
+  z-index: 0;
+}
+.sy-page, .sy-foot, .ll-strip { position: relative; z-index: 1; }
+@media (max-width: 1100px) { body::before { display: none; } }
+
+/* Landing hero. */
+.vi-hero { padding: 2.2rem 0 0.4rem; }
+.vi-hero-brand { display: flex; align-items: center; gap: 1rem; }
+.vi-hero-mark { flex: none; border-radius: 8px; }
+.vi-hero-name {
+  font-family: var(--ll-serif);
+  font-size: clamp(2.1rem, 5vw, 3.4rem);
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+  text-wrap: balance;
+  color: var(--ll-fg);
+}
+.vi-hero-tag {
+  font-family: var(--ll-serif);
+  font-weight: 600;
+  color: var(--ll-accent);
+  font-size: 0.95rem;
+  margin: 0.35rem 0 0;
+}
+.vi-hero-tagline {
+  margin: 1.1rem 0 1.35rem;
+  font-family: var(--ll-serif);
+  font-size: clamp(1.15rem, 2vw, 1.3rem);
+  line-height: 1.45;
+  max-width: 40rem;
+  color: var(--ll-fg-2);
+}
+.vi-hero-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0 0 1.4rem;
+}
+.vi-hero-pills span {
+  border: 1px solid var(--ll-line-2);
+  border-radius: 999px;
+  padding: 0.25rem 0.8rem;
+  font-size: 0.85rem;
+  color: var(--ll-fg);
+}
+.vi-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  margin-bottom: 0.4rem;
+}
+.vi-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  border-radius: 4px;
+  padding: 0.7rem 1.2rem;
+  text-decoration: none !important;
+  font: 600 0.98rem/1.2 var(--ll-sans);
+}
+.vi-btn-gold {
+  background: var(--ll-gold);
+  color: var(--ll-ink) !important;
+}
+.vi-btn-gold:hover { color: var(--ll-ink) !important; filter: brightness(1.06); }
+.vi-btn-ghost {
+  border: 1px solid var(--ll-line-2);
+  color: var(--ll-fg) !important;
+}
+.vi-btn-ghost:hover {
+  color: var(--ll-accent) !important;
+  border-color: var(--ll-accent-soft);
+}
+
+/* The shared footer: the seven crates, then the analytics line. */
+.ll-foot {
+  border-top: 1px solid var(--ll-line);
+  margin-top: 3rem;
+  padding: 1.6rem 1rem 1.75rem;
+  color: var(--ll-mute);
+  font: 400 0.88rem/1.4 var(--ll-sans);
+  background: var(--ll-bg);
+}
+.ll-foot a { color: var(--ll-mute); }
+.ll-foot-line a { text-decoration: underline; text-underline-offset: 0.18em; }
+.ll-foot-line span { display: inline-flex; align-items: center; gap: 0.35em; }
+.ll-foot-reserved {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem 1.25rem;
+  margin-top: 0.9rem;
+}
+.ll-foot-reserved .sy-foot-socials a { color: var(--ll-mute); }
+.ll-foot-reserved .sy-foot-socials a:hover { color: var(--ll-accent); }
+.ll-foot a:hover { color: var(--ll-accent); }
+.ll-foot-tools {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.25rem 1.1rem;
+  margin: 0 0 0.9rem;
+  padding: 0;
+  list-style: none;
+}
+.ll-foot-tools a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 44px;
+  text-decoration: none;
+}
+.ll-foot-tools img { width: 1.1rem; height: 1.1rem; }
+.ll-foot-tools a[aria-current="page"] { color: var(--ll-fg); font-weight: 600; }
+.ll-foot-line {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.35rem 1.25rem;
+  margin: 0;
+}
+
+/* Skip link (injected by extra-foot). */
+.vi-skip-link {
+  position: absolute;
+  left: 0.75rem;
+  top: -4rem;
+  z-index: 10000;
+  padding: 0.55rem 0.9rem;
+  background: var(--ll-gold);
+  color: var(--ll-ink) !important;
+  font-weight: 700;
+  border-radius: 4px;
+  text-decoration: none;
+}
+.vi-skip-link:focus,
+.vi-skip-link:focus-visible { top: 0.75rem; outline: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+
+/* The page title is the only h1, and it is not drawn: the pages were
+   designed around their section headings. Those headings are h2 and h3
+   now, and they keep the size and spacing they had as h1 and h2. */
+.vi-page-title,
+.vi-search-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+.sy-page .yue h2 {
+  margin-top: 0;
+  margin-bottom: 0.888889em;
+  font-size: clamp(2.1rem, 5vw, 3.4rem);
+  font-weight: 800;
+  line-height: 1.08;
+}
+.sy-page .yue h2 code {
+  font-size: 1em;
+}
+.sy-page .yue h2 + p {
+  margin-top: 1rem;
+}
+.sy-page .yue h2 + ul,
+.sy-page .yue h2 + ol {
+  margin-top: 1.25em;
+}
+.sy-page .yue h3 {
+  margin-top: 2em;
+  margin-bottom: 1em;
+  font-size: clamp(1.45rem, 2.6vw, 1.9rem);
+  font-weight: 700;
+  line-height: 1.2;
+}
+.sy-page .yue h3 code {
+  font-size: 0.875em;
+}
+@media (min-width: 64rem) {
+  .copy-page-wrapper + .yue > section > h2:first-of-type {
+    padding-right: 180px;
+  }
+}
+
+/* Insets as plain lengths. Shibuya draws these boxes with padding-inline,
+   padding-block and max(env(safe-area-inset-*), ...); the values below are
+   the same boxes. The viewport tag has no viewport-fit=cover, so the
+   safe-area insets are 0 and max() picks the length. The header inner keeps
+   its fixed height and centres its row, so the block padding moves nothing. */
+.sy-head-inner {
+  padding: 0.25rem 1rem 0.25rem 1.5rem;
+}
+@media (min-width: 768px) {
+  .sy-head-inner { padding-right: 1.5rem; }
+}
+#copy-page-trigger > button.js-copy { padding: 0.25rem 0.75rem; }
+#copy-page-trigger > button.js-menu { padding: 0.25rem 0.5rem; }
+/* Under the repository card the edit link has no rule above it. */
+.repo-stats + .edit-this-page { border-top: none; }
+
+/* Tables as on leidarljos.github.io: rules between rows, no outer box. */
+.yue div.table-wrapper,
+div.table-wrapper {
+  border: none;
+  border-radius: 0;
+}
+
+/* Notes as on the cream sites: a hairline box, not a side stripe. */
+.yue .admonition,
+.yue div.admonition {
+  border: 1px solid var(--sy-c-border);
+  border-radius: 8px;
+}
+
+/* Gold as text on the light page is the paper gold of the cream sites,
+   #7f520b: 5.9:1 on cream, 5.5:1 on the accent tint. The bright gold stays
+   for the dark page. */
+html[data-accent-color="gold"] {
+  --accent-9: #7f520b;
+  --accent-a11: #7f520b;
+}
+html.dark[data-accent-color="gold"],
+html[data-theme="dark"][data-accent-color="gold"] {
+  --accent-9: #e6a23c;
+  --accent-a11: rgba(230, 162, 60, 0.94);
+}

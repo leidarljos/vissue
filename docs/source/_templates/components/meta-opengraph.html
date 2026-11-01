@@ -1,0 +1,37 @@
+{%- if "sphinxext.opengraph" not in _sphinx_extensions -%}
+  <meta property="og:type" content="website"/>
+  {%- if pageurl %}
+  <meta property="og:url" content="{{ pageurl|e }}"/>
+  {% endif -%}
+  {%- set og_title = vi_document_title if vi_document_title is defined and vi_document_title else title|striptags -%}
+  <meta property="og:title" content="{{ og_title|e }}"/>
+  {%- if vi_description is defined and vi_description %}
+    <meta name="description" content="{{ vi_description|e }}"/>
+    <meta property="og:description" content="{{ vi_description|e }}"/>
+  {%- elif meta and meta.description %}
+    <meta name="description" content="{{ meta.description|replace('\n', ' ')|e }}"/>
+    <meta property="og:description" content="{{ meta.description|replace('\n', ' ')|e }}"/>
+  {%- endif %}
+  {%- if vi_og_image is defined and vi_og_image %}
+  <meta property="og:image" content="{{ vi_og_image|e }}"/>
+  <meta property="og:image:width" content="1200"/>
+  <meta property="og:image:height" content="630"/>
+  <meta name="twitter:card" content="summary_large_image"/>
+  <meta name="twitter:image" content="{{ vi_og_image|e }}"/>
+  {%- elif meta and meta.cover -%}
+  <meta property="og:image" content="{{ meta.cover|e }}"/>
+  <meta name="twitter:card" content="summary_large_image"/>
+  {%- else %}
+  <meta name="twitter:card" content="summary"/>
+  {%- endif -%}
+{%- elif metatags -%}
+  {{ metatags }}
+{%- endif -%}
+
+{%- if theme_twitter_creator %}
+<meta name="twitter:creator" content="@{{ theme_twitter_creator }}"/>
+{%- endif %}
+
+{%- if theme_twitter_site %}
+<meta name="twitter:site" content="@{{ theme_twitter_site }}"/>
+{%- endif %}

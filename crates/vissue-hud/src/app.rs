@@ -1,0 +1,917 @@
+//! iced chrome around [`crate::palette::Palette`].
+
+use std::path::PathBuf;
+use std::time::Duration;
+
+use iced::event::{self, Event};
+use iced::keyboard::{self, Key, key::Named};
+use iced::window;
+use iced::{Element, Font, Pixels, Subscription, Task, time};
+
+use vissue_core::config::Layout;
+use vissue_core::process_env;
+
+use crate::attach;
+use crate::keys::ActionId;
+use crate::palette::{BoardFilter, DetailTab, Palette, PaletteKey};
+use crate::summon;
+use crate::theme;
+
+const HUD_W: f32 = 960.0;
+const HUD_H: f32 = 760.0;
+/// Guest-activate attempts after a show. Attempt 0 often runs before
+/// iced has Wayland handles.
+const ACTIVATE_TRIES: u8 = 6;
+
+/// First-paint inputs for the board.
+#[derive(Clone, Debug)]
+pub struct BootOpts {
+    /// Vault root and project prefix.
+    pub layout: Layout,
+    /// Control socket to attach after first paint.
+    pub socket: PathBuf,
+    /// Skip the socket and stay on [`vissue_tui::CoreBackend`].
+    pub offline: bool,
+    /// Identity stamped on claims and updates.
+    pub agent: String,
+    /// Whether the window starts mapped.
+    pub visible: bool,
+}
+
+/// iced messages. Mapping from native keys lives here so view stays dumb.
+#[derive(Debug, Clone)]
+pub enum Message {
+    /// Board key after native mapping.
+    Key(PaletteKey),
+    /// 50 ms poll: serve wait plus summon socket.
+    Tick,
+    /// Latest iced window id, once the shell reports one.
+    WindowId(Option<window::Id>),
+    /// Window close request: leave the process while mapped.
+    Close(window::Id),
+    /// Compositor deleted the surface: exit if mapped, clear if hidden.
+    Closed(window::Id),
+    /// Switch the list filter chip.
+    Filter(BoardFilter),
+    /// Select the row with this issue id.
+    SelectId(String),
+    /// Toggle DONE on this issue id.
+    ToggleDone(String),
+    /// Replace the search query.
+    QueryChanged(String),
+    /// Replace the add-task draft.
+    AddChanged(String),
+    /// Submit the add-task draft.
+    AddSubmit,
+    /// Replace the logbook note draft.
+    NoteChanged(String),
+    /// The deed accession field changed.
+    DeedChanged(String),
+    /// Submit the logbook note draft.
+    NoteSubmit,
+    /// Cite the deed accession in the field.
+    DeedSubmit,
+    /// Focus the add-task field.
+    FocusAdd,
+    /// Return typing to the row list.
+    FocusList,
+    /// Open this detail tab.
+    DetailTab(DetailTab),
+    /// Collapse or expand this project group.
+    ToggleProject(String),
+    /// Enter this project from the home list.
+    SelectProject(String),
+    /// Enter the home-list card at this index.
+    PickProject(usize),
+    /// Home project list scroll window.
+    ProjectScroll(icedtea::collection::VisibleWindow),
+    /// Task board scroll window.
+    TaskScroll(icedtea::collection::VisibleWindow),
+    /// Return to the home project list.
+    LeaveProject,
+    /// Copy a markdown link target.
+    MdLink(String),
+    /// Expand or collapse a Tree-tab node.
+    TreeToggle(u64),
+    /// Expand every Tree-tab node that has children.
+    TreeExpandAll,
+    /// Collapse every Tree-tab node that has children.
+    TreeCollapseAll,
+    /// Highlight the issue under a Tree-tab node.
+    TreePick(u64),
+    /// Open this issue as the selected board row.
+    OpenIssue(String),
+    /// Drag-select inside a read-only detail field.
+    SelectField(String, iced::widget::text_editor::Action),
+    /// Drag the list/detail sash.
+    Sash(icedtea::layout::SashEvent),
+    /// Window height changed.
+    WindowResized(f32),
+    /// Discarded click (tab-bar close, unused).
+    Noop,
+    /// Run this catalog action from the command palette.
+    CommandRun(ActionId),
+    /// Pixel offset of the issue-body preview scroller.
+    PreviewScrolled(f32),
+    /// Guest xdg-activation finished. `true` consumed the token.
+    ActivationApplied(bool),
+}
+
+/// iced application state.
+#[derive(Debug)]
+pub struct HudApp {
+    /// Overlay state the view reads.
+    pub palette: Palette,
+    window_id: Option<window::Id>,
+    /// Reserved id for an in-flight `window::open`. Late completions
+    /// after hide must not restore a closed surface.
+    opening: Option<window::Id>,
+    /// The decorated pop-out window, while one is open. The overlay stays
+    /// down until it closes.
+    popout_id: Option<window::Id>,
+    /// Reserved id for an in-flight pop-out open.
+    opening_popout: Option<window::Id>,
+    /// Set by the tray's Quit; read on the tick.
+    tray_quit: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    /// Remaining Sway IPC attempts after a show. Zero when placed or
+    /// Sway is absent.
+    place_tries: u8,
+    /// Remaining guest-activate attempts while a token is pending.
+    activate_tries: u8,
+    /// True while `window::run` for activation is in flight.
+    activating: bool,
+}
+
+impl HudApp {
+    fn from_palette(palette: Palette) -> Self {
+        let activate_tries = if palette.pending_token().is_some() {
+            ACTIVATE_TRIES
+        } else {
+            0
+        };
+        Self {
+            palette,
+            window_id: None,
+            opening: None,
+            popout_id: None,
+            opening_popout: None,
+            tray_quit: None,
+            place_tries: 0,
+            activate_tries,
+            activating: false,
+        }
+    }
+
+    /// Compositor close leaves the process only while the overlay is mapped.
+    fn close_exits(&self) -> bool {
+        self.palette.visible()
+    }
+
+    fn update(&mut self, message: Message) -> Task<Message> {
+        match message {
+            Message::WindowId(id) => {
+                if id.is_some() && id == self.opening_popout {
+                    self.opening_popout = None;
+                    return Task::none();
+                }
+                if id != self.opening {
+                    return Task::none();
+                }
+                self.opening = None;
+                self.window_id = id;
+                if self.palette.visible() {
+                    self.place_tries = 20;
+                    self.try_place();
+                    return self.activate_if_ready();
+                }
+                Task::none()
+            }
+            Message::Tick => {
+                if self
+                    .tray_quit
+                    .as_ref()
+                    .is_some_and(|q| q.load(std::sync::atomic::Ordering::Relaxed))
+                {
+                    return iced::exit();
+                }
+                self.palette.poll_updates();
+                self.try_place();
+                if let Some(req) = summon::try_recv() {
+                    let was = self.palette.visible();
+                    self.palette.apply_summon(&req);
+                    if self.palette.pending_token().is_some() {
+                        self.activate_tries = ACTIVATE_TRIES;
+                    } else {
+                        self.activate_tries = 0;
+                    }
+                    if was != self.palette.visible() {
+                        let place = self.sync_window();
+                        return Task::batch([place, self.activate_if_ready()]);
+                    }
+                    return self.activate_if_ready();
+                }
+                self.activate_if_ready()
+            }
+            Message::ActivationApplied(ok) => {
+                self.activating = false;
+                if ok {
+                    self.palette.take_pending_token();
+                    self.activate_tries = 0;
+                    return Task::none();
+                }
+                Task::none()
+            }
+            Message::Close(id) => {
+                if Some(id) == self.popout_id {
+                    // The pop-out closes; the HUD stays, hidden, for the next
+                    // summon.
+                    self.popout_id = None;
+                    self.opening_popout = None;
+                    self.palette.hide();
+                    return window::close(id);
+                }
+                if self.close_exits() {
+                    iced::exit()
+                } else {
+                    Task::none()
+                }
+            }
+            Message::Closed(id) => {
+                if Some(id) == self.popout_id {
+                    self.popout_id = None;
+                    return Task::none();
+                }
+                self.opening = None;
+                if self.close_exits() {
+                    iced::exit()
+                } else {
+                    self.window_id = None;
+                    Task::none()
+                }
+            }
+            Message::Filter(filter) => {
+                self.palette.set_filter(filter);
+                Task::none()
+            }
+            Message::SelectId(id) => {
+                let before = self.palette.preview_offset();
+                self.palette.select_id(&id);
+                self.sync_preview_scroll(before)
+            }
+            Message::ToggleDone(id) => {
+                self.palette.toggle_done(&id);
+                Task::none()
+            }
+            Message::QueryChanged(q) => {
+                self.palette.type_query(q);
+                Task::none()
+            }
+            Message::AddChanged(text) => {
+                self.palette.set_add_draft(text);
+                Task::none()
+            }
+            Message::AddSubmit => {
+                self.palette.submit_add();
+                Task::none()
+            }
+            Message::NoteChanged(text) => {
+                self.palette.set_note_draft(text);
+                Task::none()
+            }
+            Message::NoteSubmit => {
+                self.palette.submit_note();
+                Task::none()
+            }
+            Message::DeedChanged(text) => {
+                self.palette.set_deed_draft(text);
+                Task::none()
+            }
+            Message::DeedSubmit => {
+                self.palette.submit_deed();
+                Task::none()
+            }
+            Message::FocusAdd => {
+                self.palette.focus_add();
+                Task::none()
+            }
+            Message::FocusList => {
+                self.palette.focus_list();
+                Task::none()
+            }
+            Message::DetailTab(tab) => {
+                self.palette.set_detail_tab(tab);
+                Task::none()
+            }
+            Message::ToggleProject(project) => {
+                self.palette.toggle_project(&project);
+                Task::none()
+            }
+            Message::SelectProject(project) => {
+                self.palette.enter_project(&project);
+                Task::none()
+            }
+            Message::PickProject(index) => {
+                if let Some(name) = self
+                    .palette
+                    .project_cards()
+                    .get(index)
+                    .map(|card| card.name.clone())
+                {
+                    self.palette.enter_project(&name);
+                }
+                Task::none()
+            }
+            Message::ProjectScroll(window) => {
+                self.palette.set_project_window(window);
+                Task::none()
+            }
+            Message::TaskScroll(window) => {
+                self.palette.set_task_window(window);
+                Task::none()
+            }
+            Message::LeaveProject => {
+                self.palette.leave_project();
+                Task::none()
+            }
+            Message::MdLink(url) => {
+                self.palette.set_clipboard(url);
+                Task::none()
+            }
+            Message::TreeToggle(id) => {
+                self.palette.toggle_tree_node(id);
+                Task::none()
+            }
+            Message::TreeExpandAll => {
+                self.palette.set_tree_expanded(true);
+                Task::none()
+            }
+            Message::TreeCollapseAll => {
+                self.palette.set_tree_expanded(false);
+                Task::none()
+            }
+            Message::TreePick(id) => {
+                self.palette.select_tree_node(id);
+                Task::none()
+            }
+            Message::OpenIssue(id) => {
+                self.palette.open_issue(&id);
+                Task::none()
+            }
+            Message::SelectField(id, action) => {
+                self.palette.perform_select(&id, action);
+                Task::none()
+            }
+            Message::Sash(event) => {
+                self.palette.apply_sash(event);
+                Task::none()
+            }
+            Message::WindowResized(height) => {
+                self.palette.set_window_height(height);
+                Task::none()
+            }
+            Message::Noop => Task::none(),
+            Message::CommandRun(id) => {
+                let before = self.palette.preview_offset();
+                self.palette.run_command_at(
+                    self.palette
+                        .command_hits()
+                        .iter()
+                        .position(|hit| hit.id == id)
+                        .unwrap_or(0),
+                );
+                let mut tasks = vec![self.sync_preview_scroll(before)];
+                if self.palette.take_popout_request() {
+                    tasks.push(self.pop_out());
+                }
+                Task::batch(tasks)
+            }
+            Message::PreviewScrolled(y) => {
+                self.palette.set_preview_offset(y);
+                Task::none()
+            }
+            Message::Key(key) => {
+                let was = self.palette.visible();
+                let before = self.palette.clipboard().to_string();
+                let offset_before = self.palette.preview_offset();
+                self.palette.handle_key(key);
+                let clip = self.palette.clipboard().to_string();
+                let mut tasks = Vec::new();
+                if clip != before && !clip.is_empty() {
+                    tasks.push(iced::clipboard::write(clip));
+                }
+                if was != self.palette.visible() {
+                    tasks.push(self.sync_window());
+                }
+                if self.palette.take_popout_request() {
+                    tasks.push(self.pop_out());
+                }
+                tasks.push(self.sync_preview_scroll(offset_before));
+                Task::batch(tasks)
+            }
+        }
+    }
+
+    fn sync_preview_scroll(&self, before: f32) -> Task<Message> {
+        let y = self.palette.preview_offset();
+        if (y - before).abs() < f32::EPSILON {
+            return Task::none();
+        }
+        iced::widget::operation::scroll_to(
+            iced::widget::Id::from(Palette::PREVIEW_SCROLL_ID),
+            iced::widget::scrollable::AbsoluteOffset { x: 0.0, y },
+        )
+    }
+
+    fn sync_window(&mut self) -> Task<Message> {
+        // While the board is popped out, that window is the surface: hiding
+        // closes it, and nothing maps the overlay.
+        if let Some(pop) = self.popout_id {
+            if self.palette.visible() {
+                return Task::none();
+            }
+            self.popout_id = None;
+            self.opening_popout = None;
+            return window::close(pop);
+        }
+        match overlay_action(self.palette.visible(), self.mapped()) {
+            OverlayAction::Open => self.open_window(),
+            OverlayAction::Close => {
+                self.place_tries = 0;
+                self.opening = None;
+                match self.window_id.take() {
+                    Some(id) => window::close(id),
+                    None => Task::none(),
+                }
+            }
+            OverlayAction::Place => {
+                self.place_tries = 20;
+                self.try_place();
+                Task::none()
+            }
+            OverlayAction::Idle => Task::none(),
+        }
+    }
+
+    fn open_window(&mut self) -> Task<Message> {
+        self.place_tries = 20;
+        let (id, open) = window::open(board_window());
+        self.window_id = Some(id);
+        self.opening = Some(id);
+        open.map(|id| Message::WindowId(Some(id)))
+    }
+
+    /// First mapped surface: pop-out when `VISSUE_HUD_WINDOW=1`, else overlay.
+    fn boot_window(&mut self) -> Task<Message> {
+        if window_mode() {
+            self.pop_out()
+        } else {
+            self.open_window()
+        }
+    }
+
+    fn mapped(&self) -> bool {
+        self.window_id.is_some()
+    }
+
+    /// Open the board in a decorated window and take the overlay down. A
+    /// second request while one is open does nothing.
+    fn pop_out(&mut self) -> Task<Message> {
+        if self.popout_id.is_some() {
+            return Task::none();
+        }
+        let mut tasks = Vec::new();
+        self.place_tries = 0;
+        self.opening = None;
+        if let Some(id) = self.window_id.take() {
+            tasks.push(window::close(id));
+        }
+        self.palette.show();
+        let (id, open) = window::open(popout_window());
+        self.popout_id = Some(id);
+        self.opening_popout = Some(id);
+        tasks.push(open.map(|id| Message::WindowId(Some(id))));
+        Task::batch(tasks)
+    }
+
+    fn try_place(&mut self) {
+        if self.place_tries == 0 {
+            return;
+        }
+        if crate::place::place_overlay() || !crate::place::sway_available() {
+            self.place_tries = 0;
+        } else {
+            self.place_tries = self.place_tries.saturating_sub(1);
+        }
+    }
+
+    fn activate_if_ready(&mut self) -> Task<Message> {
+        if self.activating
+            || self.activate_tries == 0
+            || self.opening.is_some()
+            || self.popout_id.is_some()
+        {
+            return Task::none();
+        }
+        let Some(tok) = self.palette.pending_token().map(str::to_string) else {
+            return Task::none();
+        };
+        let Some(id) = self.window_id else {
+            return Task::none();
+        };
+        self.activating = true;
+        self.activate_tries = self.activate_tries.saturating_sub(1);
+        window::run(id, move |win| crate::wlactivate::activate(win, &tok))
+            .map(Message::ActivationApplied)
+    }
+}
+
+/// The app id of the pop-out, so a compositor rule on the overlay's id
+/// leaves it a normal window.
+pub const POPOUT_APP_ID: &str = "me.rgoswami.vissue-hud.window";
+
+/// `VISSUE_HUD_WINDOW=1` boots [`popout_window`] instead of the overlay.
+pub const HUD_WINDOW_ENV: &str = "VISSUE_HUD_WINDOW";
+
+/// True when the process asked for a decorated window at boot.
+#[must_use]
+pub fn window_mode() -> bool {
+    match process_env::var(HUD_WINDOW_ENV) {
+        Ok(v) => v.trim() == "1",
+        Err(_) => false,
+    }
+}
+
+/// The pop-out: a decorated window at the compositor's own level, the size
+/// of the overlay, that the window manager places and stacks like any other.
+pub fn popout_window() -> window::Settings {
+    let boot = icedtea::app::Boot::new("vissue", POPOUT_APP_ID)
+        .decorations(true)
+        .size(HUD_W, HUD_H)
+        .min_size(360.0, 420.0);
+    icedtea::app::bootstrap(&boot).window
+}
+
+/// Undecorated always-on-top overlay. Sway is told to float it over IPC.
+pub fn board_window() -> window::Settings {
+    let boot = icedtea::app::Boot::new("vissue", crate::place::OVERLAY_APP_ID)
+        .overlay()
+        .size(HUD_W, HUD_H)
+        .min_size(360.0, 420.0);
+    icedtea::app::bootstrap(&boot).window
+}
+
+/// First paint via core, attach unless `--offline`, then the iced loop.
+///
+/// # Errors
+///
+/// Returns an error if the vault cannot be opened, attach reload fails, or
+/// the iced application cannot start.
+pub fn run(opts: BootOpts) -> anyhow::Result<()> {
+    let mut palette = Palette::open_core(opts.layout, opts.agent)?;
+    palette.attach(&opts.socket, opts.offline, &attach::hud_hooks())?;
+    if opts.visible {
+        palette.show();
+    } else {
+        palette.hide();
+    }
+    apply_boot_token(&mut palette, opts.visible);
+    crate::log::info(&format!(
+        "hud start log={} status={}",
+        crate::log::path().display(),
+        palette.status_line()
+    ));
+    run_iced(palette).map_err(|err| anyhow::anyhow!("{err}"))
+}
+
+/// Take compositor env tokens at owner boot. Stash a legal token when the
+/// first window will map; always unset both vars.
+fn apply_boot_token(palette: &mut Palette, visible: bool) {
+    let tok = summon::take_env_token();
+    if visible {
+        palette.stash_token(tok);
+    }
+}
+
+fn run_iced(palette: Palette) -> iced::Result {
+    icedtea::typo::install_platform_faces();
+    let cell = std::sync::Mutex::new(Some(palette));
+    iced::daemon(
+        move || {
+            let palette = cell.lock().expect("boot").take().expect("boot once");
+            boot(palette)
+        },
+        update,
+        view,
+    )
+    .subscription(subscription)
+    .theme(|_: &HudApp, _| theme::theme())
+    .title(|_: &HudApp, _| "vissue".to_string())
+    .default_font(icedtea::typo::UI)
+    .settings(iced::Settings {
+        default_text_size: Pixels::from(icedtea::typo::BODY),
+        default_font: icedtea::typo::UI,
+        ..Default::default()
+    })
+    .run()
+}
+
+fn boot(palette: Palette) -> (HudApp, Task<Message>) {
+    let visible = palette.visible();
+    let mut app = HudApp::from_palette(palette);
+    app.tray_quit = crate::tray::start();
+    let task = if visible {
+        app.boot_window()
+    } else {
+        Task::none()
+    };
+    (app, task)
+}
+
+fn update(app: &mut HudApp, message: Message) -> Task<Message> {
+    app.update(message)
+}
+
+fn view(app: &HudApp, _id: window::Id) -> Element<'_, Message> {
+    crate::view::view(&app.palette)
+}
+
+/// What the overlay window should do for a visibility change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OverlayAction {
+    Open,
+    Close,
+    Place,
+    Idle,
+}
+
+fn overlay_action(visible: bool, mapped: bool) -> OverlayAction {
+    match (visible, mapped) {
+        (true, false) => OverlayAction::Open,
+        (false, true) => OverlayAction::Close,
+        (true, true) => OverlayAction::Place,
+        (false, false) => OverlayAction::Idle,
+    }
+}
+
+fn subscription(_app: &HudApp) -> Subscription<Message> {
+    Subscription::batch([
+        event::listen_with(|event, status, id| match event {
+            Event::Keyboard(keyboard::Event::KeyPressed { key, .. }) => {
+                if status == event::Status::Captured && !is_nav_key(&key) {
+                    return None;
+                }
+                map_key(key)
+            }
+            Event::Window(window::Event::CloseRequested) => Some(Message::Close(id)),
+            Event::Window(window::Event::Closed) => Some(Message::Closed(id)),
+            _ => None,
+        }),
+        time::every(Duration::from_millis(50)).map(|_| Message::Tick),
+        icedtea::layout::listen_sash()
+            .map(|drive| Message::Sash(drive.into_event(icedtea::layout::Axis::Vertical))),
+        iced::window::resize_events().map(|(_, size)| Message::WindowResized(size.height)),
+    ])
+}
+
+fn is_nav_key(key: &Key) -> bool {
+    matches!(
+        key,
+        Key::Named(Named::Escape | Named::Enter | Named::ArrowUp | Named::ArrowDown | Named::Tab)
+    )
+}
+
+fn map_key(key: Key) -> Option<Message> {
+    match key.as_ref() {
+        Key::Named(Named::Enter) => Some(Message::Key(PaletteKey::Enter)),
+        Key::Named(Named::Escape) => Some(Message::Key(PaletteKey::Esc)),
+        Key::Named(Named::ArrowUp) => Some(Message::Key(PaletteKey::Up)),
+        Key::Named(Named::ArrowDown) => Some(Message::Key(PaletteKey::Down)),
+        Key::Named(Named::Backspace) => Some(Message::Key(PaletteKey::Backspace)),
+        Key::Named(Named::Space) => Some(Message::Key(PaletteKey::Space)),
+        Key::Named(Named::Tab) => Some(Message::Key(PaletteKey::Tab)),
+        Key::Character(c) => {
+            let mut chars = c.chars();
+            let first = chars.next()?;
+            if chars.next().is_some() {
+                return None;
+            }
+            Some(Message::Key(PaletteKey::Char(first)))
+        }
+        _ => None,
+    }
+}
+
+// Keep Font in scope so a missing FACE constant fails here, not in view.
+const _: Font = theme::FACE;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vissue_core::config::{DEFAULT_PREFIX, Layout};
+
+    fn empty_app() -> (tempfile::TempDir, HudApp) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let layout = Layout::new(dir.path(), DEFAULT_PREFIX);
+        std::fs::create_dir_all(layout.projects_dir()).expect("projects dir");
+        let mut palette = Palette::open_core(layout, "close".into()).expect("open");
+        palette.show();
+        (dir, HudApp::from_palette(palette))
+    }
+
+    #[test]
+    fn a_hidden_overlay_does_not_quit_on_window_close() {
+        let (_dir, mut app) = empty_app();
+        assert!(app.close_exits());
+        app.palette.hide();
+        assert!(!app.close_exits());
+    }
+
+    #[test]
+    fn hide_closes_the_overlay_window() {
+        assert_eq!(overlay_action(false, true), OverlayAction::Close);
+        assert_eq!(overlay_action(true, false), OverlayAction::Open);
+        assert_eq!(overlay_action(true, true), OverlayAction::Place);
+        assert_eq!(overlay_action(false, false), OverlayAction::Idle);
+        let src = include_str!("app.rs");
+        let prod = src.split("#[cfg(test)]").next().unwrap();
+        assert!(prod.contains("window::close"));
+        assert!(prod.contains("iced::daemon"));
+        assert!(prod.contains("window::Event::Closed"));
+        assert!(prod.contains("Message::Closed(id)"));
+        assert!(prod.contains("wlactivate::activate"));
+        assert!(!prod.contains("let _ = tok"));
+        assert!(!prod.contains("gain_focus"));
+        assert!(!prod.contains("Mode::Hidden"));
+        assert!(!prod.contains("set_mode"));
+    }
+
+    #[test]
+    fn production_app_applies_xdg_activation() {
+        let src = include_str!("app.rs");
+        let prod = src.split("#[cfg(test)]").next().unwrap();
+        assert!(prod.contains("wlactivate::activate"));
+        assert!(prod.contains("Message::ActivationApplied"));
+        assert!(prod.contains("take_env_token"));
+        assert!(prod.contains("apply_boot_token"));
+        assert!(!prod.contains("let _ = tok"));
+        assert!(!prod.contains("gain_focus"));
+    }
+
+    #[test]
+    fn boot_token_stashes_when_visible() {
+        let _guard = crate::env_lock();
+        crate::wlactivate::set_activation_vars("boot-tok", "startup");
+        let (_dir, mut app) = empty_app();
+        apply_boot_token(&mut app.palette, true);
+        assert_eq!(app.palette.pending_token(), Some("boot-tok"));
+        assert!(std::env::var("XDG_ACTIVATION_TOKEN").is_err());
+        assert!(std::env::var("DESKTOP_STARTUP_ID").is_err());
+        let app = HudApp::from_palette(app.palette);
+        assert_eq!(app.activate_tries, ACTIVATE_TRIES);
+        assert_eq!(app.palette.pending_token(), Some("boot-tok"));
+    }
+
+    #[test]
+    fn boot_token_unsets_when_hidden() {
+        let _guard = crate::env_lock();
+        crate::wlactivate::set_activation_vars("boot-tok", "startup");
+        let (_dir, mut app) = empty_app();
+        app.palette.hide();
+        apply_boot_token(&mut app.palette, false);
+        assert_eq!(app.palette.pending_token(), None);
+        assert!(std::env::var("XDG_ACTIVATION_TOKEN").is_err());
+        assert!(std::env::var("DESKTOP_STARTUP_ID").is_err());
+        let app = HudApp::from_palette(app.palette);
+        assert_eq!(app.activate_tries, 0);
+    }
+
+    #[test]
+    fn activation_applied_true_clears_token() {
+        let (_dir, mut app) = empty_app();
+        app.palette.apply_summon(&crate::summon::SummonRequest {
+            action: crate::summon::SummonAction::Show,
+            token: Some("tok".into()),
+        });
+        app.activate_tries = ACTIVATE_TRIES;
+        assert_eq!(app.palette.pending_token(), Some("tok"));
+        let _ = app.update(Message::ActivationApplied(false));
+        assert_eq!(app.palette.pending_token(), Some("tok"));
+        let _ = app.update(Message::ActivationApplied(true));
+        assert_eq!(app.palette.pending_token(), None);
+        assert_eq!(app.activate_tries, 0);
+    }
+
+    #[test]
+    fn a_stale_window_id_after_hide_does_not_count_as_mapped() {
+        let (_dir, mut app) = empty_app();
+        let id = window::Id::unique();
+        app.opening = Some(id);
+        let _ = app.update(Message::WindowId(Some(id)));
+        assert!(app.mapped());
+        app.palette.hide();
+        let _ = app.sync_window();
+        assert!(!app.mapped());
+        let _ = app.update(Message::WindowId(Some(id)));
+        assert!(
+            !app.mapped(),
+            "a late open completion must not restore a closed surface"
+        );
+        app.palette.show();
+        assert_eq!(
+            overlay_action(app.palette.visible(), app.mapped()),
+            OverlayAction::Open
+        );
+    }
+
+    #[test]
+    fn closed_while_hidden_clears_mapped_state() {
+        let (_dir, mut app) = empty_app();
+        let id = window::Id::unique();
+        app.opening = Some(id);
+        let _ = app.update(Message::WindowId(Some(id)));
+        assert!(app.mapped());
+        app.palette.hide();
+        assert!(!app.close_exits());
+        let _ = app.update(Message::Closed(id));
+        assert!(!app.mapped());
+        app.palette.show();
+        assert_eq!(
+            overlay_action(app.palette.visible(), app.mapped()),
+            OverlayAction::Open
+        );
+    }
+
+    #[test]
+    fn pop_out_takes_the_overlay_down_and_its_close_hides_the_hud() {
+        let (_dir, mut app) = empty_app();
+        let id = window::Id::unique();
+        app.opening = Some(id);
+        let _ = app.update(Message::WindowId(Some(id)));
+        app.palette.show();
+        assert!(app.mapped());
+        let _ = app.pop_out();
+        assert!(!app.mapped(), "the overlay goes down");
+        let pop = app.popout_id.expect("a pop-out window");
+        assert!(app.palette.visible());
+        // A second request while one is open opens nothing new.
+        let _ = app.pop_out();
+        assert_eq!(app.popout_id, Some(pop));
+        // The compositor closes the pop-out: the HUD hides and stays.
+        let _ = app.update(Message::Close(pop));
+        assert!(app.popout_id.is_none());
+        assert!(!app.palette.visible());
+        assert!(
+            !app.close_exits(),
+            "closing the pop-out does not leave the process"
+        );
+        let _ = app.update(Message::Closed(pop));
+        assert!(!app.mapped());
+    }
+
+    #[test]
+    fn window_env_boots_the_pop_out_not_the_overlay() {
+        let _guard = crate::env_lock();
+        process_env::clear_override(HUD_WINDOW_ENV);
+        assert!(!window_mode());
+
+        let (_dir, mut overlay_app) = empty_app();
+        let _ = overlay_app.boot_window();
+        assert!(
+            overlay_app.window_id.is_some(),
+            "unset env still maps the overlay"
+        );
+        assert!(
+            overlay_app.popout_id.is_none(),
+            "unset env must not map the pop-out"
+        );
+        let overlay = board_window();
+        assert!(!overlay.decorations);
+        assert_eq!(overlay.level, iced::window::Level::AlwaysOnTop);
+
+        process_env::override_var(HUD_WINDOW_ENV, Some("1"));
+        assert!(window_mode());
+        let (_dir, mut app) = empty_app();
+        let _ = app.boot_window();
+        assert!(
+            app.popout_id.is_some(),
+            "VISSUE_HUD_WINDOW=1 maps the pop-out"
+        );
+        assert!(
+            app.window_id.is_none(),
+            "window mode must not also map the overlay"
+        );
+        let pop = popout_window();
+        assert!(pop.decorations, "the pop-out is a managed window");
+        assert_eq!(pop.level, iced::window::Level::Normal);
+        #[cfg(target_os = "linux")]
+        {
+            assert_eq!(pop.platform_specific.application_id, POPOUT_APP_ID);
+            assert_eq!(
+                overlay.platform_specific.application_id,
+                crate::place::OVERLAY_APP_ID,
+                "the overlay Boot is unchanged when window mode is on"
+            );
+        }
+        process_env::clear_override(HUD_WINDOW_ENV);
+    }
+}

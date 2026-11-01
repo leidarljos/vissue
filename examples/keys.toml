@@ -1,0 +1,13 @@
+# Copy to ~/.config/vissue/keys.toml
+# Overlay: diffs only. Invalid file keeps defaults.
+#
+# Colemak home-row nav steals n/e, so those verbs move under the leader.
+
+leader = ";"
+leader_timeout_ms = 800
+
+[board]
+"list.down" = "n"
+"list.up" = "e"
+"issue.note" = "leader+n"
+"issue.state" = "leader+s"

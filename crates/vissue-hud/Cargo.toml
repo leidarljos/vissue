@@ -1,0 +1,86 @@
+[package]
+name = "vissue-hud"
+description = "Summonable icedtea task board. Home is the project list."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+# iced links native graphics stacks; musl archives are for the CLI and MCP.
+[package.metadata.dist]
+targets = [
+    "aarch64-apple-darwin",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+]
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }.tar.xz"
+bin-dir = "{ name }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "txz"
+# The release tarball or nothing. A target without one fails here, and
+# `cargo install` builds it from source.
+disabled-strategies = ["quick-install", "compile"]
+
+# dist zips the Windows archive flat.
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }.zip"
+bin-dir = "{ bin }{ binary-ext }"
+pkg-fmt = "zip"
+
+[lints]
+workspace = true
+
+[lib]
+name = "vissue_hud"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vissue-hud"
+path = "src/bin.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+iced = { version = "0.14", default-features = true, features = [
+    "tokio",
+    "markdown",
+    "advanced",
+    "lazy",
+    "svg",
+] }
+# 0.17.0: checkbox is CheckState, label takes LabelFace, markdown_view
+# takes MarkdownOpts, and drawing patterns take caller A11y. 0.16.2
+# compiled, but crates.io current is 0.17 and the 0.16 signatures
+# are gone.
+icedtea = "0.17.0"
+# Desktop notices on the Freedesktop bus; the board posts a claim, an
+# unblock and a stop while it is out of view.
+notify-rust = "4"
+serde.workspace = true
+serde_json.workspace = true
+# The tray's own runtime, on its own thread.
+tokio = { version = "1", features = ["rt"] }
+vissue-control.workspace = true
+vissue-core.workspace = true
+vissue-serve.workspace = true
+vissue-tui.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+serde_json.workspace = true
+
+# A StatusNotifier tray on Linux: left click toggles the overlay, Quit
+# leaves the HUD and nothing else.
+[target.'cfg(target_os = "linux")'.dependencies]
+ksni = "0.3"
+wayland-backend = { version = "0.3.16", features = ["client_system"] }
+wayland-client = { version = "0.31.15", features = ["system"] }
+wayland-protocols = { version = "0.32.13", features = ["client", "staging"] }

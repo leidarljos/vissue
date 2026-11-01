@@ -1,0 +1,11 @@
+# Cognitive complexity, held at today's ceiling rather than at clippy's default.
+#
+# A ratchet, not a target. Three functions sit between the default 25 and this: a clap
+# dispatch whose complexity is one arm per verb, a relatedness scorer, and a paint
+# test. Lowering this is the work of splitting those; raising it needs a reason.
+#
+# Worth knowing what this measure does not see. The control socket dispatches
+# thirty-seven methods from one match and scores under the default, because the metric
+# counts nesting and a wide flat match has none. Drift between the surfaces lives in
+# that breadth, so it is the schema checks that catch it and never this.
+cognitive-complexity-threshold = 25

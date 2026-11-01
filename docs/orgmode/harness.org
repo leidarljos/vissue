@@ -1,0 +1,70 @@
+#+title: Harness
+#+description: Wire ljos-mcp so a coding seat can cite a ticket, recall what it stands on, and settle agreement.
+#+options: toc:nil num:nil
+
+Wire =ljos-mcp= so a coding seat can cite a ticket, recall what it
+stands on, and settle agreement. The binary must be on =PATH=.
+Restart the seat after adding the server.
+
+The tracker-only server is =vissue-mcp= if you do not want the seat.
+
+* Grok
+
+Put this in =~/.grok/config.toml=:
+
+#+begin_src toml
+[mcp_servers.ljos]
+command = "ljos-mcp"
+args = []
+startup_timeout_sec = 30
+#+end_src
+
+Restart Grok. The skill still names the habitats; the MCP is the seat.
+
+* Claude
+
+#+begin_src console
+$ claude mcp add ljos -- ljos-mcp
+#+end_src
+
+* Codex
+
+#+begin_src console
+$ codex mcp add ljos -- ljos-mcp
+#+end_src
+
+* Cursor
+
+#+begin_src json
+{
+  "mcpServers": {
+    "ljos": { "command": "ljos-mcp" }
+  }
+}
+#+end_src
+
+* Pi
+
+Add =ljos-mcp= to the MCP server list the same way you add any stdio
+server. Restart the session.
+
+* Tracker only
+
+If the seat is not installed, point the same list at =vissue-mcp=:
+
+#+begin_src console
+$ cargo install vissue-mcp
+#+end_src
+
+That server speaks the verbs on the [[file:reference.org][Reference]], not the other habitats.
+
+* Cite a deed on a ticket
+
+#+begin_src console
+$ ljos evidence deed-…
+$ ljos deed <id> --add deed-…
+$ ljos recall <id>
+#+end_src
+
+Citing a deed names it; the bytes stay in deedar. The ticket stays open until the tracker closes the
+ticket.

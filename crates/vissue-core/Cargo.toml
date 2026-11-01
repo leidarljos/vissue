@@ -1,0 +1,41 @@
+[package]
+name = "vissue-core"
+description = "Plain-text issue tracking over per-project orgmode files: model, store, queries, and org projection"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+daggy.workspace = true
+fs2.workspace = true
+petgraph.workspace = true
+schemars = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+rayon.workspace = true
+toml.workspace = true
+walkdir.workspace = true
+sha2.workspace = true
+xxhash-rust.workspace = true
+capnp = "0.27"
+
+[features]
+# JSON Schema for the view types, for a caller that has to publish the shape it
+# returns rather than only produce it. Off by default: a tracker does not need
+# the schema to write a file, and a schema derived from the type it describes is
+# the only kind that cannot drift from it.
+schema = ["dep:schemars"]
+
+[dev-dependencies]
+tempfile.workspace = true

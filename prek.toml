@@ -1,0 +1,40 @@
+# Git hooks via prek (https://prek.j178.dev). Install: prek install
+#:schema https://www.schemastore.org/prek.json
+
+exclude = """(?x)(
+    ^target/|
+    ^Cargo\\.lock$|
+    ^tests/fixture_vault/
+)"""
+
+[[repos]]
+repo = "builtin"
+hooks = [
+  { id = "trailing-whitespace" },
+  { id = "end-of-file-fixer" },
+  { id = "check-yaml" },
+  { id = "check-toml" },
+  { id = "check-merge-conflict" },
+  { id = "check-added-large-files", args = ["--maxkb=1500"] },
+  { id = "detect-private-key" },
+]
+
+[[repos]]
+repo = "https://github.com/zizmorcore/zizmor-pre-commit"
+rev = "v1.24.1"
+hooks = [{ id = "zizmor" }]
+
+[[repos]]
+repo = "https://github.com/codespell-project/codespell"
+rev = "v2.4.1"
+hooks = [
+  {
+    id = "codespell",
+    # Brin and Hendler are author surnames in the bibliography.
+    args = [
+      "--skip=*.lock,Cargo.lock,**/vissue_capnp.rs",
+      "-L",
+      "unparseable,unparsable,brin,hendler,ratatui,captable",
+    ],
+  },
+]

@@ -1,0 +1,56 @@
+[package]
+name = "vissue-cli"
+description = "vissue command line: plain-text issue tracking over per-project orgmode files"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }.tar.xz"
+bin-dir = "{ name }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "txz"
+# The release tarball or nothing. A target without one fails here, and
+# `cargo install` builds it from source.
+disabled-strategies = ["quick-install", "compile"]
+
+# dist zips the Windows archive flat.
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }.zip"
+bin-dir = "{ bin }{ binary-ext }"
+pkg-fmt = "zip"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "vissue"
+path = "src/main.rs"
+
+[dependencies]
+# Parsing a tracker is allocation-bound: a profile of `count` over five
+# thousand issues spends a third of its time in malloc and free, building the
+# small strings every heading is made of. The system allocator is the slowest
+# part of that and the cheapest to change.
+mimalloc = { version = "0.1", default-features = false }
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+clap_complete.workspace = true
+clap_mangen.workspace = true
+serde = { workspace = true }
+serde_json.workspace = true
+vissue-control.workspace = true
+vissue-core.workspace = true
+vissue-serve.workspace = true
+vissue-tui.workspace = true
+
+[dev-dependencies]
+serde = { workspace = true }
+serde_json.workspace = true
+tempfile.workspace = true

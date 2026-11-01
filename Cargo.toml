@@ -1,0 +1,78 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/vissue-core",
+    "crates/vissue-cli",
+    "crates/vissue-mcp",
+    "crates/vissue-control",
+    "crates/vissue-serve",
+    "crates/vissue-tui",
+    "crates/vissue-hud",
+    "xtask",
+]
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+missing_docs = "warn"
+rust_2024_compatibility = { level = "warn", priority = -1 }
+
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"
+unescaped_backticks = "warn"
+missing_crate_level_docs = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+cognitive_complexity = "warn"
+pedantic = { level = "allow", priority = -1 }
+undocumented_unsafe_blocks = "warn"
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+missing_errors_doc = "warn"
+missing_panics_doc = "warn"
+
+[workspace.package]
+version = "0.23.1"
+edition = "2024"
+rust-version = "1.89"
+license = "MIT"
+repository = "https://github.com/leidarljos/vissue"
+homepage = "https://vissue.rgoswami.me"
+readme = "README.md"
+keywords = ["issue-tracker", "orgmode", "cli", "mcp", "plain-text"]
+categories = ["command-line-utilities", "development-tools"]
+
+[workspace.dependencies]
+vissue-core = { version = "0.23.1", path = "crates/vissue-core" }
+vissue-control = { version = "0.23.1", path = "crates/vissue-control" }
+vissue-serve = { version = "0.23.1", path = "crates/vissue-serve" }
+vissue-tui = { version = "0.23.1", path = "crates/vissue-tui" }
+anyhow = "1"
+chrono = "0.4"
+clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
+clap_mangen = "0.3"
+daggy = "0.9"
+fs2 = "0.4"
+petgraph = "0.8"
+schemars = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+rayon = "1"
+toml = "1.1"
+walkdir = "2"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+# A satchel manifest is read by `sha256sum -c`, so it hashes the way that does.
+sha2 = "0.11"
+
+# cargo-dist builds with --profile=dist
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
+[profile.release]
+lto = true
+strip = true

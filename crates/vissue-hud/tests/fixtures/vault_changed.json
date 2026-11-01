@@ -1,0 +1,10 @@
+{
+  "jsonrpc": "2.0",
+  "method": "vault/changed",
+  "params": {
+    "generation": 3168,
+    "revision": 43,
+    "projects": ["atlas"],
+    "ids": ["atlas-1a2b"]
+  }
+}

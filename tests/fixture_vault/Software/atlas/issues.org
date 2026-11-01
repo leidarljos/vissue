@@ -1,0 +1,68 @@
+#+TITLE: atlas issues
+#+VISSUE: 1
+#+CATEGORY: atlas
+#+FILETAGS: :issues:atlas:noexport:
+#+TAGS: { bug(b) feature(f) task(t) chore(c) plan(p) }
+#+TAGS: docs(d) perf ignore ARCHIVE
+#+PRIORITIES: A C C
+#+EXCLUDE_TAGS: noexport
+#+SELECT_TAGS: export
+#+DATE: [2026-01-12 Mon]
+#+DESCRIPTION: Issue tracking file for atlas specs, plans, and implementation tasks.
+#+STATUS: Active
+#+TODO: TODO STARTED BLOCKED | DONE CANCELLED
+
+* STARTED [#A] Parse the manifest header                :parser:core:feature:
+:PROPERTIES:
+:ID:         atlas-1a2b
+:CREATED:    [2026-01-12 Mon]
+:TYPE:       feature
+:CLAIMED_BY: fixture-agent
+:CLAIMED_AT: [2026-01-14 Wed 09:12]
+:END:
+:LOGBOOK:
+- State "STARTED" from "TODO" [2026-01-14 Wed 09:12]
+CLOCK: [2026-01-14 Wed 09:12]--[2026-01-14 Wed 10:42] =>  1:30
+:END:
+
+Scope: read the header block before the first record.
+Done-when: a malformed header names the offending line number.
+
+* BLOCKED [#A] Publish the release notes                               :task:
+DEADLINE: <2026-03-01 Sun>
+:PROPERTIES:
+:ID:         atlas-3e4f
+:CREATED:    [2026-01-13 Tue]
+:TYPE:       task
+:BLOCKED_BY: atlas-1a2b
+:END:
+:LOGBOOK:
+- State "BLOCKED" from "TODO" [2026-01-15 Thu 11:05]
+:END:
+
+Waits on the parser landing, because the notes quote its error text.
+
+* TODO [#B] Emit a summary table                          :reporting:feature:
+:PROPERTIES:
+:ID:         atlas-2c3d
+:CREATED:    [2026-01-16 Fri]
+:TYPE:       feature
+:PARENT:     atlas-1a2b
+:END:
+
+Scope: one row per parsed record, counts only.
+
+* DONE [#C] Rename the config key                                     :chore:
+:PROPERTIES:
+:ID:         atlas-4g5h
+:CREATED:    [2026-01-05 Mon]
+:TYPE:       chore
+:DEEDS:      deed-patch-config-key
+:END:
+:LOGBOOK:
+- State "DONE" from "STARTED" [2026-01-08 Thu 16:40]
+- State "STARTED" from "TODO" [2026-01-06 Tue 08:30]
+:END:
+
+The old spelling stays accepted for one release.
+

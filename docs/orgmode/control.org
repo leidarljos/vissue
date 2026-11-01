@@ -1,0 +1,321 @@
+#+title: Control
+#+description: vissue serve owns a per-user Unix socket and answers JSON-RPC 2.0 in issue terms.
+#+options: toc:nil num:nil
+
+=vissue serve= owns a per-user Unix socket and answers JSON-RPC 2.0 in
+issue terms. It is a notify and cache plane: an in-memory catalog of
+the same Org files the CLI already parses. A crash loses nothing. The
+files stay the store.
+
+Clients never bind the socket. Only =vissue serve= does. The listener
+is Unix-only. CLI, MCP, the terminal board, and the HUD all keep
+working with serve down; see [[#fallback][Fallback]].
+
+* Socket
+
+Default path, first match wins:
+
+#+begin_src text
+$VISSUE_CONTROL_SOCKET
+$XDG_RUNTIME_DIR/vissue/control.sock
+~/.vissue/run/control.sock
+#+end_src
+
+=-s= / =--socket= on =serve=, =tui=, and =hud= is the same override as
+the environment variable. Multiple vaults use distinct sockets; one
+serve process binds one root and one prefix.
+
+Sibling files sit next to the socket:
+
+| Path                | Role                                      |
+|---------------------+-------------------------------------------|
+| =control.sock=      | Unix socket, mode =0600=                  |
+| =control.sock.lock= | Exclusive flock; never unlinked           |
+| =control.sock.pid=  | Owner pid, mode =0600=                    |
+| =control.log=       | Detached serve stderr                     |
+| =hud.sock=          | HUD summon socket                         |
+| =hud.log=           | HUD stderr                                |
+
+The parent directory is mode =0700=. Override the serve log with
+=VISSUE_SERVE_LOG=, the HUD log with =VISSUE_HUD_LOG=, and the summon
+socket with =VISSUE_HUD_SUMMON_SOCKET=.
+
+Accept checks the peer uid (Linux =SO_PEERCRED=) and closes a foreign
+connection with no JSON-RPC reply. There is no TCP bind and no token
+in the file store.
+
+* Framing
+
+Two frames on the same socket. The owner accepts either and replies in
+the frame the client used.
+
+- One JSON object per line (JSONL).
+- LSP-style headers ending in =Content-Length: N= plus a blank line,
+  then N bytes of JSON.
+
+The first-line rule decides the frame: read the first line; if it
+matches =^[A-Za-z][A-Za-z0-9-]*:= treat the stream as headers;
+otherwise treat that line as a JSONL message. Do not require the first
+byte to be ={=. A leading blank line or a UTF-8 BOM is JSONL.
+
+Limits: body at most 8 MiB; at most 32 header lines. A notify that
+cannot be sent in 2 s drops that client rather than stalling the bus.
+
+* Handshake
+
+JSON-RPC 2.0, protocol version 1. The envelope and =initialize= stay
+camelCase (=protocolVersion=). Issue payloads and pagination
+(=since_revision=, =claimed_by= on list rows, =holder= on claims rows)
+are =snake_case=.
+
+#+begin_src json
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+  "protocolVersion":1,
+  "client":"vissue-tui",
+  "agent":"alice@host"
+}}
+#+end_src
+
+#+begin_src json
+{"jsonrpc":"2.0","id":1,"result":{
+  "protocolVersion":1,
+  "capabilities":["issue/list","issue/get","issue/ready","..."],
+  "root":"/path/to/tracker",
+  "prefix":"Software",
+  "generation":3167,
+  "revision":1,
+  "identity":"alice@host"
+}}
+#+end_src
+
+=protocolVersion= other than 1 is =-32602= with ={"supported": 1}=.
+Missing or empty =params.agent= is =-32602= (=agent is required=).
+
+=revision= is serve-local and starts at 1. It increments on every
+catalog rebuild, including an Emacs edit that never touched the
+generation file. =generation= is the on-disk counter (=vissue gen=).
+A client that just attached drops =since_revision= for one full fetch
+and never feeds a core generation into =issue/list.since_revision=.
+
+* Identity
+
+=initialize.params.agent= is required and non-empty. That value sticks
+on the connection. =issue/claim=, =issue/release=, =issue/update=, =issue/append= and =issue/vote= may send =agent=
+to override; omitting it means use the initialize agent.
+
+Serve never falls back to process =VISSUE_AGENT= for a control client,
+including one that auto-started serve and inherited the parent's
+environment. After bind, serve ignores =VISSUE_AGENT= for RPC
+identity. CLI and MCP still resolve identity from the environment and
+config as they always have.
+
+* Methods
+
+Capabilities returned by =initialize= (v1):
+
+| Method             | Role                                                      |
+|--------------------+-----------------------------------------------------------|
+| =issue/list=       | Filtered rows; =ready: true= is the frontier              |
+| =issue/ready=      | =issue/list= with =ready: true=                           |
+| =issue/get=        | One issue, =IssueDetail= plus =revision=                  |
+| =issue/show=       | Alias of =issue/get=                                      |
+| =issue/excerpt=    | Secret-screened body range                                |
+| =issue/search=     | Substring over id, title, properties, tags, body          |
+| =issue/claims=     | Live claims; holder field is =holder=                     |
+| =issue/agenda=     | Deadlines and scheduled starts                            |
+| =issue/tree=       | Children and blockers; =format= =nodes=, =ascii=, =dot=   |
+| =issue/related=    | Bounded neighborhood with evidence                        |
+| =issue/children=   | Direct children                                           |
+| =issue/ancestors=  | Walk up; optional =depth=                                 |
+| =issue/impact=     | Walk down; optional =depth=                               |
+| =issue/backlinks=  | Everything pointing at the id, or citing the accession     |
+| =issue/open=       | Shared selection; notifies =issue/selected=               |
+| =issue/create=     | Create; fields of the CLI create verb                     |
+| =issue/update=     | State, priority, block, unblock                           |
+| =issue/claim=      | Take the issue; =force= default false                     |
+| =issue/release=    | Drop every claim stamp held by =holder=, including one left on a closed heading; =dry_run=, =older_than=, =why= |
+| =issue/note=       | Dated logbook entry                                       |
+| =issue/refile=     | Move to another project                                   |
+| =issue/append=     | Dated report under the heading                             |
+| =issue/reject=     | Cancel and point at a successor                            |
+| =issue/resolve=    | Settle on a sibling terminal state                         |
+| =issue/vote=       | One ballot per identity; no params reads the tally         |
+| =issue/deed=       | Cite, drop, or read the deeds an issue produced            |
+| =issue/recall=     | The working set: plan, inputs and their deeds              |
+| =issue/consensus=  | DeGroot over the ballots; limits, power, settling          |
+| =issue/fold=       | Inbox headings become issues                               |
+| =issue/normalize=  | Rewrite onto the property split; =dry_run=                 |
+| =issue/check=      | Validation; =report= plus =errors= and =warnings=          |
+| =issue/count=      | Counts by project, state, readiness                        |
+| =issue/cycles=     | Blocker cycles, if any                                     |
+| =issue/digest=     | Corpus hash; =combined= plus per project                   |
+| =issue/export=     | The corpus as text                                         |
+| =issue/graph=      | One dot document                                           |
+| =issue/roadmap=    | One roadmap document                                       |
+| =issue/stale=      | Issues untouched for =days=                                |
+| =issue/hygiene=    | Stalled claims plus validation                             |
+| =issue/waiting_on= | What blocks one issue                                      |
+| =issue/mirror_check= | Whether a mirror file's stamp is still fresh              |
+| =project/list=     | Project names plus =revision=                             |
+| =events/since=     | Pull of the JSONL event log                               |
+| =events/gen=       | ={generation, revision}=                                  |
+| =events/ping=      | Liveness and detail                                        |
+| =events/wait=      | Block until the generation moves, or an issue is terminal  |
+| =identity/get=     | ={identity, root, prefix, version}=                       |
+
+Every method has a typed request and response form in =vissue-control=. Reads that
+produce prose share =ReportResult=; =issue/check= adds its error and warning counts,
+=issue/digest= and =events/wait= carry structure.
+
+Every verb that changes a file has a method, and so does every read. This page used
+to say that =issue/fold=, =issue/hygiene=, =issue/check=, =issue/export=,
+=issue/mirror=, =issue/graph= and =issue/roadmap= were not in v1 and stayed on the
+command line and MCP. All seven are here now.
+
+The set is stated once in =schema/vissue.capnp= and the surfaces are tested against
+it, this table included by way of the capability list: what =initialize= advertises
+has to match the schema, in both directions.
+
+** Reads
+
+=issue/list= sorts by priority, then state, then id, across every project in the
+layout. The =list= subcommand applies the same order within each project and
+concatenates, because it can span several layouts and a global sort across them would
+interleave two trackers. Same rows, different sequence, and a client wanting a
+frontier wants the socket's.
+
+=issue/list= takes optional =project=, =state=, =ready=, =query=,
+=limit=, =offset=, =since_revision=. =query= is a case-insensitive
+substring over id, title, tags, and properties, not the body. Matching
+the current serve revision returns ={"unchanged": true, "revision": N}=
+and no rows. List rows use =claimed_by=, not =holder=.
+
+=issue/get= / =issue/show= return =id=, =project=, =title=, =state=,
+=priority=, =properties=, =org_tags=, =tags=, =blocked_by=, =parent=,
+=claimed_by=, =claimed_at=, =file=, =line_start=, =line_end=, plus
+=revision=.
+
+=issue/excerpt= returns ={id, file, line_start, line_end, text,
+suppressed}=. =suppressed= is true when the screen hides the range;
+=text= is then the suppression sentence that names the path.
+
+=issue/claims= rows match =vissue claims --json=: =id=, =project=,
+=state=, =priority=, =holder=, =claimed_at=, =age_days=, =title=.
+
+=issue/search= default =limit= is 20. =issue/agenda= default =days=
+is 14. =issue/related= default =depth= is 2 and =limit= is 20.
+=issue/tree= with =format= =ascii= or =dot= returns ={text}=.
+
+** Mutations
+
+Every mutation returns ={ok, report, issue, revision, generation}=.
+=issue= is the post-write detail (null on =refile= of a vanished
+source). =report= is the same text the CLI prints. =agent= on a
+mutation is optional and overrides the connection agent.
+
+Mutations go through the same library ops and file lock as the CLI.
+Serve is not an exclusive writer. A =vissue claim= in another
+terminal, an MCP tool call, and an Emacs =C-c C-x= all land in the
+file; serve notices via the generation counter and =issues.org=
+watches, rebuilds 200 ms after the last signal, and pushes
+=vault/changed=.
+
+** Notifications
+
+No =id= on these messages. Broadcast after the mutating RPC's
+response, so the caller can apply its own result before the echo.
+
+- =vault/changed= after a catalog rebuild. Params: =generation=,
+  =revision=, =projects= (dirty names), =ids= when known.
+- =issue/selected= after =issue/open=. Params: =id=, =project=.
+- =serve/shutting_down= when the owner is exiting. Params: ={}=.
+
+=events/since= is a pull of the on-disk log, not a substitute for
+=vault/changed=. Attached clients do not call =wait=.
+
+** Errors
+
+No HTTP status codes. Application failures carry =error.data.code=.
+
+| Situation                                      | =error.code= | =error.data.code= |
+|------------------------------------------------+--------------+-------------------|
+| Parse error                                    | =-32700=     |                   |
+| Invalid request                                | =-32600=     |                   |
+| Method not found                               | =-32601=     |                   |
+| Invalid params (including missing =agent=)     | =-32602=     |                   |
+| Internal                                       | =-32603=     |                   |
+| Issue not found                                | =-32004=     | =not_found=       |
+| Claim conflict                                 | =-32009=     | =conflict=        |
+| Closed issue / invalid state                   | =-32010=     | =invalid_state=   |
+| Blocker cycle                                  | =-32022=     | =cycle=           |
+
+* Verbs
+
+#+begin_src console
+$ vissue serve              # foreground; SIGINT/SIGTERM exit
+$ vissue serve -d           # detach; return when the socket accepts
+$ vissue serve stop
+$ vissue serve restart      # stop, then start -d
+$ vissue serve status       # exit 0 if live, 1 otherwise
+$ vissue serve status --json
+$ vissue tui                # board; auto-start serve if the socket is free
+$ vissue tui --offline      # never attach, never spawn
+$ vissue hud                # iced task board
+$ vissue hud --rofi         # seat dmenu picker
+$ vissue hud --rofi --mode new
+#+end_src
+
+=serve -d= places the child in its own process group
+(=process_group(0)=) and does not start a new session. The child can
+still receive SIGHUP from the parent terminal. That is the weaker
+detach; there is no =setsid=. A second =-d= probes the socket, prints
+that it is already running (pid and socket), and exits 0.
+
+=serve status= prints:
+
+#+begin_src text
+live: true
+pid: 12345
+socket: /run/user/1000/vissue/control.sock
+root: /path/to/tracker
+prefix: Software
+generation: 3167
+revision: 42
+clients: 2
+#+end_src
+
+=vissue tui= paints from the files first (=revision= 0). Unless
+=--offline=, it then attaches to a live socket or starts =serve -d= on
+the same root, prefix, and socket. A root or prefix mismatch stays on
+the files and refuses mutations against the other vault. Status names
+live, offline, or mismatch, then generation, revision, and agent.
+Keys are on =?=. On Windows only =tui --offline= runs.
+
+=vissue hud= execs =vissue-hud=. Home is the project list; opening a
+project is the task board over those files.
+Unless =--offline= it then attaches to serve the same way the TUI
+does. =--rofi= is the seat dmenu picker and does not need serve.
+Return opens the heading. Alt+c claims. Alt+n notes.
+
+How-to covers the board keys and the overlay; this page is the wire.
+
+* Fallback
+:PROPERTIES:
+:CUSTOM_ID: fallback
+:END:
+
+The file is the database. Serve is optional.
+
+- CLI verbs talk to the files whether serve is up or down.
+- =vissue-mcp= is stdio and stays out of the socket. It does not
+  speak this protocol.
+- =vissue tui= and =vissue hud= paint from the files first. If the
+  socket is free they start =serve -d=. If spawn fails, or the live
+  serve is bound to another root, they keep using the files plus the
+  generation counter, including claim and note. =--offline= skips
+  attach entirely.
+- Emacs edits =issues.org= directly. Serve notices the write.
+  =vissue.el= still shells out to the CLI; see [[file:emacs.org][Emacs]].
+
+Stop serve, delete the runtime socket directory, and every verb still
+works.

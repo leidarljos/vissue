@@ -1,0 +1,38 @@
+#+TITLE: beacon issues
+#+VISSUE: 1
+#+CATEGORY: beacon
+#+FILETAGS: :issues:beacon:noexport:
+#+TAGS: { bug(b) feature(f) task(t) chore(c) plan(p) }
+#+TAGS: docs(d) perf ignore ARCHIVE
+#+PRIORITIES: A C C
+#+EXCLUDE_TAGS: noexport
+#+SELECT_TAGS: export
+#+DATE: [2026-01-20 Tue]
+#+DESCRIPTION: Issue tracking file for beacon specs, plans, and implementation tasks.
+#+STATUS: Active
+#+TODO: TODO STARTED BLOCKED | DONE CANCELLED
+
+* TODO [#B] Document the retry policy                            :docs:retry:
+SCHEDULED: <2026-02-10 Tue>
+:PROPERTIES:
+:ID:         beacon-5j6k
+:CREATED:    [2026-01-20 Tue]
+:TYPE:       docs
+:PARENT:     beacon-design-0001
+:END:
+
+Scope: the backoff table and what a caller sees on the final failure.
+
+* CANCELLED [#C] Drop the legacy exporter                             :chore:
+:PROPERTIES:
+:ID:         beacon-6m7n
+:CREATED:    [2026-01-21 Wed]
+:TYPE:       chore
+:END:
+:LOGBOOK:
+- State "CANCELLED" from "TODO" [2026-01-28 Wed 13:20]
+- Note: "two consumers still read it" [2026-01-28 Wed 13:20]
+:END:
+
+Superseded: the exporter stays until both consumers migrate.
+

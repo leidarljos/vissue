@@ -1,0 +1,2848 @@
+//! Command-line behaviour, exercised through the built binary.
+
+#![allow(missing_docs)]
+
+use std::fs;
+use std::path::Path;
+use std::process::Command;
+
+#[cfg(not(unix))]
+#[test]
+fn serve_is_unix_only() {
+    let out = vissue_cmd().arg("serve").output().expect("run vissue");
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("Unix-only"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+fn fixture_root() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixture_vault")
+}
+
+fn vissue_cmd() -> Command {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_vissue"));
+    cmd.env("VISSUE_NO_ROUTE", "1");
+    cmd
+}
+
+fn vissue(args: &[&str]) -> std::process::Output {
+    vissue_cmd()
+        .args(["--root", fixture_root().to_str().unwrap()])
+        .args(args)
+        .output()
+        .expect("run vissue")
+}
+
+fn stdout(out: &std::process::Output) -> String {
+    String::from_utf8(out.stdout.clone()).unwrap()
+}
+
+#[test]
+fn search_narrows_to_one_project() {
+    let all = stdout(&vissue(&["search", "e", "-n", "200"]));
+    assert!(all.contains("(atlas)") && all.contains("(beacon)"), "{all}");
+    let atlas = vissue(&["search", "e", "-n", "200", "-p", "atlas"]);
+    assert!(atlas.status.success());
+    let atlas = stdout(&atlas);
+    assert!(!atlas.is_empty());
+    assert!(atlas.lines().all(|l| l.ends_with("(atlas)")), "{atlas}");
+    let json = stdout(&vissue(&["search", "e", "-p", "beacon", "--json"]));
+    let rows: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+    assert!(!rows.is_empty());
+    assert!(rows.iter().all(|r| r["project"] == "beacon"), "{json}");
+}
+
+#[test]
+fn projects_lists_the_fixture_projects() {
+    let out = vissue(&["projects"]);
+    assert!(out.status.success());
+    assert_eq!(stdout(&out), "atlas\nbeacon\n");
+}
+
+#[test]
+fn count_and_list_accept_both_project_flags() {
+    assert_eq!(stdout(&vissue(&["count", "-P", "atlas"])), "4\n");
+    assert_eq!(stdout(&vissue(&["count", "-p", "atlas"])), "4\n");
+    assert_eq!(stdout(&vissue(&["count", "--project", "atlas"])), "4\n");
+    let listed = stdout(&vissue(&["list", "-P", "atlas"]));
+    assert_eq!(listed.lines().count(), 4, "{listed}");
+    assert!(listed.contains("atlas-1a2b"), "{listed}");
+}
+
+#[test]
+fn export_emits_one_json_object_per_line() {
+    let out = vissue(&["export", "-P", "beacon"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert_eq!(text.lines().count(), 2, "{text}");
+    for line in text.lines() {
+        let row: serde_json::Value = serde_json::from_str(line).unwrap();
+        assert_eq!(row["project"], "beacon");
+    }
+}
+
+#[test]
+fn check_exits_zero_on_the_fixture() {
+    let out = vissue(&["check"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(stdout(&out).contains("0 error(s), 0 warning(s)"));
+}
+
+/// A quoted `:ID:` inside an appended report is not a definition, so a
+/// dangling `:PARENT:` still fails `check`.
+#[test]
+fn an_id_quoted_in_a_report_does_not_resolve_a_broken_parent() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let own = |args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd().args(argv).output().unwrap()
+    };
+
+    own(&["create", "-p", "atlas", "The child", "-q"]);
+    let issues = dir.path().join("Software/atlas/issues.org");
+    let planted = fs::read_to_string(&issues)
+        .unwrap()
+        .replace(":CREATED:", ":PARENT:     ghost-9999\n:CREATED:");
+    fs::write(&issues, planted).unwrap();
+
+    let broken = own(&["check"]);
+    assert!(
+        !broken.status.success() && stdout(&broken).contains("ghost-9999"),
+        "a parent that names nothing is an error: {}",
+        stdout(&broken)
+    );
+
+    let host = stdout(&own(&["create", "-p", "atlas", "The report", "-q"]))
+        .trim()
+        .to_string();
+    own(&[
+        "append",
+        &host,
+        "--text",
+        "The heading I was handed reads:\n:PROPERTIES:\n:ID: ghost-9999\n:END:\n",
+    ]);
+
+    let after = own(&["check"]);
+    assert!(
+        !after.status.success() && stdout(&after).contains("ghost-9999"),
+        "quoting the id in a report silenced the check: {}",
+        stdout(&after)
+    );
+}
+
+#[test]
+fn show_json_returns_an_object() {
+    let out = vissue(&["show", "atlas-2c3d", "--json"]);
+    assert!(out.status.success());
+    let row: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert_eq!(row["id"], "atlas-2c3d");
+    assert_eq!(row["parent"], "atlas-1a2b");
+}
+
+#[test]
+fn mirror_writes_a_file_and_reports_the_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("nested/mirror.org");
+    let out = vissue(&["mirror", "-P", "atlas", "--out", target.to_str().unwrap()]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(stdout(&out).starts_with("wrote "));
+    let text = fs::read_to_string(&target).unwrap();
+    assert!(
+        text.contains("# MIRROR: generated by `vissue mirror`"),
+        "{text}"
+    );
+    assert!(text.contains("* atlas"), "{text}");
+    assert!(!text.contains("* beacon"), "{text}");
+}
+
+#[test]
+fn mirror_writes_to_stdout_on_a_dash() {
+    let out = vissue(&["mirror", "--out", "-", "--format", "markdown"]);
+    assert!(out.status.success());
+    let text = stdout(&out);
+    assert!(text.starts_with("# vissue mirror"), "{text}");
+    assert!(text.contains("## atlas"), "{text}");
+    assert!(text.contains("## beacon"), "{text}");
+}
+
+#[test]
+fn an_unknown_mirror_format_fails_loudly() {
+    let out = vissue(&["mirror", "--out", "-", "--format", "pdf"]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("unknown format"));
+}
+
+#[test]
+fn whoami_prints_the_identity_a_claim_would_record() {
+    let out = vissue(&["whoami"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = stdout(&out);
+    assert!(!text.trim().is_empty(), "no identity printed");
+}
+
+#[test]
+fn tui_help_names_offline() {
+    let out = vissue(&["tui", "--help"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = stdout(&out);
+    assert!(text.contains("--offline"), "{text}");
+    assert!(text.contains("Never attach"), "{text}");
+}
+
+#[test]
+fn hud_help_names_rofi_and_iced() {
+    let out = vissue(&["hud", "--help"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = stdout(&out);
+    assert!(text.contains("--mode"), "{text}");
+    assert!(text.contains("rofi"), "{text}");
+    assert!(text.contains("--rofi"), "{text}");
+    assert!(text.contains("--iced"), "{text}");
+    assert!(text.contains("--toggle"), "{text}");
+}
+
+#[test]
+fn iced_hud_without_binary_exits_127() {
+    let out = vissue_cmd()
+        .args(["--root", fixture_root().to_str().unwrap(), "hud"])
+        .env("VISSUE_HUD_BIN", "/nonexistent/vissue-hud")
+        .env("PATH", "/nonexistent")
+        .output()
+        .expect("run vissue hud --iced");
+    assert_eq!(out.status.code(), Some(127));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("cargo install vissue-hud"), "{err}");
+}
+
+#[test]
+fn hud_missing_override_bin_exits_127() {
+    let out = vissue_cmd()
+        .args(["--root", fixture_root().to_str().unwrap(), "hud", "--iced"])
+        .env("VISSUE_HUD_BIN", "/nonexistent/vissue-hud")
+        .output()
+        .expect("run vissue hud --iced");
+    assert_eq!(out.status.code(), Some(127));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("cargo install vissue-hud"), "{err}");
+}
+
+#[cfg(not(unix))]
+#[test]
+fn tui_without_offline_is_unix_only() {
+    let out = vissue(&["tui"]);
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("Unix-only"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[cfg(not(unix))]
+#[test]
+fn hud_without_offline_is_unix_only() {
+    let out = vissue(&["hud"]);
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("Unix-only"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn identity_reports_the_resolved_binary_root_and_prefix() {
+    // `identity` answers the wrapper's old question, "which binary and which
+    // tracker", and is distinct from `whoami`, which names the claimant.
+    let text = stdout(&vissue(&["identity"]));
+    assert!(text.contains("protocol: 1"), "{text}");
+    assert!(text.contains("prefix: Software"), "{text}");
+    assert!(text.contains("prefix=Software"), "{text}");
+    assert!(text.contains("fixture_vault"), "{text}");
+    assert!(text.contains("binary:"), "{text}");
+}
+
+#[test]
+fn the_environment_can_name_the_claiming_identity() {
+    let out = vissue_cmd()
+        .args(["--root", fixture_root().to_str().unwrap()])
+        .env("VISSUE_AGENT", "grind-worker-3")
+        .arg("whoami")
+        .output()
+        .expect("run vissue");
+    assert_eq!(
+        String::from_utf8(out.stdout).unwrap().trim(),
+        "grind-worker-3"
+    );
+}
+
+#[test]
+fn a_create_and_update_cycle_works_in_a_temporary_root() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_str().unwrap();
+    let run = |args: &[&str]| {
+        vissue_cmd()
+            .args(["--root", root])
+            .args(args)
+            .output()
+            .expect("run vissue")
+    };
+
+    let created = run(&["create", "-P", "demo", "--quiet", "first task"]);
+    assert!(
+        created.status.success(),
+        "{}",
+        String::from_utf8_lossy(&created.stderr)
+    );
+    let id = String::from_utf8(created.stdout)
+        .unwrap()
+        .trim()
+        .to_string();
+    assert!(id.starts_with("demo-"), "{id}");
+
+    let updated = run(&["update", &id, "--state", "STARTED"]);
+    assert!(updated.status.success());
+    assert!(String::from_utf8_lossy(&updated.stdout).contains("state TODO -> STARTED"));
+
+    let shown = run(&["show", &id]);
+    assert!(String::from_utf8_lossy(&shown.stdout).contains("State:    STARTED"));
+    assert_eq!(
+        String::from_utf8_lossy(&run(&["count", "--ready"]).stdout),
+        "1\n"
+    );
+}
+
+#[test]
+fn the_root_may_come_from_the_environment() {
+    let out = vissue_cmd()
+        .env("VISSUE_ROOT", fixture_root())
+        .arg("projects")
+        .output()
+        .expect("run vissue");
+    assert_eq!(String::from_utf8(out.stdout).unwrap(), "atlas\nbeacon\n");
+}
+
+#[test]
+fn the_shared_issue_root_environment_is_supported() {
+    let out = vissue_cmd()
+        .env_remove("VISSUE_ROOT")
+        .env("ISSUE_ROOT", fixture_root())
+        .arg("projects")
+        .output()
+        .expect("run vissue");
+    assert_eq!(String::from_utf8(out.stdout).unwrap(), "atlas\nbeacon\n");
+}
+
+// "Nothing here" is an answer about the corpus, not about a project's share of
+// it. Over the fixture's two projects, claims printed atlas's claim and then
+// beacon's "no live claims"; a corpus of six printed it above nine claims, and
+// agenda printed its own sentinel five times above the dated rows.
+#[test]
+fn an_empty_project_does_not_say_nothing_here_next_to_another_project_rows() {
+    let out = vissue(&["claims"]);
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("fixture-agent"), "{text}");
+    assert!(
+        !text.contains("no live claims"),
+        "an empty project printed its sentinel beside another's rows: {text}"
+    );
+
+    let dated = String::from_utf8(vissue(&["agenda", "--days", "5000"]).stdout).unwrap();
+    assert!(dated.contains("beacon-5j6k"), "{dated}");
+    assert!(
+        !dated.contains("nothing dated in range"),
+        "the agenda sentinel survived beside dated rows: {dated}"
+    );
+}
+
+// A title introduces the document, so a roadmap over every project carries one,
+// not one per project. Concatenating whole roadmaps gives a corpus of six six
+// titles, each with its own "generated from" line, sitting between the project
+// sections the title is meant to introduce.
+#[test]
+fn the_roadmap_titles_the_document_once_however_many_projects_it_covers() {
+    let text = String::from_utf8(vissue(&["roadmap"]).stdout).unwrap();
+    assert_eq!(
+        text.lines().filter(|l| *l == "# Roadmap").count(),
+        1,
+        "{text}"
+    );
+    assert_eq!(
+        text.matches("Generated from `vissue roadmap`").count(),
+        1,
+        "{text}"
+    );
+    // Both projects are still in the one document, under their own headings.
+    assert!(text.contains("## atlas"), "{text}");
+    assert!(text.contains("## beacon"), "{text}");
+}
+
+// Every machine-readable surface emits one document, or one per line, over a
+// routed corpus. A new `--json` command lands in this table.
+#[test]
+fn every_machine_readable_surface_over_the_corpus_is_parseable() {
+    // (args, one document per line rather than one document overall)
+    let surfaces: &[(&[&str], bool)] = &[
+        (&["list", "--json"], false),
+        (&["ready", "--json"], false),
+        (&["claims", "--json"], false),
+        (&["digest", "--json"], false),
+        (&["show", "atlas-2c3d", "--json"], false),
+        (&["export"], true),
+    ];
+    for (args, by_line) in surfaces {
+        let out = vissue(args);
+        assert!(out.status.success(), "{args:?} exited {}", out.status);
+        let text = String::from_utf8(out.stdout).unwrap();
+        assert!(!text.trim().is_empty(), "{args:?} printed nothing");
+        if *by_line {
+            for (n, line) in text.lines().enumerate() {
+                serde_json::from_str::<serde_json::Value>(line)
+                    .unwrap_or_else(|e| panic!("{args:?} line {}: {e}: {line}", n + 1));
+            }
+        } else {
+            serde_json::from_str::<serde_json::Value>(&text)
+                .unwrap_or_else(|e| panic!("{args:?} is not one document: {e}: {text}"));
+        }
+    }
+}
+
+// `--json` promises a document a parser can read. A fragment per project makes
+// it a stream of arrays: over the fixture's two projects, `[]` then the array
+// holding atlas's claim, which `json.load` rejects at the second bracket.
+#[test]
+fn routed_claims_json_is_one_array_over_the_corpus() {
+    let text = String::from_utf8(vissue(&["claims", "--json"]).stdout).unwrap();
+    let rows: Vec<serde_json::Value> =
+        serde_json::from_str(&text).unwrap_or_else(|e| panic!("not one document: {e}: {text}"));
+    assert_eq!(rows.len(), 1, "{text}");
+    assert_eq!(rows[0]["project"], "atlas", "{text}");
+    assert_eq!(rows[0]["holder"], "fixture-agent", "{text}");
+}
+
+// Asked about one project, an empty array is the document.
+#[test]
+fn a_single_project_claims_json_is_still_a_document() {
+    let text =
+        String::from_utf8(vissue(&["claims", "--json", "--project", "beacon"]).stdout).unwrap();
+    let rows: Vec<serde_json::Value> =
+        serde_json::from_str(&text).unwrap_or_else(|e| panic!("not one document: {e}: {text}"));
+    assert!(rows.is_empty(), "{text}");
+}
+
+// One `digraph` over the routed corpus: dot renders only the first of several,
+// and cross-project edges need one block.
+#[test]
+fn the_graph_is_one_dot_document_however_many_projects_it_covers() {
+    let text = String::from_utf8(vissue(&["graph"]).stdout).unwrap();
+    assert_eq!(
+        text.lines().filter(|l| l.starts_with("digraph ")).count(),
+        1,
+        "{text}"
+    );
+    assert_eq!(text.lines().filter(|l| *l == "}").count(), 1, "{text}");
+    assert!(text.starts_with("digraph vissue_graph {"), "{text}");
+    assert!(text.trim_end().ends_with('}'), "{text}");
+    // Both projects draw inside it.
+    assert!(text.contains("\"atlas-"), "{text}");
+    assert!(text.contains("\"beacon-"), "{text}");
+}
+
+// Asked about one project, the graph is still a document dot can render.
+#[test]
+fn a_single_project_graph_is_a_complete_dot_document() {
+    let text = String::from_utf8(vissue(&["graph", "--project", "beacon"]).stdout).unwrap();
+    assert!(text.starts_with("digraph vissue_graph {"), "{text}");
+    assert!(text.trim_end().ends_with('}'), "{text}");
+    assert!(text.contains("\"beacon-"), "{text}");
+    assert!(!text.contains("\"atlas-"), "{text}");
+}
+
+// Asked about one project, the roadmap is still a document and keeps its title.
+#[test]
+fn a_single_project_roadmap_keeps_its_title() {
+    let text = String::from_utf8(vissue(&["roadmap", "--project", "beacon"]).stdout).unwrap();
+    assert!(text.starts_with("# Roadmap"), "{text}");
+    assert!(text.contains("## beacon"), "{text}");
+    assert!(!text.contains("## atlas"), "{text}");
+}
+
+// Asked about one project, the sentinel is the whole answer and stays.
+#[test]
+fn a_project_with_no_claims_still_says_so_when_it_is_the_question() {
+    let text = String::from_utf8(vissue(&["claims", "--project", "beacon"]).stdout).unwrap();
+    assert_eq!(text, "no live claims\n", "{text}");
+}
+
+#[test]
+fn the_read_only_command_surface_dispatches_against_the_fixture() {
+    let cases: &[(&[&str], &str)] = &[
+        (&["list", "--json"], "\"id\": \"atlas-3e4f\""),
+        (
+            &["show", "atlas-1a2b"],
+            "Title:    Parse the manifest header",
+        ),
+        (&["ready", "--json"], "\"id\": \"atlas-1a2b\""),
+        (&["claims"], "fixture-agent"),
+        (&["agenda", "--days", "5000"], "beacon-5j6k"),
+        (&["hygiene", "--stale-days", "1"], "stale_claims=1"),
+        (&["hygiene", "--stale-days", "1"], "stale_holders=1"),
+        (
+            &["release", "--holder", "fixture-agent", "--dry-run"],
+            "dry-run: would release 1 claim held by fixture-agent",
+        ),
+        (&["waiting-on", "atlas-1a2b"], "atlas-3e4f"),
+        (
+            &["body-excerpt", "atlas-1a2b"],
+            "* STARTED [#A] Parse the manifest header",
+        ),
+        (&["search", "parser"], "atlas-1a2b"),
+        (&["children", "atlas-1a2b"], "atlas-2c3d"),
+        (&["ancestors", "atlas-3e4f", "--depth", "3"], "1 atlas-1a2b"),
+        (&["impact", "atlas-1a2b", "--depth", "3"], "1 atlas-3e4f"),
+        (
+            &["related", "atlas-1a2b", "--format", "org"],
+            "[[id:atlas-2c3d]",
+        ),
+        (&["stale", "--days", "1"], "beacon-5j6k"),
+        (&["count", "--state", "TODO"], "2\n"),
+        (
+            &["tree", "atlas-1a2b", "--format", "dot"],
+            "digraph vissue_tree",
+        ),
+        (&["cycles"], "no cycles"),
+        (&["graph", "--project", "atlas"], "digraph vissue_graph"),
+        (&["backlinks", "atlas-1a2b"], "atlas-2c3d"),
+        (&["roadmap", "--project", "atlas"], "## atlas"),
+        (&["digest", "--json"], "\"issues\": 6"),
+    ];
+
+    for (args, expected) in cases {
+        let out = vissue(args);
+        assert!(
+            out.status.success(),
+            "command {args:?} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let text = stdout(&out);
+        assert!(
+            text.contains(expected),
+            "command {args:?} did not contain {expected:?}: {text}"
+        );
+    }
+
+    // `gen` and `events` read a log the fixture does not carry in git, so
+    // anything that writes one -- a `vissue ping` in a checkout, an earlier
+    // test -- would decide the answer. They are asked of a tracker this test
+    // owns instead.
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let own = |args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd().args(argv).output().unwrap()
+    };
+    assert_eq!(stdout(&own(&["gen"])), "0\n");
+    assert!(
+        stdout(&own(&["events", "--since", "0"])).contains("generation=0 since=0 count=0"),
+        "{}",
+        stdout(&own(&["events", "--since", "0"]))
+    );
+}
+
+/// `vissue export | head` closes the pipe once it has enough. The output has
+/// to be larger than a pipe buffer for the writer to still be writing when
+/// that happens, so this builds a corpus rather than using the fixture.
+#[test]
+fn a_reader_that_closes_the_pipe_is_not_a_failure() {
+    use std::io::Read as _;
+    use std::process::Stdio;
+
+    // The corpus has to exceed the 64 KiB pipe buffer; long bodies get there in
+    // fewer creates.
+    const PIPE_BUFFER: usize = 64 * 1024;
+    let body = "b".repeat(8 * 1024);
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_str().unwrap().to_string();
+    for i in 0..24 {
+        let out = vissue_cmd()
+            .args([
+                "--root", &root, "create", "-p", "demo", "--quiet", "--body", &body,
+            ])
+            .arg(format!("issue {i} with a body long enough to fill a pipe"))
+            .output()
+            .expect("run vissue");
+        assert!(out.status.success());
+    }
+
+    // Without this the test passes whatever the writer does: a corpus that fits the
+    // buffer never blocks the writer, so dropping the reader proves nothing.
+    let whole = vissue_cmd()
+        .args(["--root", &root, "export"])
+        .output()
+        .expect("run vissue");
+    assert!(
+        whole.status.success(),
+        "export failed: {}",
+        String::from_utf8_lossy(&whole.stderr)
+    );
+    assert!(
+        whole.stdout.len() > 2 * PIPE_BUFFER,
+        "the corpus exports {} bytes, which a {PIPE_BUFFER}-byte pipe swallows without \
+         ever blocking the writer, so this test would assert nothing",
+        whole.stdout.len()
+    );
+
+    let mut child = vissue_cmd()
+        .args(["--root", &root, "export"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("run vissue");
+
+    // Read one line, then drop the pipe while the writer is mid-corpus.
+    let mut stdout = child.stdout.take().unwrap();
+    let mut first = [0u8; 64];
+    stdout.read_exact(&mut first).unwrap();
+    drop(stdout);
+
+    let out = child.wait_with_output().expect("wait for vissue");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "exited {:?}: {stderr}", out.status);
+    assert!(stderr.is_empty(), "{stderr}");
+}
+
+/// `show --org` prints the issue's own org text.
+#[test]
+fn show_org_writes_the_whole_heading() {
+    let out = vissue(&["show", "--org", "atlas-1a2b"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = stdout(&out);
+    assert!(text.starts_with("* STARTED [#A]"), "{text}");
+    assert!(text.contains(":ID:         atlas-1a2b"), "{text}");
+    assert!(
+        text.contains(":LOGBOOK:"),
+        "the notes travel with it: {text}"
+    );
+    assert!(
+        text.contains("Scope: read the header block"),
+        "the body travels with it: {text}"
+    );
+    // Nothing but the heading, so the output can be redirected into a file.
+    assert!(!text.contains("File:"), "{text}");
+    assert!(!text.contains("excerpt"), "{text}");
+}
+
+#[test]
+fn show_prints_the_body_and_json_carries_it() {
+    let text = stdout(&vissue(&["show", "atlas-2c3d"]));
+    assert!(text.contains("Body:"), "{text}");
+    assert!(text.contains("Scope: one row per parsed record"), "{text}");
+
+    let row: serde_json::Value =
+        serde_json::from_str(&stdout(&vissue(&["show", "atlas-2c3d", "--json"]))).unwrap();
+    assert!(
+        row["body"]
+            .as_str()
+            .unwrap()
+            .contains("one row per parsed record"),
+        "{row}"
+    );
+}
+
+#[test]
+fn show_org_and_json_are_not_asked_for_together() {
+    let out = vissue(&["show", "--org", "--json", "atlas-1a2b"]);
+    assert!(!out.status.success(), "{}", stdout(&out));
+}
+
+/// Recording a worker's report, the return half of handing work out.
+#[test]
+fn append_reads_a_file_and_stdin() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("Software")).unwrap();
+    let mk = |args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", root.to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd().args(argv).output().unwrap()
+    };
+    let id = String::from_utf8_lossy(
+        &mk(&["create", "-p", "atlas", "--quiet", "Streaming exporter"]).stdout,
+    )
+    .trim()
+    .to_string();
+
+    let report = dir.path().join("SUMMARY.md");
+    std::fs::write(&report, "## What changed\n\n* took a Read\n").unwrap();
+    let out = mk(&["append", &id, "--file", report.to_str().unwrap()]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let shown = String::from_utf8_lossy(&mk(&["show", &id]).stdout).to_string();
+    assert!(shown.contains("## What changed"), "{shown}");
+    assert!(shown.contains("took a Read"), "{shown}");
+
+    // --text is the same thing without a file.
+    assert!(
+        mk(&["append", &id, "--text", "second pass"])
+            .status
+            .success()
+    );
+    let shown = String::from_utf8_lossy(&mk(&["show", &id]).stdout).to_string();
+    assert!(shown.contains("second pass"), "{shown}");
+
+    // The tracker still reads back cleanly after markdown went in.
+    let check = mk(&["check"]);
+    assert!(
+        check.status.success(),
+        "{}",
+        String::from_utf8_lossy(&check.stdout)
+    );
+
+    // Neither source given is an error, not an empty append.
+    assert!(!mk(&["append", &id]).status.success());
+}
+
+/// `vissue keys` in its three shapes, each against its own overlay via the
+/// environment of its own process.
+#[test]
+fn keys_prints_the_catalog_and_checks_an_overlay() {
+    let dir = tempfile::tempdir().unwrap();
+    let keys = |overlay: Option<&str>, args: &[&str]| -> std::process::Output {
+        let mut cmd = vissue_cmd();
+        cmd.args(["--root", fixture_root().to_str().unwrap(), "keys"]);
+        cmd.args(args);
+        match overlay {
+            Some(path) => cmd.env("VISSUE_KEYS", path),
+            None => cmd.env_remove("VISSUE_KEYS"),
+        };
+        cmd.output().unwrap()
+    };
+
+    // The catalog names every action with the chord that is live for it.
+    let table = keys(None, &[]);
+    assert!(table.status.success());
+    let text = stdout(&table);
+    for action in ["list.down", "issue.claim", "board.help"] {
+        assert!(text.contains(action), "{action} missing: {text}");
+    }
+
+    let taken = keys(None, &["--occupancy"]);
+    assert!(taken.status.success());
+    assert!(stdout(&taken).contains('\t'), "{}", stdout(&taken));
+
+    // A sound overlay checks out, and the rebound chord is what shows.
+    let good = dir.path().join("good.toml");
+    fs::write(&good, "[board]\n\"list.down\" = \"e\"\n").unwrap();
+    let checked = keys(Some(good.to_str().unwrap()), &["--check"]);
+    assert!(
+        checked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&checked.stderr)
+    );
+    assert!(stdout(&checked).trim() == "ok", "{}", stdout(&checked));
+    let listed = stdout(&keys(Some(good.to_str().unwrap()), &[]));
+    let row = listed
+        .lines()
+        .find(|l| l.contains("list.down"))
+        .unwrap_or_else(|| panic!("no list.down row: {listed}"));
+    assert_eq!(
+        row.split_whitespace().last(),
+        Some("e"),
+        "the rebound chord is not shown: {row}"
+    );
+
+    // A conflicting one fails the check and says why.
+    let bad = dir.path().join("bad.toml");
+    fs::write(&bad, "[board]\n\"list.down\" = \"enter\"\n").unwrap();
+    let refused = keys(Some(bad.to_str().unwrap()), &["--check"]);
+    assert!(!refused.status.success());
+    assert!(
+        String::from_utf8_lossy(&refused.stderr).contains("reserved"),
+        "{}",
+        String::from_utf8_lossy(&refused.stderr)
+    );
+}
+
+/// `hud --iced` hands the board the tracker it was pointed at.
+///
+/// The binary is replaced by a script that records its arguments, so what is
+/// checked is the command line the CLI builds rather than a window.
+#[test]
+fn the_iced_hud_is_given_the_root_prefix_and_flags() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let record = dir.path().join("argv");
+    let fake = dir.path().join("fake-hud");
+    // Staged and renamed: a file written here and exec'd immediately can hit
+    // ETXTBSY when another test thread forks while the descriptor is open.
+    let staging = fake.with_extension("staging");
+    fs::write(
+        &staging,
+        format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > {}\n", record.display()),
+    )
+    .unwrap();
+    let mut perm = fs::metadata(&staging).unwrap().permissions();
+    perm.set_mode(0o755);
+    fs::set_permissions(&staging, perm).unwrap();
+    fs::rename(&staging, &fake).unwrap();
+
+    let out = vissue_cmd()
+        .args([
+            "--root",
+            fixture_root().to_str().unwrap(),
+            "hud",
+            "--iced",
+            "--offline",
+            "--toggle",
+        ])
+        .env("VISSUE_HUD_BIN", &fake)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let argv = fs::read_to_string(&record).unwrap();
+    let args: Vec<&str> = argv.lines().collect();
+    assert!(args.contains(&"--root"), "{args:?}");
+    assert!(args.contains(&"--prefix"), "{args:?}");
+    assert!(args.contains(&"--offline"), "{args:?}");
+    assert!(args.contains(&"--toggle"), "{args:?}");
+    assert!(
+        args.iter().any(|a| a.contains("fixture_vault")),
+        "the board was not pointed at this tracker: {args:?}"
+    );
+}
+
+#[test]
+fn a_body_can_be_piped_in() {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let mut child = vissue_cmd()
+        .args([
+            "--root",
+            dir.path().to_str().unwrap(),
+            "create",
+            "-p",
+            "atlas",
+            "--quiet",
+            "--body-file",
+            "-",
+            "Read from a pipe",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"the body came down the pipe\n")
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success());
+    let id = String::from_utf8_lossy(&out.stdout).trim().to_string();
+
+    let shown = vissue_cmd()
+        .args(["--root", dir.path().to_str().unwrap(), "show", &id])
+        .output()
+        .unwrap();
+    assert!(
+        String::from_utf8_lossy(&shown.stdout).contains("the body came down the pipe"),
+        "{}",
+        String::from_utf8_lossy(&shown.stdout)
+    );
+}
+
+/// The reference documents every subcommand the parser lists, hidden ones
+/// included; `help` is clap's.
+#[test]
+fn the_reference_lists_every_subcommand() {
+    let reference = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/orgmode/reference.org"),
+    )
+    .expect("reference");
+
+    let missing: Vec<&str> = cli_surface()
+        .iter()
+        .map(|verb| verb.name.as_str())
+        .filter(|name| *name != "help")
+        .filter(|name| !reference.contains(&format!("={name}=")))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "not in docs/orgmode/reference.org: {missing:?}"
+    );
+}
+
+/// The change stream a poller lives on: `gen`, `wait`, `events`, with the
+/// contract in the exit code.
+#[test]
+fn the_change_stream_reports_and_blocks_the_way_a_poller_needs() {
+    use std::time::Instant;
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    fs::create_dir_all(root.join("Software")).unwrap();
+    let run = |args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", root.to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd().args(argv).output().unwrap()
+    };
+    let gen_now = |run: &dyn Fn(&[&str]) -> std::process::Output| -> u64 {
+        stdout(&run(&["gen"])).trim().parse().expect("a generation")
+    };
+
+    // An untouched tracker sits at zero and has nothing to report.
+    assert_eq!(gen_now(&run), 0);
+    let empty = stdout(&run(&["events", "--since", "0"]));
+    assert!(empty.contains("count=0"), "{empty}");
+
+    let id = stdout(&run(&["create", "-p", "atlas", "--quiet", "watch me"]))
+        .trim()
+        .to_string();
+    let after_create = gen_now(&run);
+    assert!(after_create > 0, "a write did not move the generation");
+
+    // Already moved past --last: return at once rather than wait out the
+    // timeout, or a poller that fell behind never catches up.
+    let started = Instant::now();
+    let caught_up = run(&["wait", "--last", "0", "--timeout-ms", "5000"]);
+    assert!(
+        caught_up.status.success(),
+        "wait reported no change though the generation had moved"
+    );
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(3),
+        "wait sat out the timeout on a generation that had already moved"
+    );
+    assert_eq!(
+        stdout(&caught_up).trim(),
+        after_create.to_string(),
+        "wait did not print the generation it woke at"
+    );
+
+    // Nothing changing is exit 2, which is how a poller tells a quiet
+    // interval from a change it missed.
+    let quiet = run(&[
+        "wait",
+        "--last",
+        &after_create.to_string(),
+        "--timeout-ms",
+        "700",
+    ]);
+    assert_eq!(quiet.status.code(), Some(2), "{}", stdout(&quiet));
+
+    // A write from another process wakes it.
+    let mut poker = Command::new("sh")
+        .arg("-c")
+        .arg(format!(
+            "sleep 1; {} --root {} note {id} poke >/dev/null 2>&1",
+            env!("CARGO_BIN_EXE_vissue"),
+            root.to_str().unwrap()
+        ))
+        .spawn()
+        .unwrap();
+    let woken = run(&[
+        "wait",
+        "--last",
+        &after_create.to_string(),
+        "--timeout-ms",
+        "15000",
+    ]);
+    let _ = poker.wait();
+    assert!(
+        woken.status.success(),
+        "wait slept through another process's write"
+    );
+
+    // The log says what happened, in both shapes it offers.
+    let events = stdout(&run(&["events", "--since", "0"]));
+    assert!(events.contains("issues_write"), "{events}");
+    assert!(events.contains("atlas"), "{events}");
+    let json = events
+        .split("---json---")
+        .nth(1)
+        .unwrap_or_else(|| panic!("no json block: {events}"));
+    let parsed: serde_json::Value = serde_json::from_str(json.trim()).expect("events JSON");
+    let recorded = parsed["events"].as_array().expect("an events array");
+    assert!(recorded.len() >= 2, "{parsed}");
+    assert_eq!(recorded[0]["kind"], "issues_write", "{parsed}");
+    assert_eq!(recorded[0]["project"], "atlas", "{parsed}");
+
+    // Asking from the far end returns nothing rather than repeating.
+    let tail = stdout(&run(&["events", "--since", &gen_now(&run).to_string()]));
+    assert!(tail.contains("count=0"), "{tail}");
+}
+
+/// `mirror --check` answers by exit code.
+#[test]
+fn mirror_check_reports_freshness_in_its_exit_code() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    fs::create_dir_all(root.join("Software")).unwrap();
+    let run = |args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", root.to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd().args(argv).output().unwrap()
+    };
+
+    let id = stdout(&run(&["create", "-p", "atlas", "--quiet", "first"]))
+        .trim()
+        .to_string();
+    run(&["create", "-p", "beacon", "--quiet", "second"]);
+
+    let mirror = root.join("mirror.org");
+    let written = run(&["mirror", "--out", mirror.to_str().unwrap()]);
+    assert!(written.status.success(), "{}", stdout(&written));
+
+    let fresh = run(&["mirror", "--check", mirror.to_str().unwrap()]);
+    assert!(fresh.status.success(), "a new mirror read as stale");
+    assert!(stdout(&fresh).contains("fresh:"), "{}", stdout(&fresh));
+
+    // One note is enough to make the copy out of date.
+    run(&["note", &id, "moved on"]);
+    let stale = run(&["mirror", "--check", mirror.to_str().unwrap()]);
+    assert_eq!(stale.status.code(), Some(1), "{}", stdout(&stale));
+    let report = stdout(&stale);
+    assert!(report.contains("stale:"), "{report}");
+    // It names which project moved, so a regeneration is not a guess.
+    assert!(report.contains("moved: atlas"), "{report}");
+
+    // Regenerating settles it.
+    run(&["mirror", "--out", mirror.to_str().unwrap()]);
+    assert!(
+        run(&["mirror", "--check", mirror.to_str().unwrap()])
+            .status
+            .success(),
+        "a regenerated mirror still read as stale"
+    );
+
+    // A file that was never a mirror is stale rather than fresh: treating an
+    // unstamped file as current is the failure worth avoiding.
+    let prose = root.join("notes.org");
+    fs::write(&prose, "just prose\n").unwrap();
+    let unstamped = run(&["mirror", "--check", prose.to_str().unwrap()]);
+    assert_eq!(unstamped.status.code(), Some(1), "{}", stdout(&unstamped));
+    assert!(
+        stdout(&unstamped).contains("no SYNC stamp"),
+        "{}",
+        stdout(&unstamped)
+    );
+
+    // So is one that is not there at all.
+    let absent = run(&[
+        "mirror",
+        "--check",
+        root.join("absent.org").to_str().unwrap(),
+    ]);
+    assert_eq!(absent.status.code(), Some(1));
+
+    // A mirror of one project is checked against what it covered, not the
+    // whole tracker, or it would read as stale the moment anything else moved.
+    let atlas_only = root.join("atlas.org");
+    run(&[
+        "mirror",
+        "-p",
+        "atlas",
+        "--out",
+        atlas_only.to_str().unwrap(),
+    ]);
+
+    let beacon_id = stdout(&run(&["list", "-P", "beacon"]))
+        .split_whitespace()
+        .next()
+        .expect("a beacon issue")
+        .to_string();
+    let elsewhere = run(&["note", &beacon_id, "elsewhere"]);
+    assert!(
+        elsewhere.status.success(),
+        "the note that makes this test mean anything failed: {}",
+        String::from_utf8_lossy(&elsewhere.stderr)
+    );
+    // The whole-tracker mirror does go stale, making the
+    // atlas-only one staying fresh a scope check rather than a no-op.
+    assert_eq!(
+        run(&["mirror", "--check", mirror.to_str().unwrap()])
+            .status
+            .code(),
+        Some(1),
+        "the beacon note did not move the tracker at all"
+    );
+    assert!(
+        run(&["mirror", "--check", atlas_only.to_str().unwrap()])
+            .status
+            .success(),
+        "a change in another project staled an atlas-only mirror"
+    );
+}
+
+/// Naming a project that does not exist creates it, and case folds.
+#[test]
+fn a_project_comes_into_being_when_something_is_filed_there() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    fs::create_dir_all(root.join("Software")).unwrap();
+    let run = |args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", root.to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd().args(argv).output().unwrap()
+    };
+    let projects = |run: &dyn Fn(&[&str]) -> std::process::Output| -> Vec<String> {
+        stdout(&run(&["projects"]))
+            .lines()
+            .map(str::to_string)
+            .collect()
+    };
+
+    let id = stdout(&run(&["create", "-p", "atlas", "--quiet", "one"]))
+        .trim()
+        .to_string();
+    assert_eq!(projects(&run), ["atlas"]);
+
+    // A different case reaches the project that is already there rather
+    // than making a second one beside it.
+    let folded = run(&["create", "-p", "Atlas", "--quiet", "two"]);
+    assert!(folded.status.success(), "{}", stdout(&folded));
+    assert!(
+        stdout(&folded).trim().starts_with("atlas-"),
+        "{}",
+        stdout(&folded)
+    );
+    assert_eq!(
+        projects(&run),
+        ["atlas"],
+        "a case variant split the project"
+    );
+
+    // An unknown name is filed rather than refused, by create and by refile.
+    let elsewhere = run(&["create", "-p", "brandnew", "--quiet", "three"]);
+    assert!(elsewhere.status.success());
+    assert!(projects(&run).contains(&"brandnew".to_string()));
+
+    let moved = run(&["refile", &id, "--to", "somewhere-else"]);
+    assert!(moved.status.success(), "{}", stdout(&moved));
+    assert!(projects(&run).contains(&"somewhere-else".to_string()));
+    // The id does not follow the project, so edges pointing at it still hold.
+    let detail: serde_json::Value =
+        serde_json::from_str(&stdout(&run(&["show", &id, "--json"]))).unwrap();
+    assert_eq!(detail["id"], id.as_str());
+    assert_eq!(detail["project"], "somewhere-else");
+
+    // Two projects differing only by case are refused rather than guessed at.
+    for name in ["Beacon", "beacon"] {
+        let path = root.join("Software").join(name);
+        fs::create_dir_all(&path).unwrap();
+        fs::write(path.join("issues.org"), "#+TITLE: x\n").unwrap();
+    }
+    let ambiguous = run(&["create", "-p", "BEACON", "--quiet", "which one"]);
+    assert!(!ambiguous.status.success(), "{}", stdout(&ambiguous));
+    let err = String::from_utf8_lossy(&ambiguous.stderr);
+    assert!(err.contains("ambiguous"), "{err}");
+    assert!(err.contains("Beacon") && err.contains("beacon"), "{err}");
+}
+
+/// The tracker refuses to write a blocker cycle and `ready` survives one
+/// written by hand.
+#[test]
+fn a_blocker_ring_is_refused_and_a_planted_one_does_not_spin() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    fs::create_dir_all(root.join("Software")).unwrap();
+    let run = |args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", root.to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd().args(argv).output().unwrap()
+    };
+    let mk = |title: &str| {
+        stdout(&run(&["create", "-p", "atlas", "--quiet", title]))
+            .trim()
+            .to_string()
+    };
+
+    let (a, b, c) = (mk("A"), mk("B"), mk("C"));
+
+    // A legal chain: C waits on B waits on A, so only A is ready.
+    assert!(run(&["update", &b, "--block", &a]).status.success());
+    assert!(run(&["update", &c, "--block", &b]).status.success());
+    assert!(stdout(&run(&["cycles"])).contains("no cycles"));
+    let ready = stdout(&run(&["ready"]));
+    assert_eq!(ready.lines().count(), 1, "{ready}");
+    assert!(
+        ready.contains(&a),
+        "the root of the chain is the ready one: {ready}"
+    );
+
+    // Closing the ring is refused, and says what it would have made.
+    let ring = run(&["update", &a, "--block", &c]);
+    assert_eq!(ring.status.code(), Some(1), "{}", stdout(&ring));
+    let err = String::from_utf8_lossy(&ring.stderr);
+    assert!(err.contains("blocker cycle"), "{err}");
+
+    // So is an issue blocking itself, and it reads differently.
+    let own = run(&["update", &a, "--block", &a]);
+    assert_eq!(own.status.code(), Some(1), "{}", stdout(&own));
+    let err = String::from_utf8_lossy(&own.stderr);
+    assert!(err.contains("cannot block itself"), "{err}");
+
+    // Neither refusal left anything behind.
+    assert!(stdout(&run(&["cycles"])).contains("no cycles"));
+    assert!(run(&["check"]).status.success());
+
+    // A ring written straight into the file, which nothing can prevent.
+    let path = root.join("Software/atlas/issues.org");
+    let text = fs::read_to_string(&path).unwrap();
+    fs::write(
+        &path,
+        text.replace(
+            &format!(":ID:         {a}\n"),
+            &format!(":ID:         {a}\n:BLOCKED_BY: {c}\n"),
+        ),
+    )
+    .unwrap();
+
+    // The ring is named, not counted, so it can be repaired.
+    let found = stdout(&run(&["cycles"]));
+    for id in [&a, &b, &c] {
+        assert!(found.contains(id.as_str()), "{found}");
+    }
+    // check refuses the corpus.
+    let checked = run(&["check"]);
+    assert_eq!(checked.status.code(), Some(1), "{}", stdout(&checked));
+
+    // And the dispatcher gets nothing rather than a spin or phantom work.
+    let ready = run(&["ready"]);
+    assert!(
+        ready.status.success(),
+        "ready failed outright: {}",
+        String::from_utf8_lossy(&ready.stderr)
+    );
+    assert!(
+        stdout(&ready).trim().is_empty(),
+        "a ring offered work anyway: {}",
+        stdout(&ready)
+    );
+}
+
+/// Concurrent processes do not lose each other's writes to one `issues.org`.
+#[test]
+fn concurrent_writers_all_land() {
+    use std::process::Stdio;
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    fs::create_dir_all(root.join("Software")).unwrap();
+
+    const WRITERS: usize = 12;
+    let mut kids = Vec::with_capacity(WRITERS);
+    for i in 0..WRITERS {
+        kids.push(
+            vissue_cmd()
+                .args([
+                    "--root",
+                    root.to_str().unwrap(),
+                    "create",
+                    "-p",
+                    "atlas",
+                    "--quiet",
+                    &format!("writer {i}"),
+                ])
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap(),
+        );
+    }
+    for (i, kid) in kids.into_iter().enumerate() {
+        let out = kid.wait_with_output().unwrap();
+        assert!(
+            out.status.success(),
+            "writer {i} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    let run = |args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", root.to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd().args(argv).output().unwrap()
+    };
+
+    // Every writer reported success, so every issue has to be there.
+    let count: usize = stdout(&run(&["count"])).trim().parse().expect("a count");
+    assert_eq!(count, WRITERS, "a write was lost: {count} of {WRITERS}");
+
+    // Each one by title, so a count that happens to match cannot hide a
+    // duplicate standing in for a loser.
+    let listed = stdout(&run(&["list"]));
+    for i in 0..WRITERS {
+        assert!(
+            listed.contains(&format!("writer {i}")),
+            "writer {i} is missing: {listed}"
+        );
+    }
+
+    // The file a race leaves behind is usually still valid, and that is what
+    // makes the loss quiet. Check anyway.
+    assert!(
+        run(&["check"]).status.success(),
+        "{}",
+        stdout(&run(&["check"]))
+    );
+}
+
+#[test]
+fn reject_help_names_the_destination_flags() {
+    let out = vissue(&["reject", "--help"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = stdout(&out);
+    assert!(text.contains("--to"), "{text}");
+    assert!(text.contains("--project"), "{text}");
+    assert!(text.contains("--reason"), "{text}");
+}
+
+#[test]
+fn wait_help_names_until_terminal() {
+    let out = vissue(&["wait", "--help"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = stdout(&out);
+    assert!(text.contains("--until-terminal"), "{text}");
+    assert!(text.contains("--id"), "{text}");
+    assert!(text.contains("--poll-ms"), "{text}");
+    assert!(text.contains("--timeout-ms"), "{text}");
+    assert!(text.contains("--last"), "{text}");
+}
+
+/// `--until-terminal` watches one issue's state, not the generation
+/// counter. The printed token and the exit status are the contract, so a
+/// poller can tell DONE from still-open without parsing the heading.
+#[test]
+fn wait_until_terminal_reports_done_cancelled_or_timeout() {
+    let done = vissue(&[
+        "wait",
+        "--id",
+        "atlas-4g5h",
+        "--until-terminal",
+        "--timeout-ms",
+        "1000",
+    ]);
+    assert!(
+        done.status.success(),
+        "DONE issue should exit 0: {}",
+        String::from_utf8_lossy(&done.stderr)
+    );
+    let done_line = stdout(&done).trim().to_string();
+    assert!(
+        done_line.starts_with("DONE "),
+        "expected DONE <gen>, got {done_line:?}"
+    );
+    let done_gen: u64 = done_line
+        .split_whitespace()
+        .nth(1)
+        .expect("DONE generation")
+        .parse()
+        .expect("generation is a number");
+    let _ = done_gen;
+
+    let timed = vissue(&[
+        "wait",
+        "--id",
+        "atlas-1a2b",
+        "--until-terminal",
+        "--poll-ms",
+        "50",
+        "--timeout-ms",
+        "200",
+    ]);
+    assert_eq!(
+        timed.status.code(),
+        Some(2),
+        "open issue should time out: {}",
+        stdout(&timed)
+    );
+    let timed_line = stdout(&timed).trim().to_string();
+    assert!(
+        timed_line.starts_with("TIMEOUT STARTED "),
+        "expected TIMEOUT STARTED <gen>, got {timed_line:?}"
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let root = dir.path().to_str().unwrap();
+    let own = |args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", root];
+        argv.extend_from_slice(args);
+        vissue_cmd().args(argv).output().unwrap()
+    };
+    let id = stdout(&own(&["create", "-p", "atlas", "--quiet", "close me"]))
+        .trim()
+        .to_string();
+    let updated = own(&["update", &id, "--state", "CANCELLED"]);
+    assert!(
+        updated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&updated.stderr)
+    );
+    let cancelled = own(&[
+        "wait",
+        "--id",
+        &id,
+        "--until-terminal",
+        "--timeout-ms",
+        "1000",
+    ]);
+    assert!(
+        cancelled.status.success(),
+        "CANCELLED issue should exit 0: {}",
+        String::from_utf8_lossy(&cancelled.stderr)
+    );
+    let cancelled_line = stdout(&cancelled).trim().to_string();
+    assert!(
+        cancelled_line.starts_with("CANCELLED "),
+        "expected CANCELLED <gen>, got {cancelled_line:?}"
+    );
+}
+
+#[test]
+fn wait_until_terminal_without_id_exits_one() {
+    let out = vissue(&["wait", "--until-terminal", "--timeout-ms", "200"]);
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "missing --id must be exit 1, not clap's 2: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("--id"), "{err}");
+}
+
+#[test]
+fn wait_until_terminal_unknown_id_exits_one() {
+    let out = vissue(&[
+        "wait",
+        "--id",
+        "atlas-zzzz",
+        "--until-terminal",
+        "--timeout-ms",
+        "200",
+    ]);
+    assert_eq!(out.status.code(), Some(1), "{}", stdout(&out));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("atlas-zzzz"), "{err}");
+}
+
+/// `reject` closes the source and names a destination: an existing id, or
+/// a heading created for the purpose. `--reason` is recorded on the source.
+#[test]
+fn reject_redirects_to_an_existing_issue_or_a_new_one() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let root = dir.path().to_str().unwrap();
+    let own = |args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", root];
+        argv.extend_from_slice(args);
+        vissue_cmd().args(argv).output().unwrap()
+    };
+
+    let src = stdout(&own(&["create", "-p", "atlas", "--quiet", "old plan"]))
+        .trim()
+        .to_string();
+    let dst = stdout(&own(&["create", "-p", "atlas", "--quiet", "the rewrite"]))
+        .trim()
+        .to_string();
+    let rejected = own(&[
+        "reject",
+        &src,
+        "--to",
+        &dst,
+        "--reason",
+        "duplicate of the rewrite",
+    ]);
+    assert!(
+        rejected.status.success(),
+        "{}",
+        String::from_utf8_lossy(&rejected.stderr)
+    );
+    let shown = stdout(&own(&["show", "--org", &src]));
+    assert!(shown.contains("CANCELLED"), "source not closed: {shown}");
+    assert!(
+        shown.contains("duplicate of the rewrite"),
+        "reason missing: {shown}"
+    );
+
+    let src2 = stdout(&own(&[
+        "create",
+        "-p",
+        "atlas",
+        "--quiet",
+        "another old plan",
+    ]))
+    .trim()
+    .to_string();
+    let created = own(&[
+        "reject",
+        &src2,
+        "--project",
+        "atlas",
+        "Rewrite the old plan",
+        "--reason",
+        "superseded",
+    ]);
+    assert!(
+        created.status.success(),
+        "{}",
+        String::from_utf8_lossy(&created.stderr)
+    );
+    let listed = stdout(&own(&["list", "-p", "atlas"]));
+    assert!(
+        listed.contains("Rewrite the old plan"),
+        "replacement heading missing: {listed}"
+    );
+    let shown2 = stdout(&own(&["show", "--org", &src2]));
+    assert!(shown2.contains("CANCELLED"), "source2 not closed: {shown2}");
+}
+
+#[test]
+fn reject_without_a_destination_fails() {
+    let out = vissue(&["reject", "atlas-2c3d"]);
+    assert!(!out.status.success(), "reject with no dest must fail");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("--to") || err.contains("--project"), "{err}");
+}
+
+#[test]
+fn update_if_state_refuses_a_stale_done_after_reject() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let root = dir.path().to_str().unwrap();
+    let own = |args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", root];
+        argv.extend_from_slice(args);
+        vissue_cmd().args(argv).output().unwrap()
+    };
+    let src = stdout(&own(&["create", "-p", "atlas", "--quiet", "old"]))
+        .trim()
+        .to_string();
+    let dst = stdout(&own(&["create", "-p", "atlas", "--quiet", "new"]))
+        .trim()
+        .to_string();
+    assert!(own(&["reject", &src, "--to", &dst]).status.success());
+    let stale = own(&["update", &src, "--state", "DONE", "--if-state", "STARTED"]);
+    assert!(!stale.status.success(), "{}", stdout(&stale));
+    let err = String::from_utf8_lossy(&stale.stderr);
+    assert!(err.contains("CANCELLED"), "{err}");
+    let shown = stdout(&own(&["show", "--org", &src]));
+    assert!(shown.contains("CANCELLED"), "{shown}");
+    assert!(!shown.contains("* DONE"), "{shown}");
+}
+
+#[test]
+fn update_if_gen_and_resolve_keep_the_first_terminal() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let root = dir.path().to_str().unwrap();
+    let own = |args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", root];
+        argv.extend_from_slice(args);
+        vissue_cmd().args(argv).output().unwrap()
+    };
+    let id = stdout(&own(&["create", "-p", "atlas", "--quiet", "close me"]))
+        .trim()
+        .to_string();
+    let seen: u64 = stdout(&own(&["gen"])).trim().parse().unwrap();
+    assert!(own(&["update", &id, "--state", "DONE"]).status.success());
+    let stale = own(&[
+        "update",
+        &id,
+        "--state",
+        "CANCELLED",
+        "--if-gen",
+        &seen.to_string(),
+    ]);
+    assert!(!stale.status.success(), "{}", stdout(&stale));
+    assert!(
+        own(&["update", &id, "--state", "CANCELLED"])
+            .status
+            .success()
+    );
+    let shown = stdout(&own(&["show", "--org", &id]));
+    assert!(shown.contains("DONE"), "{shown}");
+    assert!(shown.contains("SIBLING_TERMINAL"), "{shown}");
+    assert!(
+        own(&["resolve", &id, "--state", "CANCELLED"])
+            .status
+            .success()
+    );
+    let shown = stdout(&own(&["show", "--org", &id]));
+    assert!(shown.contains("CANCELLED"), "{shown}");
+    assert!(!shown.contains("SIBLING_TERMINAL"), "{shown}");
+}
+
+#[test]
+fn a_user_config_route_wins_over_an_explicit_root() {
+    let tmp = tempfile::tempdir().unwrap();
+    let vault = tmp.path().join("vault");
+    let work = tmp.path().join("work");
+    std::fs::create_dir_all(vault.join("Software")).unwrap();
+    std::fs::create_dir_all(work.join("Issues")).unwrap();
+    let cfg = tmp.path().join("config.toml");
+    std::fs::write(
+        &cfg,
+        format!(
+            "[layouts.work]\nroot = \"{}\"\nprefix = \"Issues\"\n\n[routes]\nparser = \"work\"\n",
+            work.display()
+        ),
+    )
+    .unwrap();
+
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_vissue"))
+            .env_remove("VISSUE_NO_ROUTE")
+            .env("VISSUE_CONFIG", &cfg)
+            .args(["--root", vault.to_str().unwrap()])
+            .args(args)
+            .output()
+            .unwrap()
+    };
+
+    let created = run(&["create", "-p", "parser", "--quiet", "routed ticket"]);
+    assert!(
+        created.status.success(),
+        "{}",
+        String::from_utf8_lossy(&created.stderr)
+    );
+    let id = stdout(&created).trim().to_string();
+    assert!(id.starts_with("parser-"), "{id}");
+    assert!(
+        work.join("Issues/parser/issues.org").exists(),
+        "create must write the routed checkout"
+    );
+    assert!(
+        !vault.join("Software/parser/issues.org").exists(),
+        "create must not write the process-default checkout"
+    );
+
+    let shown = run(&["show", &id]);
+    assert!(
+        shown.status.success(),
+        "{}",
+        String::from_utf8_lossy(&shown.stderr)
+    );
+    assert!(
+        stdout(&shown).contains("routed ticket"),
+        "{}",
+        stdout(&shown)
+    );
+
+    let projects = stdout(&run(&["projects"]));
+    assert!(projects.contains("parser"), "{projects}");
+
+    let skipped = Command::new(env!("CARGO_BIN_EXE_vissue"))
+        .env("VISSUE_CONFIG", &cfg)
+        .args(["--root", vault.to_str().unwrap(), "--no-route"])
+        .args(["create", "-p", "parser", "--quiet", "unrouted ticket"])
+        .output()
+        .unwrap();
+    assert!(
+        skipped.status.success(),
+        "{}",
+        String::from_utf8_lossy(&skipped.stderr)
+    );
+    assert!(vault.join("Software/parser/issues.org").exists());
+}
+
+/// The command line carries every verb the schema names; the socket and tool
+/// crates hold the same check for their surfaces.
+#[test]
+fn the_command_line_offers_every_verb_the_schema_names() {
+    let help = vissue(&["--help"]);
+    let text = String::from_utf8_lossy(&help.stdout).to_string();
+    let missing: Vec<String> = vissue_core::surface::mutating_cli_verbs()
+        .into_iter()
+        .filter(|verb| {
+            // The verb has to appear as a subcommand, so a substring of prose does
+            // not satisfy it: help lists them one per line, indented.
+            !text
+                .lines()
+                .any(|line| line.split_whitespace().next() == Some(verb.as_str()))
+        })
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "the schema names these verbs and the command line does not offer them: {missing:?}"
+    );
+}
+
+/// `vissue surface`, read once: every subcommand with its aliases and long
+/// flags, from the parser itself.
+fn cli_surface() -> &'static Vec<CliVerb> {
+    static SURFACE: std::sync::OnceLock<Vec<CliVerb>> = std::sync::OnceLock::new();
+    SURFACE.get_or_init(|| {
+        let out = vissue(&["surface"]);
+        assert!(
+            out.status.success(),
+            "vissue surface failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let verbs: Vec<CliVerb> = serde_json::from_slice(&out.stdout)
+            .expect("vissue surface emits a JSON array of verbs");
+        assert!(
+            verbs.len() > 20,
+            "the command line reports {} subcommands, which is too few to be the real surface",
+            verbs.len()
+        );
+        verbs
+    })
+}
+
+#[derive(serde::Deserialize)]
+struct CliVerb {
+    name: String,
+    hidden: bool,
+    aliases: Vec<String>,
+    flags: Vec<String>,
+}
+
+/// Each verb offers the flags the schema names for it.
+#[test]
+fn each_verb_offers_the_flags_the_schema_names() {
+    let surface = cli_surface();
+    let mut wrong = Vec::new();
+    for op in vissue_core::surface::operations() {
+        if op.cli.is_empty() || op.fields.is_empty() {
+            continue;
+        }
+        let Some(verb) = surface.iter().find(|v| v.name == op.cli) else {
+            continue; // every_subcommand_appears_in_the_schema owns the other direction
+        };
+        for field in &op.fields {
+            if field.cli.is_empty() {
+                continue;
+            }
+            if !verb.flags.contains(&field.cli) {
+                wrong.push(format!("{} has no --{}", op.cli, field.cli));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "the schema names flags these verbs do not take: {wrong:?}"
+    );
+}
+
+/// Every subcommand appears in the schema, except clap's per-shell completion
+/// variants and the hidden verbs that describe the binary.
+#[test]
+fn every_subcommand_appears_in_the_schema() {
+    const SHELLS: &[&str] = &["bash", "zsh", "fish", "elvish", "powershell"];
+
+    let known = vissue_core::surface::cli_verbs();
+    let unknown: Vec<&str> = cli_surface()
+        .iter()
+        .filter(|v| !v.hidden && v.name != "help" && !SHELLS.contains(&v.name.as_str()))
+        .map(|v| v.name.as_str())
+        .filter(|name| !known.iter().any(|k| k == name))
+        .collect();
+    assert!(
+        unknown.is_empty(),
+        "these subcommands are in no schema row, so no surface check can see them: {unknown:?}"
+    );
+}
+
+/// The schema and the parser agree about which names are aliases, in both
+/// directions: an alias takes the flags of the verb it aliases.
+#[test]
+fn the_schema_and_the_parser_agree_about_aliases() {
+    let surface = cli_surface();
+    let ops = vissue_core::surface::operations();
+
+    let mut wrong = Vec::new();
+    for op in &ops {
+        for alias in &op.aliases {
+            if surface.iter().any(|v| &v.name == alias) {
+                wrong.push(format!(
+                    "the schema calls {alias} an alias of {} and the parser makes it a \
+                     subcommand of its own, which takes its own flags",
+                    op.cli
+                ));
+            } else if !surface
+                .iter()
+                .any(|v| v.name == op.cli && v.aliases.contains(alias))
+            {
+                wrong.push(format!(
+                    "the schema calls {alias} an alias of {} and the parser does not",
+                    op.cli
+                ));
+            }
+        }
+    }
+    for verb in surface {
+        if verb.hidden {
+            continue;
+        }
+        for alias in &verb.aliases {
+            if !ops
+                .iter()
+                .any(|o| o.cli == verb.name && o.aliases.contains(alias))
+            {
+                wrong.push(format!(
+                    "{} answers to {alias} and no schema row says so",
+                    verb.name
+                ));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "the schema and the command line disagree about aliases: {wrong:?}"
+    );
+}
+
+/// Every flag a verb takes is in the schema, global flags aside.
+#[test]
+fn every_flag_a_verb_takes_is_in_the_schema() {
+    let globals = vissue_core::surface::global_flags();
+    let surface = cli_surface();
+
+    let mut unknown = Vec::new();
+    for op in vissue_core::surface::operations() {
+        // A local verb's flags are about this process rather than about an
+        // operation: the HUD's nine are window management, `serve --detach` is a
+        // lifecycle choice. Enumerating them in a schema of operations buys nothing
+        // and would bury the flags that do describe a surface.
+        if op.cli.is_empty() || op.local {
+            continue;
+        }
+        let Some(verb) = surface.iter().find(|v| v.name == op.cli) else {
+            continue;
+        };
+        let named: Vec<&str> = op.fields.iter().map(|f| f.cli.as_str()).collect();
+        for flag in &verb.flags {
+            if globals.contains(flag) || named.contains(&flag.as_str()) {
+                continue;
+            }
+            unknown.push(format!("{} --{flag}", op.cli));
+        }
+    }
+    assert!(
+        unknown.is_empty(),
+        "these flags exist and no schema field mentions them: {unknown:?}"
+    );
+}
+
+/// The loop the three layers exist for, end to end: a plan is split, the first
+/// node is worked and names what it made, and the second node's working set
+/// hands that product to whoever picks it up.
+///
+/// Through the built binary rather than the library, because the handoff is
+/// between two processes that share nothing but the file, which is the whole
+/// claim.
+#[test]
+fn a_finished_node_hands_its_product_to_the_next_one() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let own = |args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd().args(argv).output().unwrap()
+    };
+    let id = |args: &[&str]| -> String { stdout(&own(args)).trim().to_string() };
+
+    let epic = id(&["create", "-p", "keys", "--type", "plan", "Epic", "-q"]);
+    let first = id(&[
+        "create",
+        "-p",
+        "keys",
+        "--parent",
+        &epic,
+        "Catalog the actions",
+        "-q",
+    ]);
+    let second = id(&[
+        "create",
+        "-p",
+        "keys",
+        "--parent",
+        &epic,
+        "Write the schema",
+        "-q",
+    ]);
+    own(&["update", &second, "--block", &first]);
+
+    // The first node finishes and names its product.
+    let cited = own(&["deed", &first, "--add", "deed-file-catalog"]);
+    assert!(cited.status.success(), "{}", stdout(&cited));
+    own(&["update", &first, "--state", "DONE"]);
+
+    let recalled = stdout(&own(&["recall", &second]));
+    assert!(recalled.contains(&epic), "the plan is missing: {recalled}");
+    assert!(
+        recalled.contains(&first) && recalled.contains("blocked-by"),
+        "the input is missing: {recalled}"
+    );
+    assert!(
+        recalled.contains("deed-file-catalog"),
+        "the input's product is the point: {recalled}"
+    );
+
+    // The form a shell substitutes into `deedar get`.
+    assert_eq!(
+        stdout(&own(&["recall", &second, "--deeds-only"])),
+        "deed-file-catalog\n"
+    );
+
+    // And the structure a remote surface answers with.
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout(&own(&["recall", &second, "--json"]))).expect("json");
+    assert_eq!(json["inputs"][0]["deeds"][0], "deed-file-catalog");
+    assert_eq!(json["inputs"][0]["relation"], "blocked-by");
+}
+
+/// A plurality that the group's own weighting reverses, over the command line.
+/// `vote` reports the count and `consensus` reports where the weight actually
+/// sits, so an agent acting on either can see the other.
+#[test]
+fn the_consensus_weighs_the_ballots_the_tally_counts() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    fs::write(
+        dir.path().join("vissue.toml"),
+        "[consensus.trust]\nalice = { carol = 1.0 }\nbob = { carol = 1.0 }\n\
+         carol = { carol = 4.0, alice = 1.0 }\n",
+    )
+    .unwrap();
+    let own = |agent: &str, args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd()
+            .env("VISSUE_AGENT", agent)
+            .args(argv)
+            .output()
+            .unwrap()
+    };
+
+    let id = stdout(&own("alice", &["create", "-p", "api", "Ship it?", "-q"]))
+        .trim()
+        .to_string();
+    own("alice", &["vote", &id, "--for", "ship"]);
+    own("bob", &["vote", &id, "--for", "ship"]);
+    own("carol", &["vote", &id, "--for", "hold"]);
+
+    let tally = stdout(&own("alice", &["vote", &id]));
+    assert!(tally.contains("majority: ship (2 of 3)"), "{tally}");
+
+    let rows: serde_json::Value =
+        serde_json::from_str(&stdout(&own("alice", &["vote", &id, "--json"]))).unwrap();
+    let rows = rows.as_array().unwrap();
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows[2]["agent"], "carol");
+    assert_eq!(rows[2]["choice"], "hold");
+    assert!(
+        !own("alice", &["vote", &id, "--json", "--for", "ship"])
+            .status
+            .success()
+    );
+
+    let weighed = stdout(&own("alice", &["consensus", &id]));
+    assert!(weighed.contains("holds: hold"), "{weighed}");
+
+    // Rows passed in lie over the file's rows, pair by pair.
+    let overruled = stdout(&own(
+        "alice",
+        &[
+            "consensus",
+            &id,
+            "--trust",
+            r#"[["alice","carol",0.01],["bob","carol",0.01],["carol","alice",4],["carol","carol",0.5]]"#,
+        ],
+    ));
+    assert!(overruled.contains("holds: ship"), "{overruled}");
+    assert!(
+        !own("alice", &["consensus", &id, "--trust", "[[1]]"])
+            .status
+            .success()
+    );
+    assert!(
+        weighed.contains("the count leads with ship"),
+        "the difference is the reason to run it: {weighed}"
+    );
+    assert!(weighed.contains("social power"), "{weighed}");
+}
+
+/// With no trust configured the weighted answer is the count as a fraction, so
+/// the verb is safe on a tracker nobody has set up.
+#[test]
+fn an_unconfigured_tracker_gets_the_tally_back_as_shares() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let own = |agent: &str, args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd()
+            .env("VISSUE_AGENT", agent)
+            .args(argv)
+            .output()
+            .unwrap()
+    };
+
+    let id = stdout(&own("alice", &["create", "-p", "api", "Ship it?", "-q"]))
+        .trim()
+        .to_string();
+    own("alice", &["vote", &id, "--for", "ship"]);
+    own("bob", &["vote", &id, "--for", "ship"]);
+    own("carol", &["vote", &id, "--for", "hold"]);
+
+    let weighed = stdout(&own("alice", &["consensus", &id]));
+    assert!(weighed.contains("trust default"), "{weighed}");
+    assert!(
+        weighed.contains("ship                     0.667"),
+        "{weighed}"
+    );
+    assert!(
+        weighed.contains("hold                     0.333"),
+        "{weighed}"
+    );
+    assert!(
+        !weighed.contains("the count leads with"),
+        "nothing was reweighted, so there is nothing to point out: {weighed}"
+    );
+}
+
+/// Work that continues on the product it was handed cites the same deed as its
+/// input. The accession list is a shell substitution, so a repeat would fetch
+/// or check the same deed twice.
+#[test]
+fn the_accession_list_names_each_deed_once() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let own = |args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd().args(argv).output().unwrap()
+    };
+    let id = |args: &[&str]| -> String { stdout(&own(args)).trim().to_string() };
+
+    let first = id(&["create", "-p", "keys", "The groundwork", "-q"]);
+    let second = id(&["create", "-p", "keys", "More of the same", "-q"]);
+    own(&["update", &second, "--block", &first]);
+    own(&["deed", &first, "--add", "deed-file-shared"]);
+    own(&["deed", &second, "--add", "deed-file-shared"]);
+
+    assert_eq!(
+        stdout(&own(&["recall", &second, "--deeds-only"])),
+        "deed-file-shared\n"
+    );
+}
+
+/// Two review groups that cite only each other never converge, and the report
+/// has to say what each of them settled on. Naming the groups without naming
+/// their positions leaves a reader knowing there is a disagreement and not what
+/// it is about.
+#[test]
+fn a_split_report_says_what_each_group_holds() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    fs::write(
+        dir.path().join("vissue.toml"),
+        "[consensus.trust]\nalice = { bob = 1.0 }\nbob = { alice = 1.0 }\n\
+         carol = { dave = 1.0 }\ndave = { carol = 1.0 }\n",
+    )
+    .unwrap();
+    let own = |agent: &str, args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd()
+            .env("VISSUE_AGENT", agent)
+            .args(argv)
+            .output()
+            .unwrap()
+    };
+
+    let id = stdout(&own("alice", &["create", "-p", "api", "Ship it?", "-q"]))
+        .trim()
+        .to_string();
+    for (agent, choice) in [
+        ("alice", "ship"),
+        ("bob", "ship"),
+        ("carol", "hold"),
+        ("dave", "hold"),
+    ] {
+        own(agent, &["vote", &id, "--for", choice]);
+    }
+
+    let split = stdout(&own("alice", &["consensus", &id]));
+    assert!(split.contains("no consensus"), "{split}");
+    assert!(split.contains("2 group(s)"), "{split}");
+    assert!(split.contains("alice, bob"), "{split}");
+    assert!(
+        split.contains("ship 1.000") && split.contains("hold 1.000"),
+        "each group has to say what it settled on: {split}"
+    );
+}
+
+/// A plan whose children each reached agreement, and disagree with each other.
+/// That is the case the roll-up exists for, and the case an average would hide
+/// by reporting a number in between two positions nobody holds.
+#[test]
+fn a_plan_roll_up_reports_the_children_rather_than_averaging_them() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let own = |agent: &str, args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd()
+            .env("VISSUE_AGENT", agent)
+            .args(argv)
+            .output()
+            .unwrap()
+    };
+    let id =
+        |agent: &str, args: &[&str]| -> String { stdout(&own(agent, args)).trim().to_string() };
+
+    let plan = id(
+        "a",
+        &[
+            "create",
+            "-p",
+            "api",
+            "--type",
+            "plan",
+            "Ship the release",
+            "-q",
+        ],
+    );
+    let one = id(
+        "a",
+        &[
+            "create",
+            "-p",
+            "api",
+            "--parent",
+            &plan,
+            "The exporter",
+            "-q",
+        ],
+    );
+    let two = id(
+        "a",
+        &[
+            "create",
+            "-p",
+            "api",
+            "--parent",
+            &plan,
+            "The importer",
+            "-q",
+        ],
+    );
+    let three = id(
+        "a",
+        &["create", "-p", "api", "--parent", &plan, "The docs", "-q"],
+    );
+
+    // Each child is internally agreed, and they point different ways.
+    for agent in ["a", "b"] {
+        own(agent, &["vote", &one, "--for", "ship"]);
+        own(agent, &["vote", &two, "--for", "hold"]);
+    }
+
+    let rolled = stdout(&own("a", &["consensus", &plan, "--children"]));
+    assert!(rolled.contains("3 children, 2 with ballots"), "{rolled}");
+    assert!(
+        rolled.contains("the children disagree with each other: 2 positions"),
+        "the whole point of the row-by-row report: {rolled}"
+    );
+    assert!(
+        rolled.contains("1 child(ren) carry no ballots") && rolled.contains(&three),
+        "an unvoted child is named, not folded in as a neutral vote: {rolled}"
+    );
+    assert!(rolled.contains("no ballots"), "{rolled}");
+
+    // And the structured form carries the same rows.
+    let json: serde_json::Value = serde_json::from_str(&stdout(&own(
+        "a",
+        &["consensus", &plan, "--children", "--json"],
+    )))
+    .expect("json");
+    assert_eq!(json["plan"], serde_json::json!(plan));
+    assert_eq!(json["children"].as_array().unwrap().len(), 3);
+}
+
+/// The roll-up over an issue with no children says so rather than reporting an
+/// agreement over an empty set.
+#[test]
+fn a_plan_with_no_children_has_nothing_to_roll_up() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let own = |args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd().args(argv).output().unwrap()
+    };
+    let alone = stdout(&own(&["create", "-p", "api", "On its own", "-q"]))
+        .trim()
+        .to_string();
+    let rolled = stdout(&own(&["consensus", &alone, "--children"]));
+    assert!(rolled.contains("no children"), "{rolled}");
+}
+
+/// What an input concluded is in its body, not in the deed it named. The deed
+/// is the product; the reasoning is the prose, and the next unit usually wants
+/// both.
+#[test]
+fn recall_can_splice_in_what_the_inputs_concluded() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let own = |args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd().args(argv).output().unwrap()
+    };
+    let id = |args: &[&str]| -> String { stdout(&own(args)).trim().to_string() };
+
+    let first = id(&[
+        "create",
+        "-p",
+        "keys",
+        "--body",
+        "Landed without the modifier table; the xkbcommon names win over the Emacs ones.",
+        "The groundwork",
+        "-q",
+    ]);
+    let second = id(&["create", "-p", "keys", "The next step", "-q"]);
+    own(&["update", &second, "--block", &first]);
+
+    let plain = stdout(&own(&["recall", &second]));
+    assert!(
+        !plain.contains("xkbcommon names win"),
+        "off unless asked, since most callers want the accessions: {plain}"
+    );
+
+    let spliced = stdout(&own(&["recall", &second, "--excerpts"]));
+    assert!(
+        spliced.contains("xkbcommon names win"),
+        "the input's own reasoning: {spliced}"
+    );
+
+    // And the structured form carries it, since the remote surfaces answer there.
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout(&own(&["recall", &second, "--excerpts", "--json"])))
+            .expect("json");
+    assert!(
+        json["inputs"][0]["excerpt"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("xkbcommon"),
+        "{json}"
+    );
+    let without: serde_json::Value =
+        serde_json::from_str(&stdout(&own(&["recall", &second, "--json"]))).expect("json");
+    assert!(
+        without["inputs"][0].get("excerpt").is_none(),
+        "the field is absent rather than null when it was not asked for: {without}"
+    );
+}
+
+/// An input whose body looks like credential material is suppressed here for
+/// the same reason `body-excerpt` suppresses it. A working set is pasted into a
+/// model's context, which is the last place a key should be spliced.
+#[test]
+fn a_credential_shaped_input_is_suppressed_in_the_working_set() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let own = |args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd().args(argv).output().unwrap()
+    };
+    let id = |args: &[&str]| -> String { stdout(&own(args)).trim().to_string() };
+
+    let leaky = id(&[
+        "create",
+        "-p",
+        "ops",
+        "--body",
+        "the runner needs access_token=abcd1234 to reach the registry",
+        "Wire up the runner",
+        "-q",
+    ]);
+    let next = id(&["create", "-p", "ops", "Use the runner", "-q"]);
+    own(&["update", &next, "--block", &leaky]);
+
+    let spliced = stdout(&own(&["recall", &next, "--excerpts"]));
+    assert!(
+        !spliced.contains("abcd1234"),
+        "a credential must not reach a working set: {spliced}"
+    );
+    assert!(
+        spliced.contains("excerpt suppressed"),
+        "and the reader has to know something was withheld: {spliced}"
+    );
+}
+
+/// The gate is an exit status a shell hook can act on, and it prints the report
+/// either way. A gate that swallowed the reason it failed would send a reader
+/// back to run the command again without it.
+#[test]
+fn the_consensus_gate_carries_the_verdict_in_the_exit_status() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let own = |agent: &str, args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd()
+            .env("VISSUE_AGENT", agent)
+            .args(argv)
+            .output()
+            .unwrap()
+    };
+    let id =
+        |agent: &str, args: &[&str]| -> String { stdout(&own(agent, args)).trim().to_string() };
+
+    let issue = id("a", &["create", "-p", "api", "Ship it?", "-q"]);
+
+    // No ballots at all is not something to act on.
+    let empty = own("a", &["consensus", &issue, "--gate"]);
+    assert!(
+        !empty.status.success(),
+        "no votes is not a settled question"
+    );
+
+    // A tie is agreement on nothing, and the gate has to say so.
+    own("a", &["vote", &issue, "--for", "ship"]);
+    own("b", &["vote", &issue, "--for", "hold"]);
+    let tied = own("a", &["consensus", &issue, "--gate"]);
+    assert!(!tied.status.success(), "{}", stdout(&tied));
+    assert!(
+        stdout(&tied).contains("no lead"),
+        "the report still prints, so the reason is on screen: {}",
+        stdout(&tied)
+    );
+
+    // A majority the group's weight agrees with passes.
+    own("c", &["vote", &issue, "--for", "ship"]);
+    let led = own("a", &["consensus", &issue, "--gate"]);
+    assert!(led.status.success(), "{}", stdout(&led));
+    assert!(stdout(&led).contains("holds: ship"), "{}", stdout(&led));
+}
+
+/// One ballot settles on itself, so a gate with no quorum passes on whoever
+/// voted first. `--quorum` makes the count part of the verdict.
+#[test]
+fn a_gate_with_a_quorum_refuses_a_lone_ballot() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let own = |agent: &str, args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd()
+            .env("VISSUE_AGENT", agent)
+            .args(argv)
+            .output()
+            .unwrap()
+    };
+    let issue = stdout(&own("a", &["create", "-p", "api", "Ship it?", "-q"]))
+        .trim()
+        .to_string();
+
+    own("a", &["vote", &issue, "--for", "ship"]);
+    let lone = own("a", &["consensus", &issue, "--gate"]);
+    assert!(lone.status.success(), "no quorum keeps the old verdict");
+    let short = own("a", &["consensus", &issue, "--gate", "--quorum", "2"]);
+    assert!(!short.status.success(), "{}", stdout(&short));
+    let complaint = String::from_utf8(short.stderr).unwrap();
+    assert!(complaint.contains("1 of 2 ballots"), "{complaint}");
+
+    own("b", &["vote", &issue, "--for", "ship"]);
+    let met = own("a", &["consensus", &issue, "--gate", "--quorum", "2"]);
+    assert!(met.status.success(), "{}", stdout(&met));
+
+    // A quorum is a condition on the gate, not a report of its own.
+    let bare = own("a", &["consensus", &issue, "--quorum", "2"]);
+    assert!(!bare.status.success(), "--quorum without --gate is refused");
+}
+
+/// Past `--deadline`, a gate short of its quorum has lapsed: exit 3 rather
+/// than the "not yet" exit 1, and one `quorum timed out` note on the issue,
+/// not one per run. Before the deadline the gate is the plain quorum gate.
+#[test]
+fn a_quorum_past_its_deadline_times_out_once() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let own = |agent: &str, args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd()
+            .env("VISSUE_AGENT", agent)
+            .args(argv)
+            .output()
+            .unwrap()
+    };
+    let issue = stdout(&own(
+        "a",
+        &["create", "-p", "api", "Adopt the linter?", "-q"],
+    ))
+    .trim()
+    .to_string();
+    own("a", &["vote", &issue, "--for", "adopt"]);
+    let early = own(
+        "a",
+        &[
+            "consensus",
+            &issue,
+            "--gate",
+            "--quorum",
+            "3",
+            "--deadline",
+            "2999-01-01T00:00:00Z",
+        ],
+    );
+    assert_eq!(early.status.code(), Some(1), "before the deadline it waits");
+    for _ in 0..2 {
+        let late = own(
+            "a",
+            &[
+                "consensus",
+                &issue,
+                "--gate",
+                "--quorum",
+                "3",
+                "--deadline",
+                "2000-01-01T00:00:00Z",
+            ],
+        );
+        assert_eq!(
+            late.status.code(),
+            Some(3),
+            "{}",
+            String::from_utf8_lossy(&late.stderr)
+        );
+    }
+    let shown = stdout(&own("a", &["show", &issue]));
+    assert_eq!(shown.matches("quorum timed out").count(), 1, "{shown}");
+    let bad = own(
+        "a",
+        &[
+            "consensus",
+            &issue,
+            "--gate",
+            "--quorum",
+            "3",
+            "--deadline",
+            "soon",
+        ],
+    );
+    assert!(!bad.status.success());
+    let no_quorum = own(
+        "a",
+        &[
+            "consensus",
+            &issue,
+            "--gate",
+            "--deadline",
+            "2000-01-01T00:00:00Z",
+        ],
+    );
+    assert!(!no_quorum.status.success(), "--deadline needs --quorum");
+}
+
+/// Over a plan the rule is different and the design note says why: a split
+/// child has no position to fold in and an unvoted child is absent rather than
+/// neutral, so either one is a row a person has to read.
+#[test]
+fn the_plan_gate_fails_on_an_unvoted_or_split_child() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let own = |agent: &str, args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd()
+            .env("VISSUE_AGENT", agent)
+            .args(argv)
+            .output()
+            .unwrap()
+    };
+    let id =
+        |agent: &str, args: &[&str]| -> String { stdout(&own(agent, args)).trim().to_string() };
+
+    let plan = id(
+        "a",
+        &["create", "-p", "api", "--type", "plan", "The release", "-q"],
+    );
+    let one = id(
+        "a",
+        &["create", "-p", "api", "--parent", &plan, "First", "-q"],
+    );
+    let two = id(
+        "a",
+        &["create", "-p", "api", "--parent", &plan, "Second", "-q"],
+    );
+
+    for agent in ["a", "b"] {
+        own(agent, &["vote", &one, "--for", "ship"]);
+    }
+    let unvoted = own("a", &["consensus", &plan, "--children", "--gate"]);
+    assert!(
+        !unvoted.status.success(),
+        "one child carries no ballots: {}",
+        stdout(&unvoted)
+    );
+
+    for agent in ["a", "b"] {
+        own(agent, &["vote", &two, "--for", "ship"]);
+    }
+    let settled = own("a", &["consensus", &plan, "--children", "--gate"]);
+    assert!(settled.status.success(), "{}", stdout(&settled));
+}
+
+/// Forward, the join is fine: an issue names its accessions. Backwards, from a
+/// product to everything depending on it, is the question you have exactly when
+/// the product turns out to be wrong.
+#[test]
+fn backlinks_answers_for_a_deed_as_well_as_an_issue() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let own = |args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd().args(argv).output().unwrap()
+    };
+    let id = |args: &[&str]| -> String { stdout(&own(args)).trim().to_string() };
+
+    let one = id(&["create", "-p", "keys", "Built the overlay", "-q"]);
+    let two = id(&["create", "-p", "api", "Used the overlay", "-q"]);
+    let other = id(&["create", "-p", "api", "Unrelated", "-q"]);
+    own(&["deed", &one, "--add", "deed-patch-overlay"]);
+    own(&["deed", &two, "--add", "deed-patch-overlay"]);
+    own(&["deed", &other, "--add", "deed-file-something-else"]);
+
+    let cites = stdout(&own(&["backlinks", "deed-patch-overlay"]));
+    assert!(cites.contains(&one) && cites.contains(&two), "{cites}");
+    assert!(!cites.contains(&other), "only what cites this one: {cites}");
+    assert!(cites.contains("(cites)"), "the evidence is named: {cites}");
+
+    // The structured shape answers the same question, since a hook reading the
+    // rows and a person reading the table must not disagree.
+    let rows: serde_json::Value = serde_json::from_str(&stdout(&own(&[
+        "backlinks",
+        "deed-patch-overlay",
+        "--json",
+    ])))
+    .unwrap();
+    let rows = rows.as_array().unwrap();
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    assert!(
+        rows.iter().all(|r| r["relation"] == "cites"),
+        "the relation names the evidence: {rows:?}"
+    );
+
+    // An accession nobody cited is an empty answer, not an error: the deed may
+    // be real and simply unused.
+    assert_eq!(stdout(&own(&["backlinks", "deed-quote-nobody-cited"])), "");
+    assert!(
+        own(&["backlinks", "deed-quote-nobody-cited"])
+            .status
+            .success()
+    );
+
+    // An id nobody minted and that is not accession-shaped is still an error.
+    assert!(!own(&["backlinks", "keys-zzzz"]).status.success());
+}
+
+/// Answering "none" out of a directory that holds no tracker is a wrong
+/// answer, not a small one. A caller cannot tell it from a tracker with
+/// nothing in it, and the two mean opposite things.
+#[test]
+fn a_directory_that_is_not_a_tracker_says_so_rather_than_answering_none() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = |args: &[&str], cwd: &std::path::Path| {
+        Command::new(env!("CARGO_BIN_EXE_vissue"))
+            .env("VISSUE_NO_ROUTE", "1")
+            .env_remove("VISSUE_ROOT")
+            .env_remove("ISSUE_ROOT")
+            // A `root` in the user's own config would answer for the directory.
+            .env("HOME", dir.path())
+            .env("XDG_CONFIG_HOME", dir.path().join(".config"))
+            .current_dir(cwd)
+            .args(args)
+            .output()
+            .unwrap()
+    };
+
+    let out = run(&["count"], dir.path());
+    assert!(!out.status.success(), "counted anyway: {}", stdout(&out));
+    let complaint = String::from_utf8(out.stderr).unwrap();
+    assert!(complaint.contains("is not a tracker"), "{complaint}");
+
+    // The prefix directory alone makes it one, empty or not: a tracker with
+    // nothing in it is a real answer and has to stay countable.
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let out = run(&["count"], dir.path());
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(stdout(&out).trim(), "0");
+}
+
+/// A root somebody named is trusted whether or not it holds anything, because
+/// they said which one they meant.
+#[test]
+fn a_named_root_is_not_second_guessed() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_vissue"))
+        .env("VISSUE_NO_ROUTE", "1")
+        .env_remove("VISSUE_ROOT")
+        .args(["--root", dir.path().to_str().unwrap(), "count"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(stdout(&out).trim(), "0");
+
+    let out = Command::new(env!("CARGO_BIN_EXE_vissue"))
+        .env("VISSUE_NO_ROUTE", "1")
+        .env("VISSUE_ROOT", dir.path())
+        .current_dir(dir.path())
+        .args(["count"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// Describing the program is not reading a corpus, and a shell sourcing
+/// completions is not standing in a tracker.
+#[test]
+fn man_and_completions_work_from_anywhere() {
+    let dir = tempfile::tempdir().unwrap();
+    for args in [vec!["man"], vec!["completions", "bash"]] {
+        let out = Command::new(env!("CARGO_BIN_EXE_vissue"))
+            .env("VISSUE_NO_ROUTE", "1")
+            .env_remove("VISSUE_ROOT")
+            .env_remove("ISSUE_ROOT")
+            .current_dir(dir.path())
+            .args(&args)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(!out.stdout.is_empty(), "{args:?} wrote nothing");
+    }
+}
+
+/// A corpus fault must not be answered as a citation list.
+///
+/// The accession walk exists because an accession has no heading of its own.
+/// An id that has one in two routed trackers is a different thing, and
+/// answering it with the empty scan of a deed would report the fault as "no
+/// issue cites this" for as long as nobody looked the id up by another route.
+#[test]
+fn a_duplicated_accession_shaped_id_is_reported_rather_than_walked_as_a_deed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let vault = tmp.path().join("vault");
+    let work = tmp.path().join("work");
+    fs::create_dir_all(vault.join("Software/keys")).unwrap();
+    fs::create_dir_all(work.join("Issues/api")).unwrap();
+    let cfg = tmp.path().join("config.toml");
+    fs::write(
+        &cfg,
+        format!(
+            "[layouts.work]\nroot = \"{}\"\nprefix = \"Issues\"\n\n[routes]\napi = \"work\"\n",
+            work.display()
+        ),
+    )
+    .unwrap();
+
+    // One accession-shaped id, a heading of that id in each tracker.
+    let heading = |title: &str| {
+        format!(
+            "#+TITLE: sample\n#+TODO: TODO STARTED BLOCKED | DONE CANCELLED\n\n\
+             * TODO [#B] {title}\n:PROPERTIES:\n:ID:         deed-patch-overlay\n:END:\n"
+        )
+    };
+    fs::write(
+        vault.join("Software/keys/issues.org"),
+        heading("Built the overlay"),
+    )
+    .unwrap();
+    fs::write(
+        work.join("Issues/api/issues.org"),
+        heading("Used the overlay"),
+    )
+    .unwrap();
+
+    let out = Command::new(env!("CARGO_BIN_EXE_vissue"))
+        .env_remove("VISSUE_NO_ROUTE")
+        .env("VISSUE_CONFIG", &cfg)
+        .args(["--root", vault.to_str().unwrap()])
+        .args(["backlinks", "deed-patch-overlay"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "{}", stdout(&out));
+    let complaint = String::from_utf8(out.stderr).unwrap();
+    assert!(
+        complaint.contains("more than one tracker"),
+        "the duplicate is named: {complaint}"
+    );
+}
+
+/// A project named `deed` mints ids that look exactly like accessions. The
+/// corpus decides, so a real id keeps its own meaning.
+#[test]
+fn a_known_issue_id_wins_over_the_accession_shape() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let own = |args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd().args(argv).output().unwrap()
+    };
+    let id = |args: &[&str]| -> String { stdout(&own(args)).trim().to_string() };
+
+    let target = id(&[
+        "create",
+        "-p",
+        "deed",
+        "A heading in a project called deed",
+        "-q",
+    ]);
+    assert!(
+        target.starts_with("deed-"),
+        "the collision this guards is real: {target}"
+    );
+    let child = id(&["create", "-p", "deed", "Waits on it", "-q"]);
+    own(&["update", &child, "--block", &target]);
+
+    let links = stdout(&own(&["backlinks", &target]));
+    assert!(
+        links.contains("(blocked-by)"),
+        "a known id is an issue whatever it looks like: {links}"
+    );
+}
+
+/// `consensus` reads unless asked to file: a gate or a JSON dump of an
+/// anchored split writes no dissent child, and `--file-dissent` files one.
+#[test]
+fn consensus_files_dissent_only_when_asked() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let own = |agent: &str, args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", dir.path().to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd()
+            .env("VISSUE_AGENT", agent)
+            .args(argv)
+            .output()
+            .unwrap()
+    };
+    let id = stdout(&own("alice", &["create", "-p", "atlas", "Pick one", "-q"]))
+        .trim()
+        .to_string();
+    for (agent, choice) in [("alice", "ship"), ("bob", "ship"), ("carol", "hold")] {
+        let out = own(agent, &["vote", &id, "--for", choice]);
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    let anchors = r#"{"alice":0.5,"bob":0.5,"carol":0.5}"#;
+    let kids = || {
+        let out = own("alice", &["list", "--json"]);
+        let rows: Vec<serde_json::Value> = serde_json::from_str(&stdout(&out)).unwrap();
+        rows.iter()
+            .filter(|r| {
+                r["title"]
+                    .as_str()
+                    .is_some_and(|t| t.starts_with("Dissent holds"))
+            })
+            .count()
+    };
+    own("alice", &["consensus", &id, "--susceptibility-of", anchors]);
+    own(
+        "alice",
+        &["consensus", &id, "--gate", "--susceptibility-of", anchors],
+    );
+    own(
+        "alice",
+        &["consensus", &id, "--json", "--susceptibility-of", anchors],
+    );
+    assert_eq!(kids(), 0, "a read filed a dissent child");
+    let out = own(
+        "alice",
+        &[
+            "consensus",
+            &id,
+            "--file-dissent",
+            "--susceptibility-of",
+            anchors,
+        ],
+    );
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(kids(), 1, "--file-dissent filed none");
+}

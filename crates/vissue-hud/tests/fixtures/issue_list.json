@@ -1,0 +1,19 @@
+{
+  "issues": [
+    {
+      "id": "atlas-1a2b",
+      "state": "STARTED",
+      "priority": "A",
+      "title": "Parse the manifest header",
+      "project": "atlas",
+      "blocked_by": [],
+      "claimed_by": "fixture-agent",
+      "claimed_at": "[2026-01-14 Wed 09:12]"
+    }
+  ],
+  "total": 6,
+  "matched": 1,
+  "revision": 42,
+  "generation": 3167,
+  "unchanged": false
+}
