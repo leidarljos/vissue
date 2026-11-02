@@ -333,6 +333,21 @@ fn man_page_has_no_trailing_whitespace() {
     }
 }
 
+/// The page names the crate version, so a committed copy that is not
+/// regenerated on a bump ships a manual for a release that does not exist.
+#[test]
+fn committed_man_page_matches_cli() {
+    let out = Command::new(bin()).args(["man"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let committed =
+        fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../man/vissue.1"))
+            .unwrap();
+    assert!(
+        stdout(&out) == committed,
+        "man/vissue.1 is stale; regenerate it with `cargo run -q -p vissue-cli -- man > man/vissue.1`"
+    );
+}
+
 #[test]
 fn committed_completions_omit_foreground() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");

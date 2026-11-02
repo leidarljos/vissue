@@ -7,10 +7,19 @@ tag_prefix = "v"
 branch_whitelist = ["main"]
 
 pre_bump_hooks = [
-    # Every surface that names a version moves together, then the curated
-    # fragments become the release section, then the whole gate has to pass
-    # before a tag exists.
-    "bash scripts/sync-version.sh {{version}}",
+    # The one hand-written version moves and takes the plugin manifest with
+    # it, cogapp regenerates the other copies, the lockfile follows the
+    # members, then the curated fragments become the release section, then
+    # the whole gate has to pass before a tag exists. cogapp also installs a
+    # `cog`, so it runs through uvx here.
+    "python3 scripts/versions.py {{version}}",
+    "uvx --from cogapp cog -r @cogfiles.txt",
+    # `update --workspace` moves only the members' own versions;
+    # `generate-lockfile` would re-resolve every dependency and ship
+    # upgrades no test ran against.
+    "bash -c 'cargo update --workspace --offline --quiet || cargo update --workspace --quiet'",
+    # The manual page names the version, and a test holds it to `vissue man`.
+    "bash -c 'cargo run -q --locked -p vissue-cli -- man > man/vissue.1'",
     "uvx towncrier build --yes --version {{version}}",
     "bash tests/release_surface.sh",
 ]

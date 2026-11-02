@@ -48,7 +48,8 @@ section, `reference` describes, `explanation` argues.
 
 Shell completions and the manual page are generated from the CLI definition
 (`vissue completions`, `vissue man`); regenerate the committed copies under
-`completions/` and `man/` when an argument changes.
+`completions/` and `man/` when an argument changes. The manual page also names
+the version, and a test fails when `man/vissue.1` differs from `vissue man`.
 
 ## Changes
 

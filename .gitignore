@@ -50,3 +50,4 @@ docs/source/*.rst
 
 # HUD walk screenshots and ad-hoc probes — never commit
 /tmp/
+__pycache__/

@@ -138,22 +138,37 @@ done
 
 # Every surface that names a version has to name the same one. A release
 # whose citation metadata or documentation site disagrees with the crates is
-# a release that is wrong somewhere.
-cargo_version=$(sed -n '0,/^version = /s/^version = "\([^"]*\)"/\1/p' Cargo.toml)
+# a release that is wrong somewhere. The version is written by hand only in
+# Cargo.toml; cogapp generates the other copies, and this is its drift check.
+cargo_version=$(python3 scripts/versions.py --print)
 test -n "$cargo_version"
-citation_version=$(sed -n 's/^version: *//p' CITATION.cff | head -n 1)
-docs_release=$(sed -n 's/^release = "\([^"]*\)"/\1/p' docs/source/conf.py | head -n 1)
-news_version=$(sed -n '0,/^version = /s/^version = "\([^"]*\)"/\1/p' towncrier.toml)
-for pair in "CITATION.cff:$citation_version" "docs/source/conf.py:$docs_release" \
-    "towncrier.toml:$news_version"; do
-  name=${pair%%:*}
-  value=${pair#*:}
-  if [ "$value" != "$cargo_version" ]; then
-    echo "version mismatch: Cargo.toml is $cargo_version but $name is $value" >&2
-    echo "run scripts/sync-version.sh $cargo_version" >&2
-    exit 1
-  fi
-done
+if python3 -c 'import cogapp' 2>/dev/null; then
+  cogapp=(python3 -m cogapp)
+else
+  cogapp=(uvx --from cogapp cog)
+fi
+"${cogapp[@]}" --check --diff --check-fail-msg='run cog -r @cogfiles.txt' @cogfiles.txt
+# JSON has nowhere to hold a cog block, so versions.py writes this one.
+plugin_version=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["version"])' \
+  .claude-plugin/plugin.json)
+if [ "$plugin_version" != "$cargo_version" ]; then
+  echo "version mismatch: Cargo.toml is $cargo_version but .claude-plugin/plugin.json is $plugin_version" >&2
+  echo "run python3 scripts/versions.py $cargo_version" >&2
+  exit 1
+fi
+# A pin added below the generated block is one cog never moves.
+stale=$(grep -E '^vissue-[a-z-]+ = \{ version = ' Cargo.toml | grep -v "\"$cargo_version\"" || true)
+if [ -n "$stale" ]; then
+  echo "internal pins at another version than $cargo_version:" >&2
+  echo "$stale" >&2
+  exit 1
+fi
+# The lockfile records each member's version too; this is the question
+# `--locked` asks in CI, answered before a tag rather than after.
+cargo metadata --quiet --locked --format-version 1 >/dev/null || {
+  echo "Cargo.lock does not match the manifests: cargo update --workspace" >&2
+  exit 1
+}
 
 # Towncrier owns the changelog from its marker down.
 grep -q '<!-- towncrier release notes start -->' CHANGELOG.md

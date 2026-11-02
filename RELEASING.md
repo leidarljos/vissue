@@ -12,11 +12,35 @@ what a release will do.
 $ cargo run -q -p xtask -- publish-order
 ```
 
+## One version, written once
+
+The version is written by hand only in `[workspace.package]` in `Cargo.toml`.
+The crates inherit it, the CLI and its manual page read it at build time, and
+the Sphinx config reads it through `scripts/versions.py`. The other copies
+(the internal pins in `[workspace.dependencies]`, `CITATION.cff`,
+`towncrier.toml`) sit inside [cogapp](https://nedbatchelder.com/code/cog/)
+blocks listed in `cogfiles.txt`, and CI fails when any of them differs from
+what cogapp would generate. JSON has nowhere to hold a cog block, so
+`scripts/versions.py X.Y.Z` writes the `version` field of
+`.claude-plugin/plugin.json` itself, and the release-surface gate fails when
+it differs from `Cargo.toml`.
+
+```console
+$ uvx --from cogapp cog -r @cogfiles.txt        # regenerate
+$ uvx --from cogapp cog --check @cogfiles.txt   # what CI asks
+```
+
+cogapp and cocogitto both install a `cog` executable; `uvx --from cogapp`
+picks the generator whichever one is on `PATH`.
+
 ## Cutting a version
 
-`cog bump` drives it. The pre-bump hooks move every version surface together,
-fold the news fragments into `CHANGELOG.md`, and run the release-surface gate,
-so a bump that would produce an inconsistent tree fails before the tag exists.
+cocogitto's `cog bump` drives it. The pre-bump hooks write the new version
+into `Cargo.toml` and the plugin manifest, regenerate the other copies with
+cogapp, move the lockfile and
+the manual page, fold the news fragments into `CHANGELOG.md`, and run the
+release-surface gate, so a bump that would produce an inconsistent tree fails
+before the tag exists.
 
 ```console
 $ cog bump --minor          # or --patch / --major / --version X.Y.Z
@@ -25,9 +49,9 @@ $ cog bump --minor          # or --patch / --major / --version X.Y.Z
 That leaves a version commit and a `vX.Y.Z` tag. Review both before pushing;
 the tag is what the release workflows key on.
 
-To move the surfaces without bumping, `scripts/sync-version.sh X.Y.Z`. To see
-the release notes without consuming the fragments, `uvx towncrier build
---draft --version X.Y.Z`.
+To move the version without bumping, `python3 scripts/versions.py X.Y.Z`
+followed by the cogapp regenerate above. To see the release notes without
+consuming the fragments, `uvx towncrier build --draft --version X.Y.Z`.
 
 ## Private preparation
 

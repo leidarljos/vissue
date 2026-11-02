@@ -1,0 +1,1 @@
+The version is written by hand only in `Cargo.toml`; every other copy is generated from it, and CI fails on drift. `scripts/sync-version.sh` is gone: run `python3 scripts/versions.py X.Y.Z` and `uvx --from cogapp cog -r @cogfiles.txt` instead. The Claude plugin manifest and the committed manual page now carry the current version.

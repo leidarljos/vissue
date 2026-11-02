@@ -8,12 +8,15 @@ from pathlib import Path
 _DOCS = Path(__file__).resolve().parent
 _ROOT = _DOCS.parent.parent
 sys.path.insert(0, str(_DOCS / "_ext"))
+sys.path.insert(0, str(_ROOT / "scripts"))
+
+import versions  # noqa: E402
 
 project = "vissue"
 copyright = "2026, Rohit Goswami"
 author = "Rohit Goswami"
-release = "0.23.1"
-version = "0.23"
+release = versions.version()
+version = versions.minor()
 
 extensions = [
     "sphinx.ext.mathjax",
