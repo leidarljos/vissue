@@ -76,9 +76,14 @@ _arguments "${_arguments_options[@]}" : \
 '--project=[Only this project; every project when omitted]:PROJECT:_default' \
 '-s+[Filter by state\: TODO, STARTED, BLOCKED, DONE, or CANCELLED]:STATE:_default' \
 '--state=[Filter by state\: TODO, STARTED, BLOCKED, DONE, or CANCELLED]:STATE:_default' \
+'--claimed-by=[Only issues this identity holds a claim on]:WHO:_default' \
+'--parent=[Only direct children of this issue (\`\:PARENT\:\`)]:ID:_default' \
+'*--tag=[Only issues carrying this tag on the heading; repeat to require several]:TAG:_default' \
+'--limit=[Print at most this many rows, after sorting]:N:_default' \
 '--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
 '--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
 '--json[Emit JSON rows instead of text]' \
+'(--claimed-by)--unclaimed[Only issues nobody holds a claim on]' \
 '--no-route[Ignore \`\$VISSUE_CONFIG\` / \`~/.config/vissue/config.toml\` and keep every verb on the process default layout]' \
 '-h[Print help]' \
 '--help[Print help]' \
@@ -88,12 +93,13 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
 '--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'(--json --org)--all[Print \`show\` for every id, loading each project once]' \
 '--json[Emit a JSON object instead of text]' \
 '(--json)--org[Emit the heading'\''s org text in full, nothing else. Use this to write the issue out as the specification someone works from]' \
 '--no-route[Ignore \`\$VISSUE_CONFIG\` / \`~/.config/vissue/config.toml\` and keep every verb on the process default layout]' \
 '-h[Print help]' \
 '--help[Print help]' \
-':id:_default' \
+'::id -- Issue id. Omit with `--all`:_default' \
 && ret=0
 ;;
 (update)
@@ -103,6 +109,9 @@ _arguments "${_arguments_options[@]}" : \
 '--priority=[New priority\: A, B, or C]:PRIORITY:_default' \
 '--block=[Add a blocker edge]:BLOCK:_default' \
 '--unblock=[Remove a blocker edge]:UNBLOCK:_default' \
+'*-t+[Add a tag; repeat it, or give several with commas]:TAG:_default' \
+'*--tag=[Add a tag; repeat it, or give several with commas]:TAG:_default' \
+'*--untag=[Remove a tag; repeat it, or give several with commas]:UNTAG:_default' \
 '--if-state=[Refuse unless the heading is still this state]:IF_STATE:_default' \
 '--if-gen=[Refuse unless the corpus generation is still this value]:IF_GEN:_default' \
 '--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
@@ -144,9 +153,14 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '-p+[Only this project; every project when omitted]:PROJECT:_default' \
 '--project=[Only this project; every project when omitted]:PROJECT:_default' \
+'--claimed-by=[Only issues this identity holds a claim on]:WHO:_default' \
+'--parent=[Only direct children of this issue (\`\:PARENT\:\`)]:ID:_default' \
+'*--tag=[Only issues carrying this tag on the heading; repeat to require several]:TAG:_default' \
+'--limit=[Print at most this many rows, after sorting]:N:_default' \
 '--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
 '--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
 '--json[Emit JSON rows instead of text]' \
+'(--claimed-by)--unclaimed[Only issues nobody holds a claim on]' \
 '--no-route[Ignore \`\$VISSUE_CONFIG\` / \`~/.config/vissue/config.toml\` and keep every verb on the process default layout]' \
 '-h[Print help]' \
 '--help[Print help]' \
@@ -184,6 +198,7 @@ _arguments "${_arguments_options[@]}" : \
 '--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
 '--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
 '(--for)--json[The ballots as JSON rows of \`agent\`, \`choice\`, \`stamp\`; reads only]' \
+'(--for --json)--withdraw[Take back this identity'\''s ballot; the logbook keeps what it was]' \
 '--no-route[Ignore \`\$VISSUE_CONFIG\` / \`~/.config/vissue/config.toml\` and keep every verb on the process default layout]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
@@ -219,6 +234,8 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (consensus)
 _arguments "${_arguments_options[@]}" : \
+'(--children)--quorum=[With \`--gate\`, also exit non-zero when fewer than N identities voted. One ballot settles on itself, so a gate without a quorum passes on whoever voted first]:N:_default' \
+'--deadline=[With \`--quorum\`, the RFC 3339 time the ballots were due. Past it, a gate still short of its quorum has timed out\: the issue gets one \`quorum timed out\` note and the gate exits 3, so a caller tells "wait for more ballots" (exit 1) from "the vote lapsed" (exit 3)]:RFC3339:_default' \
 '--trust=[Trust rows laid over \`\[consensus.trust\]\`\: \`\[\[from, to, weight\], ...\]\`]:JSON:_default' \
 '--susceptibility-of=[Per-agent susceptibility laid over \`\[consensus.susceptibility_of\]\`\: \`{"agent"\: s}\` with s in \[0, 1\]; 0 holds the agent to its ballot]:JSON:_default' \
 '--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
@@ -226,10 +243,22 @@ _arguments "${_arguments_options[@]}" : \
 '--children[Roll up over this issue'\''s children instead of reading its own ballots]' \
 '--gate[Exit non-zero when there is nothing settled to act on]' \
 '--json[Emit a JSON object instead of text]' \
+'(--children)--file-dissent[File a \`Dissent holds OPTION\` child for each option a voter still leads with after an anchored settle. Without it the verb only reads]' \
 '--no-route[Ignore \`\$VISSUE_CONFIG\` / \`~/.config/vissue/config.toml\` and keep every verb on the process default layout]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
 ':id:_default' \
+&& ret=0
+;;
+(migrate-ledger)
+_arguments "${_arguments_options[@]}" : \
+'(--dry-run)--freeze-shows=[Directory for \`before.txt\` and \`after.txt\`. Holds every project lock for the dry-run, the split, and both shows]:DIR:_files' \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'--dry-run[Report the split and do not write]' \
+'--no-route[Ignore \`\$VISSUE_CONFIG\` / \`~/.config/vissue/config.toml\` and keep every verb on the process default layout]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
 (note)
@@ -253,6 +282,7 @@ _arguments "${_arguments_options[@]}" : \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
 ':id:_default' \
+'*::words -- The text to append, as words after the id (`vissue append ID "..."`):_default' \
 && ret=0
 ;;
 (claims)
@@ -338,6 +368,8 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '-n+[Most hits to print]:LIMIT:_default' \
 '--limit=[Most hits to print]:LIMIT:_default' \
+'-p+[Search only this project'\''s issues]:PROJECT:_default' \
+'--project=[Search only this project'\''s issues]:PROJECT:_default' \
 '--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
 '--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
 '--json[Emit a JSON array instead of text]' \
@@ -561,6 +593,20 @@ _arguments "${_arguments_options[@]}" : \
 '--no-route[Ignore \`\$VISSUE_CONFIG\` / \`~/.config/vissue/config.toml\` and keep every verb on the process default layout]' \
 '-h[Print help]' \
 '--help[Print help]' \
+&& ret=0
+;;
+(merge-driver)
+_arguments "${_arguments_options[@]}" : \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'--install[Register the driver in this repository'\''s git config and .gitattributes instead of merging]' \
+'--no-route[Ignore \`\$VISSUE_CONFIG\` / \`~/.config/vissue/config.toml\` and keep every verb on the process default layout]' \
+'-h[Print help]' \
+'--help[Print help]' \
+'::base -- The common ancestor (git'\''s %O):_files' \
+'::ours -- Ours (%A); the merge is written here:_files' \
+'::theirs -- Theirs (%B):_files' \
+'::path -- The file'\''s path in the tree (%P); its directory names the project:_default' \
 && ret=0
 ;;
 (mirror)
@@ -874,6 +920,10 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(migrate-ledger)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
 (note)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
@@ -983,6 +1033,10 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (project)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(merge-driver)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -1096,6 +1150,7 @@ _vissue_commands() {
 'deed:Cite, drop, or list the deeds this issue'\''s work produced' \
 'recall:The working set for an issue\: its plan, its inputs'\'' deeds, and its own' \
 'consensus:Weigh an issue'\''s ballots by who the group listens to (DeGroot)' \
+'migrate-ledger:Split each \`issues.org\` into one append-only file per issue' \
 'note:Add a dated note to the top of an issue'\''s logbook; state and claim untouched' \
 'append:Append a dated report to an issue'\''s body' \
 'claims:Every live claim, oldest first\: who holds what, and for how long' \
@@ -1124,6 +1179,7 @@ _vissue_commands() {
 'normalize:Rewrite files onto the Org / ELPA / vissue property split' \
 'digest:A content digest of the corpus, for telling whether a copy is current' \
 'project:Run the projection this repository'\''s vissue.toml declares\: fold each board'\''s inbox into its source, apply its claims file, rewrite its mirror. A source not on this machine is reported and skipped' \
+'merge-driver:Merge three versions of one issues.org by heading\: git'\''s merge driver. Notes, ballots, tags and properties that commute merge on their own; a field both sides changed keeps ours and is written on the heading as a merge-conflict note. A side that does not parse leaves git'\''s ordinary conflict. \`--install\` registers the driver in the repository you stand in' \
 'mirror:Write a read-only projection of one or more projects to a file' \
 'events:Change events with a sequence above --since' \
 'ping:Append a manual event, waking pollers without editing an issue' \
@@ -1264,6 +1320,7 @@ _vissue__subcmd__help_commands() {
 'deed:Cite, drop, or list the deeds this issue'\''s work produced' \
 'recall:The working set for an issue\: its plan, its inputs'\'' deeds, and its own' \
 'consensus:Weigh an issue'\''s ballots by who the group listens to (DeGroot)' \
+'migrate-ledger:Split each \`issues.org\` into one append-only file per issue' \
 'note:Add a dated note to the top of an issue'\''s logbook; state and claim untouched' \
 'append:Append a dated report to an issue'\''s body' \
 'claims:Every live claim, oldest first\: who holds what, and for how long' \
@@ -1292,6 +1349,7 @@ _vissue__subcmd__help_commands() {
 'normalize:Rewrite files onto the Org / ELPA / vissue property split' \
 'digest:A content digest of the corpus, for telling whether a copy is current' \
 'project:Run the projection this repository'\''s vissue.toml declares\: fold each board'\''s inbox into its source, apply its claims file, rewrite its mirror. A source not on this machine is reported and skipped' \
+'merge-driver:Merge three versions of one issues.org by heading\: git'\''s merge driver. Notes, ballots, tags and properties that commute merge on their own; a field both sides changed keeps ours and is written on the heading as a merge-conflict note. A side that does not parse leaves git'\''s ordinary conflict. \`--install\` registers the driver in the repository you stand in' \
 'mirror:Write a read-only projection of one or more projects to a file' \
 'events:Change events with a sequence above --since' \
 'ping:Append a manual event, waking pollers without editing an issue' \
@@ -1454,6 +1512,16 @@ _vissue__subcmd__help__subcmd__list_commands() {
 _vissue__subcmd__help__subcmd__man_commands() {
     local commands; commands=()
     _describe -t commands 'vissue help man commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__merge-driver_commands] )) ||
+_vissue__subcmd__help__subcmd__merge-driver_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help merge-driver commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__migrate-ledger_commands] )) ||
+_vissue__subcmd__help__subcmd__migrate-ledger_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help migrate-ledger commands' commands "$@"
 }
 (( $+functions[_vissue__subcmd__help__subcmd__mirror_commands] )) ||
 _vissue__subcmd__help__subcmd__mirror_commands() {
@@ -1648,6 +1716,16 @@ _vissue__subcmd__list_commands() {
 _vissue__subcmd__man_commands() {
     local commands; commands=()
     _describe -t commands 'vissue man commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__merge-driver_commands] )) ||
+_vissue__subcmd__merge-driver_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue merge-driver commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__migrate-ledger_commands] )) ||
+_vissue__subcmd__migrate-ledger_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue migrate-ledger commands' commands "$@"
 }
 (( $+functions[_vissue__subcmd__mirror_commands] )) ||
 _vissue__subcmd__mirror_commands() {

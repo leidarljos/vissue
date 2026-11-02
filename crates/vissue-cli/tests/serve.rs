@@ -368,6 +368,29 @@ fn committed_completions_omit_foreground() {
     }
 }
 
+/// Packagers install these copies, so a subcommand or flag added without
+/// regenerating them is one that never tab-completes.
+#[test]
+fn committed_completions_match_cli() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    for (shell, name) in [
+        ("bash", "completions/vissue.bash"),
+        ("zsh", "completions/_vissue"),
+        ("fish", "completions/vissue.fish"),
+    ] {
+        let out = Command::new(bin())
+            .args(["completions", shell])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", stderr(&out));
+        let committed = fs::read_to_string(root.join(name)).unwrap();
+        assert!(
+            stdout(&out) == committed,
+            "{name} is stale; regenerate it with `cargo run -q -p vissue-cli -- completions {shell} > {name}`"
+        );
+    }
+}
+
 #[test]
 fn claim_uses_client_agent_not_process_env() {
     use vissue_control::Error;
