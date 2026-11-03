@@ -1,0 +1,65 @@
+name: News fragments
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: newsfragments-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  draft:
+    name: towncrier draft
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+      - name: Build the draft from the Cargo.toml version
+        run: |
+          set -euo pipefail
+          # Towncrier skips a fragment name it cannot parse unless `ignore`
+          # is set. An empty list turns that failure on and adds nothing to
+          # the names it already skips, including README.md. The copy is
+          # discarded: towncrier.toml keeps the version cogapp generates.
+          if [[ "$(head -n 1 towncrier.toml)" != "[tool.towncrier]" ]]; then
+            echo "towncrier.toml no longer starts with [tool.towncrier]." >&2
+            echo "This job inserts ignore = [] on the following line." >&2
+            exit 1
+          fi
+          version=$(python3 scripts/versions.py --print)
+          # Captured first so a fragment that is already in the tree is not
+          # reported as a write. --draft must leave this status unchanged.
+          before=$(git status --porcelain -- CHANGELOG.md docs/newsfragments towncrier.toml)
+          config=$(mktemp)
+          trap 'rm -f "$config"' EXIT
+          awk 'NR==1 { print; print "ignore = []"; next } { print }' towncrier.toml > "$config"
+          if ! draft=$(uvx towncrier build --draft --version "$version" --dir . --config "$config"); then
+            exit 1
+          fi
+          printf '%s\n' "$draft"
+          # title_format in towncrier.toml. The draft has to name the version
+          # read from Cargo.toml.
+          title="## [${version}](https://github.com/leidarljos/vissue/releases/tag/v${version})"
+          if ! printf '%s\n' "$draft" | grep -F -q "$title"; then
+            echo "draft was not built with Cargo.toml version ${version}" >&2
+            exit 1
+          fi
+          # --draft writes nothing. A real build edits CHANGELOG.md and
+          # deletes the fragments.
+          after=$(git status --porcelain -- CHANGELOG.md docs/newsfragments towncrier.toml)
+          if [[ "$before" != "$after" ]]; then
+            echo "towncrier draft changed the tree:" >&2
+            printf '%s\n' "$after" >&2
+            exit 1
+          fi

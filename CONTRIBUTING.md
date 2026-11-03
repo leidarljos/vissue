@@ -56,17 +56,40 @@ version, so it moves on every bump.
 
 Keep commits focused and use a Conventional Commit subject.
 
-A user-visible change adds a news fragment under `docs/newsfragments/` rather
-than editing `CHANGELOG.md`, which towncrier assembles at release time:
+A user-visible change adds a news fragment under `docs/newsfragments/`
+rather than editing `CHANGELOG.md`, which towncrier assembles at release
+time. Name the file `<issue>.<type>.md` when an issue exists
+(`42.fixed.md`) and `+<slug>.<type>.md` when it does not
+(`+short-slug.fixed.md`). A leading `+` means there is no issue, so
+towncrier does not link it. `<type>` is one of `security`, `removed`,
+`deprecated`, `added`, `changed`, `fixed`, `dev`: the sections in
+`towncrier.toml`, in Keep a Changelog order.
+
+One fragment per user-visible change. Write it for someone using the
+tool: what changed for them, and what they have to do about it. A
+fragment is required when a change touches the command output, the
+on-disk shape, the export schema, the MCP tools, or the configuration.
+It is not required for documentation, CI, or formatting. A change that
+breaks an existing tracker or an existing reader says so in the
+fragment.
+
+CI builds the draft with the version `python3 scripts/versions.py
+--print` reads from `Cargo.toml`. Towncrier skips a fragment name it
+cannot parse unless `ignore` is set, so the job builds from a copy of
+`towncrier.toml` with `ignore = []` and fails on `Invalid news fragment
+name`. `README.md` is skipped either way, and the committed config is
+not rewritten. Preview the draft locally; `--draft` writes nothing and
+removes nothing:
 
 ```console
 $ printf 'What changed, for someone using it.\n' \
     > docs/newsfragments/+short-slug.fixed.md
-$ uvx towncrier build --draft --version 0.0.0   # preview, writes nothing
+$ uvx towncrier build --draft \
+    --version "$(python3 scripts/versions.py --print)"
 ```
 
-`docs/newsfragments/README.md` covers the types and when a fragment is
-required. Security reports follow `SECURITY.md` and must not be opened
+`docs/newsfragments/README.md` records the same rules in the fragment
+directory. Security reports follow `SECURITY.md` and must not be opened
 publicly.
 
 ## The file is a contract
