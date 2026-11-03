@@ -374,63 +374,64 @@ pub fn of_plan(
     })
 }
 
-/// The row-stochastic influence matrix over `names`. A configured row is
-/// normalised as written, with `self_weight` on the diagonal unless the row
-/// names it; weight on a non-voter is dropped. An agent with no usable row
-/// keeps `self_weight` and splits the rest equally.
+/// The row-stochastic influence matrix over `names`, built the way the
+/// consensus crate builds it, so the seat gets one answer from either. Weight
+/// on a non-voter is dropped. A voter whose row weighs no voter listens to
+/// every voter equally, itself included. A row that does not name its writer
+/// gives it what the other voters give it, the mean of their positive weights
+/// on it, else `self_weight`; rows that weigh every voter alike then settle
+/// as the weighted vote they describe. A row that names its writer keeps that
+/// weight, zero included. Each row is then normalised.
 fn influence(names: &[&str], cfg: &ConsensusSection) -> (Vec<Vec<f64>>, TrustSource) {
     let n = names.len();
     let mut weights = vec![vec![0.0f64; n]; n];
-    let mut source = TrustSource::Default;
+    let mut written = vec![false; n];
     for (i, name) in names.iter().enumerate() {
-        let row = &mut weights[i];
-        let configured = cfg.trust.get(*name).map(|spec| {
-            let mut named = 0usize;
-            for (j, other) in names.iter().enumerate() {
-                if let Some(w) = spec.get(*other)
-                    && *w > 0.0
-                {
-                    row[j] = *w;
-                    named += 1;
-                }
-            }
-            (named > 0, spec.contains_key(*name))
-        });
-        match configured {
-            Some((true, names_itself)) => {
-                source = TrustSource::Configured;
-                if names_itself {
-                    normalise(row, 1.0);
-                } else {
-                    normalise(row, 1.0 - cfg.self_weight);
-                    row[i] += cfg.self_weight;
-                }
-            }
-            _ => {
-                if n == 1 {
-                    row[i] = 1.0;
-                } else {
-                    let share = (1.0 - cfg.self_weight) / ((n - 1) as f64);
-                    for weight in row.iter_mut() {
-                        *weight = share;
-                    }
-                    row[i] = cfg.self_weight;
-                }
+        let Some(spec) = cfg.trust.get(*name) else {
+            continue;
+        };
+        for (j, other) in names.iter().enumerate() {
+            if let Some(w) = spec.get(*other)
+                && *w > 0.0
+            {
+                weights[i][j] = *w;
             }
         }
+        written[i] = spec.contains_key(*name);
+    }
+    let earned: Vec<Option<f64>> = (0..n)
+        .map(|j| {
+            let given: Vec<f64> = (0..n)
+                .filter(|&i| i != j && weights[i][j] > 0.0)
+                .map(|i| weights[i][j])
+                .collect();
+            (!given.is_empty()).then(|| given.iter().sum::<f64>() / given.len() as f64)
+        })
+        .collect();
+    let mut source = TrustSource::Default;
+    for (i, row) in weights.iter_mut().enumerate() {
+        if row.iter().all(|w| *w == 0.0) {
+            row.fill(1.0);
+        } else {
+            source = TrustSource::Configured;
+            if !written[i] {
+                row[i] = earned[i].unwrap_or(cfg.self_weight);
+            }
+        }
+        normalise(row);
     }
     (weights, source)
 }
 
-/// Scale `row` so it sums to `total`. A row that sums to nothing is left alone;
+/// Scale `row` so it sums to one. A row that sums to nothing is left alone;
 /// the caller only calls this on a row with a positive entry.
-fn normalise(row: &mut [f64], total: f64) {
+fn normalise(row: &mut [f64]) {
     let sum: f64 = row.iter().sum();
     if sum <= 0.0 {
         return;
     }
     for weight in row.iter_mut() {
-        *weight *= total / sum;
+        *weight /= sum;
     }
 }
 
@@ -935,23 +936,22 @@ mod tests {
         );
     }
 
-    /// A pair that listen only to each other and not at all to themselves swap
+    /// A pair whose rows give themselves nothing and each other everything swap
     /// opinions forever. Periodicity is a different failure from a split, and
     /// calling it one would suggest the two sides had settled.
     #[test]
     fn a_periodic_trust_graph_is_reported_as_oscillating() {
         let mut cfg = ConsensusSection {
-            self_weight: 0.0,
             max_iterations: 50,
             ..ConsensusSection::default()
         };
         cfg.trust.insert(
             "alice".to_string(),
-            BTreeMap::from([("bob".to_string(), 1.0)]),
+            BTreeMap::from([("alice".to_string(), 0.0), ("bob".to_string(), 1.0)]),
         );
         cfg.trust.insert(
             "bob".to_string(),
-            BTreeMap::from([("alice".to_string(), 1.0)]),
+            BTreeMap::from([("bob".to_string(), 0.0), ("alice".to_string(), 1.0)]),
         );
         let ballots = [ballot("alice", "ship"), ballot("bob", "hold")];
         let outcome = settle(&ballots, &cfg);
@@ -986,11 +986,23 @@ mod tests {
     /// A group that mixes slowly still agrees.
     #[test]
     fn a_slowly_mixing_group_still_reaches_a_consensus() {
-        let cfg = ConsensusSection {
-            self_weight: 0.99,
+        let mut cfg = ConsensusSection {
             max_iterations: 40,
             ..ConsensusSection::default()
         };
+        // Each keeps 98 parts in 100 for itself, so disagreement shrinks by
+        // 0.97 a round and is still 0.97^40, about 0.3, when the budget ends.
+        for (who, others) in [
+            ("alice", ["bob", "carol"]),
+            ("bob", ["alice", "carol"]),
+            ("carol", ["alice", "bob"]),
+        ] {
+            let mut row = BTreeMap::from([(who.to_string(), 98.0)]);
+            for other in others {
+                row.insert(other.to_string(), 1.0);
+            }
+            cfg.trust.insert(who.to_string(), row);
+        }
         let ballots = [
             ballot("alice", "ship"),
             ballot("bob", "ship"),
@@ -1194,18 +1206,17 @@ mod tests {
     #[test]
     fn an_anchor_removes_the_periodic_case() {
         let mut cfg = ConsensusSection {
-            self_weight: 0.0,
             susceptibility: 0.9,
             max_iterations: 500,
             ..ConsensusSection::default()
         };
         cfg.trust.insert(
             "alice".to_string(),
-            BTreeMap::from([("bob".to_string(), 1.0)]),
+            BTreeMap::from([("alice".to_string(), 0.0), ("bob".to_string(), 1.0)]),
         );
         cfg.trust.insert(
             "bob".to_string(),
-            BTreeMap::from([("alice".to_string(), 1.0)]),
+            BTreeMap::from([("bob".to_string(), 0.0), ("alice".to_string(), 1.0)]),
         );
         let ballots = [ballot("alice", "ship"), ballot("bob", "hold")];
 
@@ -1301,10 +1312,15 @@ mod tests {
             let sum: f64 = row.iter().sum();
             assert!((sum - 1.0).abs() < 1e-12, "{row:?} sums to {sum}");
         }
-        // bob named itself, so its own weight is what the row said rather than
-        // the default: 4 of 5.
+        // bob named itself, so its own weight is what the row said: 4 of 5.
         assert!((weights[1][1] - 0.8).abs() < 1e-12, "{:?}", weights[1]);
-        // alice did not, so it keeps self_weight and splits the rest by ratio.
-        assert!((weights[0][0] - cfg.self_weight).abs() < 1e-12);
+        // alice did not, so it gives itself the 1 bob gives it: 1 of 8.75.
+        assert!(
+            (weights[0][0] - 1.0 / 8.75).abs() < 1e-12,
+            "{:?}",
+            weights[0]
+        );
+        // carol wrote nothing, so it listens to all three alike.
+        assert!(weights[2].iter().all(|w| (w - 1.0 / 3.0).abs() < 1e-12));
     }
 }

@@ -324,8 +324,8 @@ impl IssuesOverride {
 }
 
 /// Who listens to whom, and how hard the consensus iteration tries. Rows are
-/// normalised by [`crate::consensus`]; an agent with no row keeps
-/// `self_weight` and splits the rest equally.
+/// normalised by [`crate::consensus`]; a voter with no row listens to every
+/// voter equally, itself included.
 ///
 /// ```toml
 /// [consensus]
@@ -341,7 +341,9 @@ impl IssuesOverride {
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConsensusSection {
-    /// Weight an agent puts on its own opinion when its row does not name it.
+    /// Weight a row that does not name its writer gives it when no other voter
+    /// names it either; otherwise the writer gets the mean weight the others
+    /// give it.
     pub self_weight: f64,
     /// How far an agent moves off the ballot it cast, in `[0, 1]`: one is
     /// DeGroot (the default), below one is Friedkin-Johnsen.

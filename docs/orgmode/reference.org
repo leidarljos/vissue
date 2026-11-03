@@ -1044,7 +1044,7 @@ overriding the compiled defaults key by key.
 | =issues.id_length=           | =4=        | Base36 characters in a generated id suffix  |
 | =issues.stale_claim_days=    | =7=        | When =hygiene= calls a claim stale          |
 | =issues.expect_deeds=        | =false=    | Whether =hygiene= reports work that closed naming no deed |
-| =consensus.self_weight=      | =0.5=      | Weight an agent puts on its own opinion when its trust row does not name it |
+| =consensus.self_weight=      | =0.5=      | Weight a trust row that does not name its writer gives it when no other voter names it either |
 | =consensus.susceptibility=   | =1.0=      | How far an agent moves off the ballot it cast; below 1 anchors it |
 | =consensus.susceptibility_of.<agent>= | unset | That agent's susceptibility, where it differs from the default |
 | =consensus.tolerance=        | =1e-9=     | Largest disagreement that still counts as settled |
@@ -1620,11 +1620,15 @@ reviewer = { maintainer = 3.0, worker = 1.0 }
 worker = { maintainer = 1.0 }
 #+end_src
 
-Only the ratios matter; each row is normalised. Weight on an agent that cast no
-ballot is dropped, because it has no opinion to average and keeping it would
-scale down everyone who did vote. An agent whose row does not name itself keeps
-=self_weight= on its own opinion; an agent with no row at all listens to itself
-with =self_weight= and splits the rest equally over the others.
+Weight on an agent that cast no ballot is dropped, because it has no opinion to
+average and keeping it would scale down everyone who did vote. A voter with no
+row at all listens to every voter equally, itself included. A row that does not
+name its writer gives the writer what the other voters give it, the mean of
+their weights on it, or =self_weight= when none of them names it; a row that
+names its writer keeps that weight as written. Each row is then normalised, so
+rows in which every voter weighs a given voter alike settle as the weighted
+vote they describe. The consensus crate builds the matrix the same way from the
+same rows, so the seat gets one answer from either.
 
 That default is why the verb is safe on a tracker nobody has configured: every
 agent listens to every other equally, the influence matrix is doubly
@@ -1646,14 +1650,14 @@ generalisation. Two things follow, and both suit a tracker of reviewed work:
 
 #+begin_src console
 $ vissue consensus api-3xq7
-  anchored after 13 round(s), susceptibility 0.60
+  anchored after 15 round(s), susceptibility 0.60
     alice                    ship 0.634
-    bob                      ship 0.634
+    bob                      ship 0.573
     carol                    hold 0.854
   spread 0.488: what the group keeps disagreeing about after listening
   mean of those positions
-    hold                     0.528
-    ship                     0.472
+    hold                     0.549
+    ship                     0.451
 #+end_src
 
 The group settles while still disagreeing, and the report says where each agent

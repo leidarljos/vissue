@@ -452,6 +452,29 @@ because the room leaned the other way. What is reported is then each agent's
 position and the spread between them, because a single number would name a
 position none of them holds.
 
+The seat settles an issue through the
+[[https://leidarljos.github.io/consensus/][consensus]] crate and falls back to
+this verb when the crate is not installed, passing both the same trust rows and
+anchors, so the two build the influence matrix the same way. A voter with no
+row listens to every voter alike, itself included. A row that does not name its
+writer gives the writer what the other voters give it, or =self_weight= when
+none of them names it, so rows in which every voter weighs a given voter alike
+settle as the weighted vote they describe. A golden test holds the shares, each
+voter's position and the social power to what a pinned release of the crate
+prints for the same ballots. What still differs is what each one reports:
+
+- Under an anchor or across a split this names where each voter landed, not one
+  share per choice. The crate's shares are the mean of those positions, which
+  the anchored report prints beneath them, and a gate does not pass on it.
+- The tracker's own configuration can give a row's writer a weight of zero,
+  which is how a pair that listen only to each other is written. The crate reads
+  that zero as unwritten. =--trust= takes only positive weights, so the periodic
+  case is reachable only from the configuration.
+- This runs up to 500 rounds and the crate 200, at the same tolerance, so a
+  stiff group the crate stops short on can still settle here.
+- Two shares within a millionth of each other are a tie here. The crate's tie is
+  narrower: the residual it stopped at, plus rounding.
+
 Work on language-model deliberation [35] argues that both models capture only the pull of
 the group and not an agent's own internal conviction, and recovers a hidden
 anchor from the deliberation itself. That is a step past what a tracker can do.

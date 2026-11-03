@@ -1,0 +1,952 @@
+{
+  "generator": "ljos-consensus 0.9.0",
+  "cases": [
+    {
+      "name": "no rows: the tally",
+      "ballots": [
+        {
+          "agent": "alice",
+          "choice": "ship"
+        },
+        {
+          "agent": "bob",
+          "choice": "ship"
+        },
+        {
+          "agent": "carol",
+          "choice": "hold"
+        }
+      ],
+      "trust": [],
+      "anchors": {},
+      "crate": {
+        "options": [
+          "hold",
+          "ship"
+        ],
+        "shares": [
+          0.3333333333333333,
+          0.6666666666666666
+        ],
+        "rounds": 1,
+        "settled": true,
+        "converged": true,
+        "residual": 1.1102230246251565E-16,
+        "engine": "degroot-fj",
+        "polarization": 0.0,
+        "disagreement": 0.0,
+        "agents": [
+          "alice",
+          "bob",
+          "carol"
+        ],
+        "influence": [
+          0.33333333333333326,
+          0.3333333333333333,
+          0.3333333333333334
+        ],
+        "effective_voters": 3.0,
+        "margin": 0.3333333333333333,
+        "tie": false
+      }
+    },
+    {
+      "name": "no rows, a persona votes: every voter anchored at a half",
+      "ballots": [
+        {
+          "agent": "alice",
+          "choice": "ship"
+        },
+        {
+          "agent": "bob",
+          "choice": "ship"
+        },
+        {
+          "agent": "critic",
+          "choice": "hold"
+        }
+      ],
+      "trust": [],
+      "anchors": {
+        "alice": 0.5,
+        "bob": 0.5,
+        "critic": 0.5
+      },
+      "crate": {
+        "options": [
+          "hold",
+          "ship"
+        ],
+        "shares": [
+          0.3333333333333333,
+          0.6666666666666666
+        ],
+        "rounds": 2,
+        "settled": true,
+        "converged": true,
+        "residual": 1.165734175856415E-15,
+        "engine": "degroot-fj",
+        "polarization": 0.3333333333333333,
+        "disagreement": 0.6666666666666666,
+        "agents": [
+          "alice",
+          "bob",
+          "critic"
+        ],
+        "influence": [
+          0.3333333333333333,
+          0.3333333333333333,
+          0.3333333333333333
+        ],
+        "effective_voters": 3.0,
+        "margin": 0.3333333333333333,
+        "tie": false
+      }
+    },
+    {
+      "name": "no rows, four voters, a persona that moves more",
+      "ballots": [
+        {
+          "agent": "a",
+          "choice": "ship"
+        },
+        {
+          "agent": "b",
+          "choice": "hold"
+        },
+        {
+          "agent": "c",
+          "choice": "ship"
+        },
+        {
+          "agent": "critic",
+          "choice": "hold"
+        }
+      ],
+      "trust": [],
+      "anchors": {
+        "a": 0.5,
+        "b": 0.5,
+        "c": 0.5,
+        "critic": 0.8
+      },
+      "crate": {
+        "options": [
+          "hold",
+          "ship"
+        ],
+        "shares": [
+          0.4117647060789988,
+          0.5882352939210013
+        ],
+        "rounds": 36,
+        "settled": true,
+        "converged": true,
+        "residual": 8.088905101288903E-10,
+        "engine": "degroot-fj",
+        "polarization": 0.3702422145811533,
+        "disagreement": 0.7404844291623066,
+        "agents": [
+          "a",
+          "b",
+          "c",
+          "critic"
+        ],
+        "influence": [
+          0.29411764705882354,
+          0.29411764705882354,
+          0.2941176470588236,
+          0.11764705882352937
+        ],
+        "effective_voters": 3.6582278481012653,
+        "margin": 0.17647058784200248,
+        "tie": false
+      }
+    },
+    {
+      "name": "learned rows: every voter gives a voter the same weight",
+      "ballots": [
+        {
+          "agent": "alice",
+          "choice": "ship"
+        },
+        {
+          "agent": "bob",
+          "choice": "hold"
+        },
+        {
+          "agent": "carol",
+          "choice": "hold"
+        }
+      ],
+      "trust": [
+        [
+          "alice",
+          "bob",
+          0.5
+        ],
+        [
+          "alice",
+          "carol",
+          0.25
+        ],
+        [
+          "bob",
+          "alice",
+          1.0
+        ],
+        [
+          "bob",
+          "carol",
+          0.25
+        ],
+        [
+          "carol",
+          "alice",
+          1.0
+        ],
+        [
+          "carol",
+          "bob",
+          0.5
+        ]
+      ],
+      "anchors": {},
+      "crate": {
+        "options": [
+          "hold",
+          "ship"
+        ],
+        "shares": [
+          0.42857142857142855,
+          0.5714285714285714
+        ],
+        "rounds": 1,
+        "settled": true,
+        "converged": true,
+        "residual": 5.551115123125783E-17,
+        "engine": "degroot-fj",
+        "polarization": 0.0,
+        "disagreement": 0.0,
+        "agents": [
+          "alice",
+          "bob",
+          "carol"
+        ],
+        "influence": [
+          0.5714285714285714,
+          0.2857142857142857,
+          0.1428571428571429
+        ],
+        "effective_voters": 2.3333333333333335,
+        "margin": 0.14285714285714285,
+        "tie": false
+      }
+    },
+    {
+      "name": "calibrated rows at the floor",
+      "ballots": [
+        {
+          "agent": "alice",
+          "choice": "hold"
+        },
+        {
+          "agent": "bob",
+          "choice": "ship"
+        },
+        {
+          "agent": "carol",
+          "choice": "ship"
+        },
+        {
+          "agent": "dave",
+          "choice": "ship"
+        }
+      ],
+      "trust": [
+        [
+          "alice",
+          "bob",
+          0.4
+        ],
+        [
+          "alice",
+          "carol",
+          0.01
+        ],
+        [
+          "alice",
+          "dave",
+          0.7
+        ],
+        [
+          "bob",
+          "alice",
+          1.0
+        ],
+        [
+          "bob",
+          "carol",
+          0.01
+        ],
+        [
+          "bob",
+          "dave",
+          0.7
+        ],
+        [
+          "carol",
+          "alice",
+          1.0
+        ],
+        [
+          "carol",
+          "bob",
+          0.4
+        ],
+        [
+          "carol",
+          "dave",
+          0.7
+        ],
+        [
+          "dave",
+          "alice",
+          1.0
+        ],
+        [
+          "dave",
+          "bob",
+          0.4
+        ],
+        [
+          "dave",
+          "carol",
+          0.01
+        ]
+      ],
+      "anchors": {},
+      "crate": {
+        "options": [
+          "hold",
+          "ship"
+        ],
+        "shares": [
+          0.47393364928909953,
+          0.5260663507109005
+        ],
+        "rounds": 1,
+        "settled": true,
+        "converged": true,
+        "residual": 5.551115123125783E-17,
+        "engine": "degroot-fj",
+        "polarization": 3.0814879110195774E-33,
+        "disagreement": 4.249824559747379E-33,
+        "agents": [
+          "alice",
+          "bob",
+          "carol",
+          "dave"
+        ],
+        "influence": [
+          0.47393364928909953,
+          0.18957345971563982,
+          0.004739336492890996,
+          0.33175355450236965
+        ],
+        "effective_voters": 2.69807890430883,
+        "margin": 0.05213270142180093,
+        "tie": false
+      }
+    },
+    {
+      "name": "learned rows among seats, a persona no row names",
+      "ballots": [
+        {
+          "agent": "alice",
+          "choice": "ship"
+        },
+        {
+          "agent": "bob",
+          "choice": "hold"
+        },
+        {
+          "agent": "carol",
+          "choice": "hold"
+        },
+        {
+          "agent": "critic",
+          "choice": "ship"
+        }
+      ],
+      "trust": [
+        [
+          "alice",
+          "bob",
+          0.5
+        ],
+        [
+          "alice",
+          "carol",
+          0.25
+        ],
+        [
+          "bob",
+          "alice",
+          1.0
+        ],
+        [
+          "bob",
+          "carol",
+          0.25
+        ],
+        [
+          "carol",
+          "alice",
+          1.0
+        ],
+        [
+          "carol",
+          "bob",
+          0.5
+        ]
+      ],
+      "anchors": {
+        "alice": 0.5,
+        "bob": 0.5,
+        "carol": 0.5,
+        "critic": 0.8
+      },
+      "crate": {
+        "options": [
+          "hold",
+          "ship"
+        ],
+        "shares": [
+          0.5133928571318858,
+          0.4866071428681143
+        ],
+        "rounds": 13,
+        "settled": true,
+        "converged": true,
+        "residual": 7.021749848235006E-10,
+        "engine": "degroot-fj",
+        "polarization": 0.3614477040996572,
+        "disagreement": 0.8971619898139428,
+        "agents": [
+          "alice",
+          "bob",
+          "carol",
+          "critic"
+        ],
+        "influence": [
+          0.42410714285714274,
+          0.2901785714285714,
+          0.2232142857142857,
+          0.062499999999999986
+        ],
+        "effective_voters": 3.1466198419666385,
+        "margin": 0.026785714263771465,
+        "tie": false
+      }
+    },
+    {
+      "name": "a row on someone who did not vote",
+      "ballots": [
+        {
+          "agent": "alice",
+          "choice": "ship"
+        },
+        {
+          "agent": "bob",
+          "choice": "hold"
+        },
+        {
+          "agent": "carol",
+          "choice": "hold"
+        }
+      ],
+      "trust": [
+        [
+          "alice",
+          "zed",
+          1.0
+        ],
+        [
+          "bob",
+          "alice",
+          1.0
+        ]
+      ],
+      "anchors": {},
+      "crate": {
+        "options": [
+          "hold",
+          "ship"
+        ],
+        "shares": [
+          0.5555555555555556,
+          0.4444444444444444
+        ],
+        "rounds": 2,
+        "settled": true,
+        "converged": true,
+        "residual": 0.0,
+        "engine": "degroot-fj",
+        "polarization": 0.0,
+        "disagreement": 0.0,
+        "agents": [
+          "alice",
+          "bob",
+          "carol"
+        ],
+        "influence": [
+          0.4444444444444444,
+          0.33333333333333326,
+          0.2222222222222223
+        ],
+        "effective_voters": 2.793103448275862,
+        "margin": 0.11111111111111116,
+        "tie": false
+      }
+    },
+    {
+      "name": "one voter with a row, nobody naming it",
+      "ballots": [
+        {
+          "agent": "alice",
+          "choice": "ship"
+        },
+        {
+          "agent": "bob",
+          "choice": "ship"
+        },
+        {
+          "agent": "carol",
+          "choice": "hold"
+        }
+      ],
+      "trust": [
+        [
+          "alice",
+          "carol",
+          3.0
+        ]
+      ],
+      "anchors": {},
+      "crate": {
+        "options": [
+          "hold",
+          "ship"
+        ],
+        "shares": [
+          0.4800000000637177,
+          0.5199999999362823
+        ],
+        "rounds": 13,
+        "settled": true,
+        "converged": true,
+        "residual": 8.601898082716275E-10,
+        "engine": "degroot-fj",
+        "polarization": 1.9031028493674666E-18,
+        "disagreement": 4.349949369982778E-18,
+        "agents": [
+          "alice",
+          "bob",
+          "carol"
+        ],
+        "influence": [
+          0.2799999999999999,
+          0.24,
+          0.48000000000000015
+        ],
+        "effective_voters": 2.729257641921397,
+        "margin": 0.03999999987256464,
+        "tie": false
+      }
+    },
+    {
+      "name": "a row that names its writer",
+      "ballots": [
+        {
+          "agent": "alice",
+          "choice": "ship"
+        },
+        {
+          "agent": "bob",
+          "choice": "ship"
+        },
+        {
+          "agent": "carol",
+          "choice": "hold"
+        }
+      ],
+      "trust": [
+        [
+          "alice",
+          "carol",
+          1.0
+        ],
+        [
+          "bob",
+          "carol",
+          1.0
+        ],
+        [
+          "carol",
+          "carol",
+          4.0
+        ],
+        [
+          "carol",
+          "alice",
+          1.0
+        ]
+      ],
+      "anchors": {},
+      "crate": {
+        "options": [
+          "hold",
+          "ship"
+        ],
+        "shares": [
+          0.7142857144236272,
+          0.28571428557637285
+        ],
+        "rounds": 21,
+        "settled": true,
+        "converged": true,
+        "residual": 4.18222345643926E-10,
+        "engine": "degroot-fj",
+        "polarization": 2.358286519149434E-19,
+        "disagreement": 2.3004461637330454E-19,
+        "agents": [
+          "alice",
+          "bob",
+          "carol"
+        ],
+        "influence": [
+          0.2857142857142857,
+          0.0,
+          0.7142857142857143
+        ],
+        "effective_voters": 1.6896551724137931,
+        "margin": 0.42857142884725435,
+        "tie": false
+      }
+    },
+    {
+      "name": "two groups that listen only to each other",
+      "ballots": [
+        {
+          "agent": "alice",
+          "choice": "ship"
+        },
+        {
+          "agent": "bob",
+          "choice": "ship"
+        },
+        {
+          "agent": "carol",
+          "choice": "hold"
+        },
+        {
+          "agent": "dave",
+          "choice": "hold"
+        }
+      ],
+      "trust": [
+        [
+          "alice",
+          "bob",
+          1.0
+        ],
+        [
+          "bob",
+          "alice",
+          1.0
+        ],
+        [
+          "carol",
+          "dave",
+          1.0
+        ],
+        [
+          "dave",
+          "carol",
+          1.0
+        ]
+      ],
+      "anchors": {},
+      "crate": {
+        "options": [
+          "hold",
+          "ship"
+        ],
+        "shares": [
+          0.5,
+          0.5
+        ],
+        "rounds": 1,
+        "settled": false,
+        "converged": true,
+        "residual": 0.0,
+        "engine": "degroot-fj",
+        "polarization": 2.0,
+        "disagreement": 0.0,
+        "agents": [
+          "alice",
+          "bob",
+          "carol",
+          "dave"
+        ],
+        "influence": [
+          0.25,
+          0.25,
+          0.25,
+          0.25
+        ],
+        "effective_voters": 4.0,
+        "margin": 0.0,
+        "tie": true
+      }
+    },
+    {
+      "name": "three options, partial rows",
+      "ballots": [
+        {
+          "agent": "a",
+          "choice": "ship"
+        },
+        {
+          "agent": "b",
+          "choice": "hold"
+        },
+        {
+          "agent": "c",
+          "choice": "defer"
+        },
+        {
+          "agent": "d",
+          "choice": "ship"
+        }
+      ],
+      "trust": [
+        [
+          "d",
+          "a",
+          2.0
+        ],
+        [
+          "b",
+          "c",
+          1.0
+        ],
+        [
+          "a",
+          "b",
+          0.5
+        ]
+      ],
+      "anchors": {},
+      "crate": {
+        "options": [
+          "defer",
+          "hold",
+          "ship"
+        ],
+        "shares": [
+          0.2025316454254596,
+          0.2278481012497688,
+          0.5696202533247717
+        ],
+        "rounds": 26,
+        "settled": true,
+        "converged": true,
+        "residual": 5.667420421850977E-10,
+        "engine": "degroot-fj",
+        "polarization": 8.091541567370657E-19,
+        "disagreement": 1.3073904330521172E-18,
+        "agents": [
+          "a",
+          "b",
+          "c",
+          "d"
+        ],
+        "influence": [
+          0.5063291139240507,
+          0.2278481012658228,
+          0.20253164556962028,
+          0.06329113924050628
+        ],
+        "effective_voters": 2.830385487528344,
+        "margin": 0.34177215207500294,
+        "tie": false
+      }
+    },
+    {
+      "name": "anchored voters over asymmetric rows",
+      "ballots": [
+        {
+          "agent": "maintainer",
+          "choice": "hold"
+        },
+        {
+          "agent": "newcomer",
+          "choice": "ship"
+        },
+        {
+          "agent": "reliability",
+          "choice": "hold"
+        },
+        {
+          "agent": "reviewer",
+          "choice": "ship"
+        }
+      ],
+      "trust": [
+        [
+          "maintainer",
+          "reliability",
+          2.0
+        ],
+        [
+          "newcomer",
+          "maintainer",
+          3.0
+        ],
+        [
+          "newcomer",
+          "reviewer",
+          1.0
+        ],
+        [
+          "reviewer",
+          "maintainer",
+          1.0
+        ],
+        [
+          "reliability",
+          "reviewer",
+          0.5
+        ]
+      ],
+      "anchors": {
+        "maintainer": 0.2,
+        "newcomer": 0.8,
+        "reliability": 0.5,
+        "reviewer": 0.6
+      },
+      "crate": {
+        "options": [
+          "hold",
+          "ship"
+        ],
+        "shares": [
+          0.7562377347299464,
+          0.2437622652700537
+        ],
+        "rounds": 26,
+        "settled": true,
+        "converged": true,
+        "residual": 4.853426549544795E-10,
+        "engine": "degroot-fj",
+        "polarization": 0.35076476958873004,
+        "disagreement": 0.5707178119712117,
+        "agents": [
+          "maintainer",
+          "newcomer",
+          "reliability",
+          "reviewer"
+        ],
+        "influence": [
+          0.49621530698065597,
+          0.05487804878048779,
+          0.260022427810485,
+          0.1888842164283712
+        ],
+        "effective_voters": 2.8366368796499164,
+        "margin": 0.5124754694598926,
+        "tie": false
+      }
+    },
+    {
+      "name": "an exact tie",
+      "ballots": [
+        {
+          "agent": "alice",
+          "choice": "ship"
+        },
+        {
+          "agent": "bob",
+          "choice": "hold"
+        }
+      ],
+      "trust": [],
+      "anchors": {},
+      "crate": {
+        "options": [
+          "hold",
+          "ship"
+        ],
+        "shares": [
+          0.5,
+          0.5
+        ],
+        "rounds": 1,
+        "settled": false,
+        "converged": true,
+        "residual": 0.0,
+        "engine": "degroot-fj",
+        "polarization": 0.0,
+        "disagreement": 0.0,
+        "agents": [
+          "alice",
+          "bob"
+        ],
+        "influence": [
+          0.5,
+          0.5
+        ],
+        "effective_voters": 2.0,
+        "margin": 0.0,
+        "tie": true
+      }
+    },
+    {
+      "name": "one ballot",
+      "ballots": [
+        {
+          "agent": "alice",
+          "choice": "ship"
+        }
+      ],
+      "trust": [],
+      "anchors": {},
+      "crate": {
+        "options": [
+          "ship"
+        ],
+        "shares": [
+          1.0
+        ],
+        "rounds": 1,
+        "settled": true,
+        "converged": true,
+        "residual": 0.0,
+        "engine": "degroot-fj",
+        "polarization": 0.0,
+        "disagreement": 0.0,
+        "agents": [
+          "alice"
+        ],
+        "influence": [
+          1.0
+        ],
+        "effective_voters": 1.0,
+        "margin": 1.0,
+        "tie": false
+      }
+    }
+  ]
+}
