@@ -4,7 +4,7 @@
 #     scripts/bench/watch_timing.sh OUT [RUNS]
 #
 # `RUNS` defaults to 6, the fewest the bench notes report a median and interquartile range (IQR) over.
-# Every run is timed against the 173-project tracker of read_verbs.md, so the poll tick is timed on the same tracker its 30 ms rebuild comes from.
+# Every run is timed against the 173-project tracker of read_verbs.md, so the poll tick is timed on the same tracker as the full rebuild of rebuild_timing.sh.
 set -euo pipefail
 
 out=$1
