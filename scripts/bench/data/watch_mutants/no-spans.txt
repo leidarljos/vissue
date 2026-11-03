@@ -1,3 +1,18 @@
+# commit: 9363b8f940c20cdc407f07fe66f665957ce36c79
+# date: 2026-11-03T10:50:08+0000
+# os: Ubuntu 24.04.5 LTS, x86_64
+# kernel: Linux 6.12.94+
+# cpu: Intel(R) Xeon(R) Processor (family 6, model 207)
+# cores: 8 logical, 1 thread(s) per core
+# governor: not exposed: no cpufreq in /sys
+# filesystem: ext4
+# build profile: dev
+# rustc: rustc 1.97.1 (8bab26f4f 2026-07-14)
+# git: git version 2.43.0
+# vim: VIM - Vi IMproved 9.1 (2024 Jan 02, compiled Aug 24 2026 22:13:04)
+# emacs: GNU Emacs 29.3
+# python3: Python 3.12.3
+# mutant: scripts/bench/data/watch_mutants/no-spans.diff applied to crates/vissue-serve/src/unix/catalog.rs
 
 running 3 tests
 test a_touch_that_changes_no_bytes_is_not_broadcast ... ok
@@ -9,7 +24,7 @@ failures:
 
 ---- an_edit_that_only_moves_lines_is_broadcast stdout ----
 
-thread 'an_edit_that_only_moves_lines_is_broadcast' (10205) panicked at crates/vissue-serve/tests/protocol.rs:305:18:
+thread 'an_edit_that_only_moves_lines_is_broadcast' (83499) panicked at crates/vissue-serve/tests/protocol.rs:305:18:
 expected vault/changed, got Err(Frame(Io(Os { code: 11, kind: WouldBlock, message: "Resource temporarily unavailable" })))
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 
@@ -17,6 +32,6 @@ note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 failures:
     an_edit_that_only_moves_lines_is_broadcast
 
-test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 23 filtered out; finished in 60.68s
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 23 filtered out; finished in 61.93s
 
 exit status: 101
