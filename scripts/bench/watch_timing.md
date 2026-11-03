@@ -4,57 +4,58 @@ The basis for `COALESCE_MS` and `GEN_POLL_MS` in `crates/vissue-serve/src/unix/w
 
 Every number below outside the macOS section was taken on an Intel Xeon (family 6, model 207: Emerald Rapids) at 2.4 GHz.
 It has 8 cores at 1 thread each.
-It ran Linux 6.12 on ext4, rustc 1.97.1 and `cargo build --release`, on CPU only.
+It ran Ubuntu 24.04.5 with Linux 6.12.94 on ext4, rustc 1.97.1 and `cargo build --release`, on CPU only.
 The editors were vim 9.1 and Emacs 29.3, with git 2.43.0.
-The example and the watcher were as at the commit that adds `data/watch_timing/`, which changes no code they run.
+The six runs are in `scripts/bench/data/watch_timing/linux/`, recorded at commit 8b94dcc, and each keeps the header its run printed.
 
 ```sh
-python3 scripts/bench/synth_tracker.py /tmp/synth4k-173 --issues 4000 --projects 173 --lead ljos=3800
-cargo build --release -p vissue-serve --example watch_timing
-for n in 1 2 3 4 5 6; do
-  ./target/release/examples/watch_timing /tmp/synth4k-173 Issues > scripts/bench/data/watch_timing/run-$n.txt
-done
-python3 scripts/bench/watch_timing_summary.py scripts/bench/data/watch_timing/run-*.txt
+bash scripts/bench/watch_timing.sh OUT
+python3 scripts/bench/watch_timing_summary.py OUT/run-*.txt
 ```
 
-The example watches a copy of the fixture vault through `notify` as `vissue serve` does.
-It saves `atlas/issues.org` 40 times by each method and counts the events that are not reads, as the watcher does.
+`watch_timing.sh` makes the 173-project tracker of `read_verbs.md`, builds the example in release and writes six runs, each with a header naming the machine, as `OUT/run-N.txt`.
+The summary prints each run's table and the pooled one.
+With `OUT` as `scripts/bench/data/watch_timing/linux`, it prints the tables below.
+
+The example watches a copy of the fixture vault through `notify` as `vissue serve` does, and counts the events that are not reads, as the watcher does.
+It saves `atlas/issues.org` in 40 rounds, once by each method per round.
+Each run starts its rounds one method further along the list, so each method's place in the round moves from run to run.
 `vissue-note` is `ops::note`, the path every vissue write takes.
-`git-checkout` switches between two commits that differ in the file.
-Each run prints p25, p50, p75 and max per column.
-The six raw outputs are in `data/watch_timing/`.
+`git-checkout` switches between two commits that differ in the file, both made before the watch starts.
+The example keeps no statistics of its own.
+It prints one raw `save` line per save and one `tick` line per poll tick, and the summary computes every number from those.
 
 ## One save
 
 The aim here is to find the longest gap between the events of one save.
-The table covers six runs of 40 saves per method, in ms.
-For the median, each run gives its p50, and the table shows the median of the six.
-The spread is the median p75 across runs less the median p25.
-It is not an interquartile range, since neither median is a quartile of one distribution.
-The max is the largest of any run, since the window has to outlast the worst gap.
+The table pools the 40 saves per method of each of the six runs, 240 in all, in ms.
+Its median and interquartile range (IQR) are of that one distribution.
+The max is the largest of any save, since the window has to outlast the worst gap.
 
-| method         | events | span median | span spread | span max | gap median | gap spread | gap max |
-|----------------|-------:|------------:|------------:|---------:|-----------:|-----------:|--------:|
-| git checkout   |      5 |        0.10 |        0.26 |    11.95 |       0.03 |       0.08 |   11.94 |
-| vim            |     17 |        3.90 |        1.03 |     9.05 |       0.00 |       0.04 |    4.64 |
-| `vissue-note`  |     15 |        1.58 |        0.66 |     2.90 |       0.00 |       0.02 |    2.40 |
-| write + rename |      5 |        0.03 |        0.09 |     0.97 |       0.00 |       0.01 |    0.97 |
-| emacs          |      4 |        0.30 |        0.11 |     0.92 |       0.08 |       0.23 |    0.67 |
-| in-place write |      2 |        0.00 |        0.00 |     0.02 |       0.01 |       0.01 |    0.02 |
+| method         | saves | events | span median | span IQR | span max | gap median | gap IQR | gap max |
+|----------------|------:|-------:|------------:|---------:|---------:|-----------:|--------:|--------:|
+| `vissue-note`  |   240 |     15 |        1.71 |     0.57 |     4.55 |       0.00 |    0.03 |    3.75 |
+| vim            |   240 |     16 |        4.31 |     0.77 |     6.78 |       0.00 |    0.04 |    3.26 |
+| git checkout   |   240 |      3 |        0.00 |     0.00 |     1.15 |       0.00 |    0.00 |    1.14 |
+| emacs          |   240 |      4 |        0.27 |     0.10 |     0.53 |       0.06 |    0.22 |    0.44 |
+| write + rename |   240 |      5 |        0.01 |     0.01 |     0.34 |       0.00 |    0.00 |    0.32 |
+| in-place write |   240 |      2 |        0.00 |     0.00 |     0.03 |       0.01 |    0.01 |    0.03 |
 
 Events is the most that one save raised.
-The `git checkout` maximum is over 100 times its p75.
-A few of its 240 saves have one long gap, and the window has to cover those.
-From an in-place write returning to its first event took 32.5 µs median, with a spread of 53.5 µs and 580 µs at worst.
+The largest gap, 3.75 ms in a `vissue-note` save, is in run 4.
+Run 4 spanned a pause of the virtual machine: run 5 started 34 min after it, against about 4.5 min between the other runs.
+No gap in any other run was above 3.26 ms.
+From an in-place write returning to its first event took 37.8 µs median, with an IQR of 61.0 µs and 1104.6 µs at worst.
 
 ## The window
 
 The coalescing window must be longer than the largest gap, or one save is rebuilt twice.
-The largest gap was 11.94 ms, so the window must be at least 12 ms.
+On Linux the largest gap was 3.75 ms, so the window must be at least 4 ms there.
+On macOS it was 109.69 ms (see below), so the window must be at least 110 ms there.
 The ceiling below caps the window, the poll and a rebuild at 1000 ms together.
 With a 250 ms poll and a 30 ms rebuild, that leaves at most 720 ms for the window.
-200 ms is a choice inside that range of 12 to 720 ms; the measurements fix only the range.
-At 200 ms one save is still one rebuild while its longest gap stays under 200 ms, 16 times the longest measured here.
+200 ms is a choice inside that range of 110 to 720 ms; the measurements fix only the range.
+It is 53.33 times the largest gap on Linux and 1.82 times the largest on macOS.
 
 ## macOS
 
@@ -70,15 +71,17 @@ That runner is an Apple M1 (Virtual) with 3 cores, running macOS 26.6.2 on arm64
 It used rustc 1.97.1 and `cargo build --release`, on CPU only.
 The editors were vim 9.1 and Emacs 31.1, with git 2.56.0.
 Each file keeps the header its run printed.
-The job records them with `scripts/bench/watch_timing.sh`, against the same 173-project tracker as the poll tick below.
-This prints each run's table and the pooled one:
+On every push to main, that job records six release runs with `scripts/bench/watch_timing.sh`, each with its header, against the same 173-project tracker as on Linux.
+It prints each run's table and the pooled one, and keeps the raw runs as the `watch-timing-macos` artifact.
+The runs here are that artifact from the run above.
+This prints the same tables from them:
 
 ```sh
 python3 scripts/bench/watch_timing_summary.py scripts/bench/data/watch_timing/macos/run-*.txt
 ```
 
 The table pools the 40 saves per method of each of the six runs, 240 in all, in ms.
-Its median and interquartile range (IQR) are therefore of one distribution, unlike the spread in the table above.
+As on Linux, its median and interquartile range (IQR) are of that one distribution.
 
 | method         | saves | events | span median | span IQR | span max | gap median | gap IQR | gap max |
 |----------------|------:|-------:|------------:|---------:|---------:|-----------:|--------:|--------:|
@@ -103,9 +106,9 @@ That margin is under 2, so a save with a gap twice as long as the largest here w
 ## One poll tick
 
 A tick reads the generation, lists the projects and stats each project's file.
-Over 1000 ticks per run (`TICKS` in the example) on the 173-project tracker it took 1.05 ms median, with a spread of 0.02 ms and 7.60 ms at worst.
-At one tick per 250 ms the median tick costs 0.42% of one core while idle.
-If every tick were as slow as the worst, the poll would cost 3.0%.
+Over 1000 ticks per run (`TICKS` in the example) on the 173-project tracker, 6000 in all, it took 1.149 ms median, with an IQR of 0.049 ms and 8.356 ms at worst.
+At one tick per 250 ms the median tick costs 0.46% of one core while idle.
+If every tick were as slow as the worst, the poll would cost 3.34%.
 The poll can be at most 1000 - 200 - 30 = 770 ms under the ceiling below, and 250 ms is a choice inside that.
 
 ## The ceiling
