@@ -9,12 +9,39 @@ pub struct ProjectArgs {
     pub project: Option<String>,
 }
 
-#[derive(Deserialize, JsonSchema)]
+#[derive(Deserialize, JsonSchema, Default)]
 pub struct ListArgs {
     /// Project name. Omit to cover every project.
     pub project: Option<String>,
     /// State filter: TODO, STARTED, BLOCKED, DONE, or CANCELLED.
     pub state: Option<String>,
+    /// Only issues nobody holds a claim on.
+    pub unclaimed: Option<bool>,
+    /// Only issues this identity holds a claim on.
+    pub claimed_by: Option<String>,
+    /// Only direct children of this issue (`:PARENT:`).
+    pub parent: Option<String>,
+    /// Heading tags that must all be present. Repeat a tag by sending several.
+    pub tag: Option<Vec<String>>,
+    /// At most this many rows, after sorting.
+    pub limit: Option<usize>,
+}
+
+/// Filters for `vissue ready`: the same narrowing as `vissue list`, without a state.
+#[derive(Deserialize, JsonSchema, Default)]
+pub struct ReadyArgs {
+    /// Project name. Omit to cover every project.
+    pub project: Option<String>,
+    /// Only issues nobody holds a claim on.
+    pub unclaimed: Option<bool>,
+    /// Only issues this identity holds a claim on.
+    pub claimed_by: Option<String>,
+    /// Only direct children of this issue (`:PARENT:`).
+    pub parent: Option<String>,
+    /// Heading tags that must all be present. Repeat a tag by sending several.
+    pub tag: Option<Vec<String>>,
+    /// At most this many rows, after sorting.
+    pub limit: Option<usize>,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -85,8 +112,10 @@ pub struct CountArgs {
 pub struct SearchArgs {
     /// Case-insensitive substring.
     pub query: String,
-    /// Maximum rows returned.
+    /// Maximum rows returned. Omit for the same cap as `vissue search`.
     pub limit: Option<usize>,
+    /// Search only this project's issues, on the tracker that project routes to.
+    pub project: Option<String>,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -213,7 +242,8 @@ pub struct ClaimsArgs {
     pub holder: Option<String>,
     /// Only claims in this project.
     pub project: Option<String>,
-    /// Machine-readable JSON array instead of text rows.
+    /// Accepted because callers already send it. The rows are the JSON array
+    /// either way, the same one `vissue claims --json` prints.
     pub json: Option<bool>,
 }
 

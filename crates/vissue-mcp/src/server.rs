@@ -6,12 +6,13 @@ use rmcp::{
     tool_router,
 };
 
+use vissue_core::catalog::{self, CatalogService};
 use vissue_core::config::Layout;
 use vissue_core::error::Error;
 use vissue_core::mirror::{self, Format};
 use vissue_core::ops::{self, CreateOpts, RejectOpts, UpdatePred};
 use vissue_core::router::Router;
-use vissue_core::views::{IssueDetail, IssueRow};
+use vissue_core::views::{ClaimRow, IssueDetail, IssueRec, IssueRow, SearchHit};
 use vissue_core::{agent, events, report};
 
 /// A structured answer (`structuredContent` plus its text), or the protocol's error.
@@ -140,23 +141,30 @@ impl VissueServer {
     }
 
     #[tool(
-        description = "Call this to see a project's board: its issues, optionally filtered by project and state (TODO, STARTED, BLOCKED, DONE, CANCELLED). For what can be worked on now, vissue_ready.",
+        description = "Call this to see a project's board. Filters match `vissue list`: project, state (TODO, STARTED, BLOCKED, DONE, CANCELLED), unclaimed, claimed_by, parent, tag, and limit. The rows are the JSON `vissue list --json` prints. A blocker outside the filter still blocks. For what can be worked on now, vissue_ready.",
         annotations(title = "List issues", read_only_hint = true, open_world_hint = false)
     )]
     async fn vissue_list(
         &self,
         Parameters(args): Parameters<ListArgs>,
     ) -> Result<Json<Vec<IssueRow>>, McpError> {
-        structured(issue_rows_routed(
+        structured(list_rows(
             &self.router,
             args.project.as_deref(),
             args.state.as_deref(),
             false,
+            narrow(
+                args.unclaimed,
+                args.claimed_by,
+                args.parent,
+                args.tag,
+                args.limit,
+            ),
         ))
     }
 
     #[tool(
-        description = "Call this when choosing what to work on: the issues that are TODO or STARTED with no open blocker. Then claim one before touching it.",
+        description = "Call this when choosing what to work on: the issues that are TODO or STARTED with no open blocker, filtered the same way `vissue ready` filters. The rows are the JSON `vissue ready --json` prints. Then claim one before touching it.",
         annotations(
             title = "Actionable issues",
             read_only_hint = true,
@@ -165,13 +173,20 @@ impl VissueServer {
     )]
     async fn vissue_ready(
         &self,
-        Parameters(args): Parameters<ProjectArgs>,
+        Parameters(args): Parameters<ReadyArgs>,
     ) -> Result<Json<Vec<IssueRow>>, McpError> {
-        structured(issue_rows_routed(
+        structured(list_rows(
             &self.router,
             args.project.as_deref(),
             None,
             true,
+            narrow(
+                args.unclaimed,
+                args.claimed_by,
+                args.parent,
+                args.tag,
+                args.limit,
+            ),
         ))
     }
 
@@ -440,7 +455,7 @@ impl VissueServer {
     }
 
     #[tool(
-        description = "The working set for an issue: the plan it sits in, the deeds produced by what blocks it, the issue it was bounced from, and what it has produced itself. Read this before starting work on a node. Assembled from the declared edges rather than by resemblance, so it is what the plan says the work stands on and not a ranked guess; `vissue_related` answers the resemblance question. Set `excerpts` to splice in what each input concluded, which is in its body rather than in the deed it named.",
+        description = "The working set for an issue: the plan it sits in, the deeds produced by what blocks it, the issue it was bounced from, and what it has produced itself. Read this before starting work on a node. Assembled from the declared edges rather than by resemblance, so it is what the plan says the work stands on and not a ranked guess; `vissue_related` answers the resemblance question. Set `excerpts` to splice in what each input concluded, which is in its body rather than in the deed it named. The answer is the JSON object `vissue recall --json` prints.",
         annotations(
             title = "Working set for an issue",
             read_only_hint = true,
@@ -451,11 +466,11 @@ impl VissueServer {
         &self,
         Parameters(args): Parameters<RecallArgs>,
     ) -> Result<CallToolResult, McpError> {
-        text(self.layout_for_id(&args.issue_id).and_then(|layout| {
-            report::recall(
-                &layout,
+        json_rows(self.layout_for_id(&args.issue_id).and_then(|layout| {
+            let recs = catalog::load_recs(&layout)?;
+            CatalogService::from_recs(&recs).recall(
                 &args.issue_id,
-                args.depth.unwrap_or(1),
+                args.depth.unwrap_or(RECALL_DEFAULT_DEPTH),
                 args.excerpts.unwrap_or(false),
             )
         }))
@@ -484,18 +499,25 @@ impl VissueServer {
     }
 
     #[tool(
-        description = "Every live claim, oldest first: who holds what issue, and for how long.",
+        description = "Every live claim, oldest first: who holds what issue, and for how long. `holder` is the command's `--by`. The rows are the JSON `vissue claims --json` prints.",
         annotations(title = "Live claims", read_only_hint = true, open_world_hint = false)
     )]
     async fn vissue_claims(
         &self,
         Parameters(args): Parameters<ClaimsArgs>,
     ) -> Result<CallToolResult, McpError> {
-        text(report::claims(
-            &self.layout,
-            args.holder.as_deref(),
-            args.project.as_deref(),
-            args.json.unwrap_or(false),
+        // Callers already send `json`. The answer is the row array either way,
+        // the same one `vissue claims --json` prints, so the flag does not
+        // pick a second shape.
+        let ClaimsArgs {
+            holder,
+            project,
+            json: _accepted,
+        } = args;
+        json_rows(claims_rows(
+            &self.router,
+            holder.as_deref(),
+            project.as_deref(),
         ))
     }
 
@@ -555,7 +577,7 @@ impl VissueServer {
     }
 
     #[tool(
-        description = "Substring search over ids, titles, properties, and bodies.",
+        description = "Substring search over ids, titles, properties, and bodies. `project` keeps one project's issues, on the tracker that project routes to, and `limit` defaults to the same 20 as `vissue search`. The hits are the JSON `vissue search --json` prints.",
         annotations(
             title = "Search the corpus",
             read_only_hint = true,
@@ -566,10 +588,12 @@ impl VissueServer {
         &self,
         Parameters(args): Parameters<SearchArgs>,
     ) -> Result<CallToolResult, McpError> {
-        text(report::search(
+        json_rows(search_rows(
+            &self.router,
             &self.layout,
             &args.query,
-            args.limit.unwrap_or(20),
+            args.limit.unwrap_or(SEARCH_DEFAULT_LIMIT),
+            args.project.as_deref(),
         ))
     }
 
@@ -597,7 +621,7 @@ impl VissueServer {
     }
 
     #[tool(
-        description = "List issues whose PARENT property matches this id.",
+        description = "List issues whose PARENT property matches this id. The rows are the JSON `vissue children --json` prints.",
         annotations(
             title = "Children of an issue",
             read_only_hint = true,
@@ -608,10 +632,10 @@ impl VissueServer {
         &self,
         Parameters(args): Parameters<IdArgs>,
     ) -> Result<CallToolResult, McpError> {
-        text(
-            self.layout_for_id(&args.issue_id)
-                .and_then(|layout| report::children(&layout, &args.issue_id)),
-        )
+        json_rows(self.layout_for_id(&args.issue_id).and_then(|layout| {
+            let recs = catalog::load_recs(&layout)?;
+            CatalogService::from_recs(&recs).children(&args.issue_id)
+        }))
     }
 
     #[tool(
@@ -676,7 +700,7 @@ impl VissueServer {
     }
 
     #[tool(
-        description = "Children and blockers below an id, as ascii indent or Graphviz DOT.",
+        description = "Children and blockers below an id. With no format, the JSON tree `vissue tree --json` prints. Pass format ascii or dot for that rendering.",
         annotations(
             title = "Tree below an id",
             read_only_hint = true,
@@ -687,13 +711,20 @@ impl VissueServer {
         &self,
         Parameters(args): Parameters<TreeArgs>,
     ) -> Result<CallToolResult, McpError> {
-        text(self.layout_for_id(&args.issue_id).and_then(|layout| {
-            report::tree(
-                &layout,
-                &args.issue_id,
-                args.format.as_deref().unwrap_or("ascii"),
-            )
-        }))
+        let layout = match self.layout_for_id(&args.issue_id) {
+            Ok(layout) => layout,
+            Err(err) => return text(Err(err)),
+        };
+        match args.format.as_deref() {
+            // Omitted format is the row answer, which is what `vissue tree --json`
+            // prints. `json` is that same answer named as a format, for a caller
+            // that always sends the field.
+            None | Some("json") => json_rows(
+                catalog::load_recs(&layout)
+                    .and_then(|recs| CatalogService::from_recs(&recs).tree(&args.issue_id)),
+            ),
+            Some(fmt) => text(report::tree(&layout, &args.issue_id, fmt)),
+        }
     }
 
     #[tool(
@@ -1153,6 +1184,207 @@ fn issue_rows_routed(
     Ok(rows)
 }
 
+/// Hits `vissue search` returns when `--limit` is omitted. The command's
+/// default is 20, and the tool uses that cap so an omitted limit is the same
+/// answer.
+const SEARCH_DEFAULT_LIMIT: usize = 20;
+
+/// Hops `vissue recall` walks when `--depth` is omitted. One hop is the
+/// command's default: a deed names its own sources, so a further hop repeats
+/// a walk the deed store already does.
+const RECALL_DEFAULT_DEPTH: usize = 1;
+
+/// Narrowing applied after the frontier is known, the same way `vissue list`
+/// and `vissue ready` apply `--unclaimed`, `--claimed-by`, `--parent`,
+/// `--tag`, and `--limit`.
+struct Narrow {
+    unclaimed: bool,
+    claimed_by: Option<String>,
+    parent: Option<String>,
+    tags: Vec<String>,
+    limit: Option<usize>,
+}
+
+fn narrow(
+    unclaimed: Option<bool>,
+    claimed_by: Option<String>,
+    parent: Option<String>,
+    tag: Option<Vec<String>>,
+    limit: Option<usize>,
+) -> Narrow {
+    Narrow {
+        unclaimed: unclaimed.unwrap_or(false),
+        claimed_by,
+        parent,
+        tags: tag.unwrap_or_default(),
+        limit,
+    }
+}
+
+impl Narrow {
+    fn is_set(&self) -> bool {
+        self.unclaimed
+            || self.claimed_by.is_some()
+            || self.parent.is_some()
+            || !self.tags.is_empty()
+            || self.limit.is_some()
+    }
+
+    /// A heading tag matches case-insensitively, and every requested tag has
+    /// to be on the heading. That is the command's `--tag` repeated.
+    fn keep(&self, row: &IssueRow, org_tags: Option<&[String]>) -> bool {
+        if self.unclaimed && row.claimed_by.is_some() {
+            return false;
+        }
+        if let Some(who) = &self.claimed_by
+            && row.claimed_by.as_deref() != Some(who.as_str())
+        {
+            return false;
+        }
+        if let Some(parent) = &self.parent
+            && row.parent.as_deref() != Some(parent.as_str())
+        {
+            return false;
+        }
+        if !self.tags.is_empty() {
+            let Some(held) = org_tags else {
+                return false;
+            };
+            if !self
+                .tags
+                .iter()
+                .all(|want| held.iter().any(|tag| tag.eq_ignore_ascii_case(want)))
+            {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+/// `list` or `ready`, including the row filters. With none of them set, the
+/// rows are the per-project concatenation `vissue list --json` prints.
+fn list_rows(
+    router: &Router,
+    project: Option<&str>,
+    state: Option<&str>,
+    ready_only: bool,
+    narrow: Narrow,
+) -> vissue_core::Result<Vec<IssueRow>> {
+    if !narrow.is_set() {
+        return issue_rows_routed(router, project, state, ready_only);
+    }
+    let mut rows = Vec::new();
+    let mut take = |recs: &[IssueRec], dir: &str| -> vissue_core::Result<()> {
+        let by_id: std::collections::HashMap<&str, &IssueRec> = recs
+            .iter()
+            .map(|rec| (rec.heading.id.as_str(), rec))
+            .collect();
+        for row in agent::issues_rows_in(recs, Some(dir), state, ready_only)? {
+            let tags = by_id
+                .get(row.id.as_str())
+                .map(|rec| rec.heading.org_tags.as_slice());
+            if narrow.keep(&row, tags) {
+                rows.push(row);
+            }
+        }
+        Ok(())
+    };
+    if let Some(name) = project {
+        let pref = router.route(name);
+        let recs = catalog::load_recs(&pref.layout)?;
+        take(&recs, &pref.dir)?;
+    } else {
+        visit_projects(router, &mut take)?;
+        // No project was named, so `--limit` cuts the most urgent rows across
+        // projects. The command sorts by priority only, and the sort is
+        // stable, so equal priorities keep the per-project order.
+        rows.sort_by(|a, b| a.priority.cmp(&b.priority));
+    }
+    if let Some(n) = narrow.limit {
+        rows.truncate(n);
+    }
+    Ok(rows)
+}
+
+/// Every visible project, each layout loaded once, in visible order.
+fn visit_projects(
+    router: &Router,
+    f: &mut dyn FnMut(&[IssueRec], &str) -> vissue_core::Result<()>,
+) -> vissue_core::Result<()> {
+    let prefs = router.visible_projects()?;
+    let mut cached: Vec<(Layout, Vec<IssueRec>)> = Vec::new();
+    for pref in &prefs {
+        if cached.iter().any(|(layout, _)| layout == &pref.layout) {
+            continue;
+        }
+        cached.push((pref.layout.clone(), catalog::load_recs(&pref.layout)?));
+    }
+    for pref in &prefs {
+        let recs = cached
+            .iter()
+            .find(|(layout, _)| layout == &pref.layout)
+            .expect("layout loaded above")
+            .1
+            .as_slice();
+        f(recs, &pref.dir)?;
+    }
+    Ok(())
+}
+
+/// Live claims in the order `vissue claims --json` prints them: one project
+/// when one is named, otherwise each visible project oldest-first, projects
+/// in visible order.
+fn claims_rows(
+    router: &Router,
+    holder: Option<&str>,
+    project: Option<&str>,
+) -> vissue_core::Result<Vec<ClaimRow>> {
+    if let Some(name) = project {
+        let pref = router.route(name);
+        let recs = catalog::load_recs(&pref.layout)?;
+        return CatalogService::from_recs(&recs).claims(holder, Some(&pref.dir));
+    }
+    let mut rows = Vec::new();
+    visit_projects(router, &mut |recs, dir| {
+        rows.extend(CatalogService::from_recs(recs).claims(holder, Some(dir))?);
+        Ok(())
+    })?;
+    Ok(rows)
+}
+
+/// Search hits in the order `vissue search --json` prints them.
+fn search_rows(
+    router: &Router,
+    layout: &Layout,
+    query: &str,
+    limit: usize,
+    project: Option<&str>,
+) -> vissue_core::Result<Vec<SearchHit>> {
+    // The project argument selects the tracker `route` names, then keeps
+    // issues whose project is that same string. `vissue search --json` does
+    // this, so a routed name and a directory name stay in step.
+    let home = match project {
+        Some(name) => router.route(name).layout,
+        None => layout.clone(),
+    };
+    let mut recs = catalog::load_recs(&home)?;
+    if let Some(name) = project {
+        recs.retain(|rec| rec.project == name);
+    }
+    CatalogService::from_recs(&recs).search(query, limit)
+}
+
+/// A read's JSON rows, as text and as structured content.
+fn json_rows<T: serde::Serialize>(
+    result: vissue_core::Result<T>,
+) -> Result<CallToolResult, McpError> {
+    let value = result.map_err(|err| McpError::internal_error(format!("{err}"), None))?;
+    let json = serde_json::to_value(&value)
+        .map_err(|err| McpError::internal_error(format!("{err}"), None))?;
+    Ok(CallToolResult::structured(json))
+}
+
 fn identity_report(layout: &Layout, router: &Router) -> String {
     let mut out = format!(
         "vissue-mcp {}\nprotocol: {}\nroot:   {}\nprefix: {}\nroot={}\nprefix={}\n",
@@ -1587,6 +1819,7 @@ mod tests {
             .vissue_list(Parameters(ListArgs {
                 project: None,
                 state: None,
+                ..Default::default()
             }))
             .await
             .unwrap();
@@ -1936,13 +2169,15 @@ mod tests {
             .vissue_list(Parameters(ListArgs {
                 project: Some("atlas".into()),
                 state: Some("TODO".into()),
+                ..Default::default()
             }))
             .await
             .unwrap();
         assert!(listed.0.iter().all(|row| row.state == "TODO"));
         let ready = server
-            .vissue_ready(Parameters(ProjectArgs {
+            .vissue_ready(Parameters(ReadyArgs {
                 project: Some("atlas".into()),
+                ..Default::default()
             }))
             .await
             .unwrap();
@@ -1982,6 +2217,7 @@ mod tests {
                 .vissue_search(Parameters(SearchArgs {
                     query: "fixture".into(),
                     limit: Some(5),
+                    project: None,
                 }))
                 .await
                 .unwrap()
