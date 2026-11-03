@@ -613,11 +613,13 @@ pub(crate) fn context_project(cwd: &Path, repo_top: Option<&Path>) -> Option<Str
 
 /// The project directory `name` already is, ignoring case.
 ///
-/// An exact `issues.org` wins. Otherwise one case-insensitive match is the
-/// directory's own spelling, so a later write does not create a second
-/// project that differs only by case. No match is `None`: the caller must
-/// not invent the directory. Two matches are an error, because either file
-/// could be the one the seat meant.
+/// An `issues.org` under exactly the spelling `name` wins. Otherwise one
+/// case-insensitive match is the directory's own spelling, so a later write
+/// neither creates a second project that differs only by case nor mints ids
+/// in a case the directory does not have. A file that no listing names, such
+/// as an unstamped nested one, keeps the spelling it was reached by. No match
+/// is `None`: the caller must not invent the directory. Two matches are an
+/// error, because either file could be the one the seat meant.
 ///
 /// # Errors
 ///
@@ -627,7 +629,8 @@ pub(crate) fn matching_project(layout: &Layout, name: &str) -> Result<Option<Str
     if name.is_empty() {
         return Ok(None);
     }
-    if layout.project_issues_path(name).exists() {
+    let exists = layout.project_issues_path(name).exists();
+    if exists && spelled_on_disk(layout, name) {
         return Ok(Some(name.to_string()));
     }
     let want = name.to_lowercase();
@@ -636,7 +639,7 @@ pub(crate) fn matching_project(layout: &Layout, name: &str) -> Result<Option<Str
         .filter(|candidate| candidate.to_lowercase() == want)
         .collect();
     match matches.as_slice() {
-        [] => Ok(None),
+        [] => Ok(exists.then(|| name.to_string())),
         [one] => Ok(Some(one.clone())),
         many => Err(anyhow::anyhow!(
             "project {name:?} is ambiguous; case-insensitive matches: {}",
@@ -644,6 +647,26 @@ pub(crate) fn matching_project(layout: &Layout, name: &str) -> Result<Option<Str
         )
         .into()),
     }
+}
+
+/// Whether each directory `name` passes through is listed under exactly
+/// that spelling.
+///
+/// A case-insensitive file system, the macOS and Windows default, finds
+/// `parser/issues.org` when the directory is `Parser`, so `exists` cannot
+/// tell the two apart. A directory listing keeps the case each entry was
+/// made with.
+fn spelled_on_disk(layout: &Layout, name: &str) -> bool {
+    let mut dir = layout.projects_dir();
+    Path::new(name).components().all(|part| {
+        let listed = match part {
+            std::path::Component::Normal(part) => fs::read_dir(&dir)
+                .is_ok_and(|mut entries| entries.any(|e| e.is_ok_and(|e| e.file_name() == part))),
+            _ => true,
+        };
+        dir.push(part);
+        listed
+    })
 }
 
 /// Top-level directory of the git repository that contains `cwd`.

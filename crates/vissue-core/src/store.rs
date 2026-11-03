@@ -908,26 +908,7 @@ fn stamped_tracker(path: &Path) -> bool {
 ///
 /// Returns an error if more than one project directory matches ignoring case.
 pub fn resolve_existing_project_case(layout: &Layout, project: &str) -> Result<String> {
-    if project.is_empty() {
-        return Ok(project.to_string());
-    }
-    if layout.project_issues_path(project).exists() {
-        return Ok(project.to_string());
-    }
-    let project_lower = project.to_lowercase();
-    let matches: Vec<String> = list_projects(layout)?
-        .into_iter()
-        .filter(|candidate| candidate.to_lowercase() == project_lower)
-        .collect();
-    match matches.as_slice() {
-        [] => Ok(project.to_string()),
-        [canonical] => Ok(canonical.clone()),
-        _ => Err(anyhow!(
-            "project {project:?} is ambiguous; case-insensitive matches: {}",
-            matches.join(", ")
-        )
-        .into()),
-    }
+    Ok(crate::config::matching_project(layout, project)?.unwrap_or_else(|| project.to_string()))
 }
 
 /// Whether a project belongs to a `--project` selection.

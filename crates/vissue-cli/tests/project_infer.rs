@@ -107,6 +107,15 @@ fn project_line(out: &Output) -> String {
     )
 }
 
+/// Whether `dir` lists an entry spelled exactly `name`. A file system that
+/// folds case, the macOS default, finds `Software/parser` when only
+/// `Software/Parser` is there.
+fn listed(dir: &Path, name: &str) -> bool {
+    fs::read_dir(dir)
+        .unwrap()
+        .any(|e| e.unwrap().file_name() == name)
+}
+
 fn assert_no_prefix_project(root: &Path) {
     assert!(
         !root.join("Software/Software").exists(),
@@ -420,7 +429,7 @@ fn a_remote_name_matches_an_existing_project_by_case() {
             text(&created)
         );
     }
-    assert!(!tracker.path().join("Software/parser").exists());
+    assert!(!listed(&tracker.path().join("Software"), "parser"));
     assert!(!tracker.path().join("Software/checkout").exists());
     assert_no_prefix_project(tracker.path());
 }

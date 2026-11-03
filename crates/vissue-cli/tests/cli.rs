@@ -1172,10 +1172,19 @@ fn a_project_comes_into_being_when_something_is_filed_there() {
     assert_eq!(detail["project"], "somewhere-else");
 
     // Two projects differing only by case are refused rather than guessed at.
+    // A file system that folds case, the macOS default, cannot hold both.
     for name in ["Beacon", "beacon"] {
         let path = root.join("Software").join(name);
         fs::create_dir_all(&path).unwrap();
         fs::write(path.join("issues.org"), "#+TITLE: x\n").unwrap();
+    }
+    let held = fs::read_dir(root.join("Software"))
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name().eq_ignore_ascii_case("beacon"))
+        .count();
+    if held < 2 {
+        return;
     }
     let ambiguous = run(&["create", "-p", "BEACON", "--quiet", "which one"]);
     assert!(!ambiguous.status.success(), "{}", stdout(&ambiguous));
