@@ -7,9 +7,10 @@ issue terms. It is a notify and cache plane: an in-memory catalog of
 the same Org files the CLI already parses. A crash loses nothing. The
 files stay the store.
 
-Clients never bind the socket. Only =vissue serve= does. The listener
-is Unix-only. CLI, MCP, the terminal board, and the HUD all keep
-working with serve down; see [[#fallback][Fallback]].
+Clients never bind the socket.
+Only =vissue serve= does.
+The listener is Unix-only.
+CLI, Model Context Protocol (MCP), the terminal board, and the HUD all keep working with serve down; see [[#fallback][Fallback]].
 
 * Socket
 
@@ -217,7 +218,7 @@ mutation is optional and overrides the connection agent.
 
 Mutations go through the same library ops and file lock as the CLI.
 Serve is not an exclusive writer.
-Writes land in the file from a =vissue claim= in another terminal, an =MCP= tool call, and an Emacs =C-c C-x=.
+Writes land in the file from a =vissue claim= in another terminal, an MCP tool call, and an Emacs =C-c C-x=.
 Serve notices via the generation counter and =issues.org= watches, and rebuilds 200 ms after the last signal.
 It pushes =vault/changed= only when that rebuild changed a project's parsed issues.
 A touch sends nothing, and neither does an edit whose parsed issues match.
@@ -228,7 +229,7 @@ No =id= on these messages. Broadcast after the mutating RPC's
 response, so the caller can apply its own result before the echo.
 
 - =vault/changed= after a catalog rebuild that changed a project's parsed issues.
-  Params: =generation=, =revision=, =projects= (the projects that changed), =ids= when known.
+  Its params are =generation=, =revision=, =projects= (the projects that changed) and =ids= when known.
 - =issue/selected= after =issue/open=. Params: =id=, =project=.
 - =serve/shutting_down= when the owner is exiting. Params: ={}=.
 
