@@ -50,6 +50,13 @@ mod timing {
     const QUIET: Duration = Duration::from_secs(1);
 
     pub fn main() {
+        let (nth, args) = match run_number(std::env::args().skip(1).collect()) {
+            Ok(parsed) => parsed,
+            Err(msg) => {
+                eprintln!("watch_timing: {msg}");
+                std::process::exit(2);
+            }
+        };
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("vault");
         copy_dir(
@@ -115,15 +122,6 @@ mod timing {
                 git(&root, &["checkout", "-qf", branch]);
             }),
         ];
-        let mut args: Vec<String> = std::env::args().skip(1).collect();
-        let run = match args.first().map(String::as_str) {
-            Some("--run") => {
-                let run = args[1].parse::<usize>().unwrap();
-                args.drain(..2);
-                run
-            }
-            _ => 1,
-        };
         let mut active = Vec::new();
         for (name, save) in methods {
             if name == "git-checkout" || available(name) {
@@ -134,7 +132,7 @@ mod timing {
         }
         // One save per method per round, so a drift in the machine's load over a run reaches every method alike.
         // Run n starts each round n - 1 methods along, so each method's place in the round moves from run to run.
-        let shift = run.saturating_sub(1) % active.len();
+        let shift = nth.saturating_sub(1) % active.len();
         active.rotate_left(shift);
         for i in 0..TRIALS {
             for (name, save) in &active {
@@ -149,6 +147,21 @@ mod timing {
         if let (Some(tracker), Some(prefix)) = (args.next(), args.next()) {
             tick_cost(&Layout::new(PathBuf::from(tracker), &prefix));
         }
+    }
+
+    /// The run number `--run N` gives, 1 without it, and the arguments after it.
+    fn run_number(mut args: Vec<String>) -> Result<(usize, Vec<String>), String> {
+        if args.first().map(String::as_str) != Some("--run") {
+            return Ok((1, args));
+        }
+        let run = match args.get(1) {
+            Some(n) => n
+                .parse::<usize>()
+                .map_err(|_| format!("--run takes a whole number, not `{n}`"))?,
+            None => return Err(String::from("--run needs a run number")),
+        };
+        args.drain(..2);
+        Ok((run, args))
     }
 
     /// One `save` line for the events `seen` after a save that returned at `done`.
@@ -251,6 +264,47 @@ mod timing {
             } else {
                 fs::copy(entry.path(), to).unwrap();
             }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::run_number;
+
+        fn args(words: &[&str]) -> Vec<String> {
+            words.iter().map(|w| w.to_string()).collect()
+        }
+
+        #[test]
+        fn no_run_flag_is_run_one() {
+            assert_eq!(
+                run_number(args(&["/t", "Issues"])),
+                Ok((1, args(&["/t", "Issues"])))
+            );
+        }
+
+        #[test]
+        fn run_flag_takes_its_number_off_the_arguments() {
+            assert_eq!(
+                run_number(args(&["--run", "3", "/t", "Issues"])),
+                Ok((3, args(&["/t", "Issues"])))
+            );
+        }
+
+        #[test]
+        fn run_flag_without_a_number_is_an_error() {
+            assert_eq!(
+                run_number(args(&["--run"])),
+                Err(String::from("--run needs a run number"))
+            );
+        }
+
+        #[test]
+        fn run_flag_with_a_word_is_an_error() {
+            assert_eq!(
+                run_number(args(&["--run", "three"])),
+                Err(String::from("--run takes a whole number, not `three`"))
+            );
         }
     }
 }
