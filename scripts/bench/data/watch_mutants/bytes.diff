@@ -1,0 +1,52 @@
+diff --git a/crates/vissue-serve/src/unix/catalog.rs b/crates/vissue-serve/src/unix/catalog.rs
+index 12f5132..461b510 100644
+--- a/crates/vissue-serve/src/unix/catalog.rs
++++ b/crates/vissue-serve/src/unix/catalog.rs
+@@ -10,6 +10,12 @@ use vissue_core::events;
+ use vissue_core::store::{IssueDoc, list_projects};
+ use vissue_core::views::IssueRec;
+
++fn published_bytes() -> &'static std::sync::Mutex<HashMap<std::path::PathBuf, Vec<u8>>> {
++    static BYTES: std::sync::OnceLock<std::sync::Mutex<HashMap<std::path::PathBuf, Vec<u8>>>> =
++        std::sync::OnceLock::new();
++    BYTES.get_or_init(Default::default)
++}
++
+ /// First serve-local revision after a successful load.
+ pub const INITIAL_REVISION: u64 = 1;
+
+@@ -38,6 +44,13 @@ impl Catalog {
+             dirty_ids: None,
+         };
+         cat.reindex();
++        for rec in &cat.issues {
++            let bytes = std::fs::read(&rec.path).unwrap_or_default();
++            published_bytes()
++                .lock()
++                .unwrap()
++                .insert(rec.path.clone(), bytes);
++        }
+         Ok(cat)
+     }
+
+@@ -107,12 +120,14 @@ impl Catalog {
+         listed: bool,
+         fresh: impl IntoIterator<Item = &'a IssueRec>,
+     ) -> bool {
+-        self.projects.iter().any(|p| p == project) == listed
+-            && self
+-                .issues
+-                .iter()
+-                .filter(|rec| rec.project == project)
+-                .eq(fresh)
++        let fresh: Vec<&IssueRec> = fresh.into_iter().collect();
++        let Some(path) = fresh.first().map(|rec| rec.path.clone()) else {
++            return self.projects.iter().any(|p| p == project) == listed
++                && !self.issues.iter().any(|rec| rec.project == project);
++        };
++        let now = std::fs::read(&path).unwrap_or_default();
++        let before = published_bytes().lock().unwrap().insert(path, now.clone());
++        self.projects.iter().any(|p| p == project) == listed && before.as_deref() == Some(&now[..])
+     }
+
+     /// Projects that taking `recs`, a load of every project, would change.

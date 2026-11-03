@@ -1,0 +1,9 @@
+
+running 3 tests
+test an_edit_that_only_moves_lines_is_broadcast ... ok
+test a_touch_that_changes_no_bytes_is_not_broadcast ... ok
+test an_edit_that_parses_the_same_is_not_broadcast ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 23 filtered out; finished in 0.26s
+
+exit status: 0

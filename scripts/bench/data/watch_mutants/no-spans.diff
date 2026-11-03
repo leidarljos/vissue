@@ -1,0 +1,25 @@
+diff --git a/crates/vissue-serve/src/unix/catalog.rs b/crates/vissue-serve/src/unix/catalog.rs
+index 12f5132..d90e286 100644
+--- a/crates/vissue-serve/src/unix/catalog.rs
++++ b/crates/vissue-serve/src/unix/catalog.rs
+@@ -107,12 +107,19 @@ impl Catalog {
+         listed: bool,
+         fresh: impl IntoIterator<Item = &'a IssueRec>,
+     ) -> bool {
++        let unspanned = |rec: &IssueRec| {
++            let mut rec = rec.clone();
++            rec.heading.line_start = 0;
++            rec.heading.line_end = 0;
++            rec
++        };
+         self.projects.iter().any(|p| p == project) == listed
+             && self
+                 .issues
+                 .iter()
+                 .filter(|rec| rec.project == project)
+-                .eq(fresh)
++                .map(unspanned)
++                .eq(fresh.into_iter().map(unspanned))
+     }
+
+     /// Projects that taking `recs`, a load of every project, would change.
