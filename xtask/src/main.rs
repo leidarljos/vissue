@@ -3,22 +3,32 @@
 //! ```console
 //! $ cargo run -q -p xtask -- publish-order [--json | --with-versions]
 //! $ cargo run -q -p xtask -- bench-tracker [BINARY] [ISSUES]
+//! $ cargo run -q -p xtask -- docs [--check | --flags] [--bin PATH]
 //! ```
 
 mod bench;
+mod docs;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::process::Command;
 
 use serde_json::Value;
 
-fn main() -> Result<(), String> {
+fn main() {
+    if let Err(err) = dispatch() {
+        eprintln!("{err}");
+        std::process::exit(1);
+    }
+}
+
+fn dispatch() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
     let task = args.next().unwrap_or_default();
     let flags: Vec<String> = args.collect();
     match task.as_str() {
         "publish-order" => publish_order(&flags),
         "bench-tracker" => bench::tracker(&flags),
+        "docs" => docs::run(&flags),
         "-h" | "--help" | "help" | "" => {
             println!("{USAGE}");
             Ok(())
@@ -30,7 +40,8 @@ fn main() -> Result<(), String> {
 const USAGE: &str = "xtask: repository tasks\n\
     \n\
     publish-order [--json|--with-versions]   publishable crates, dependencies first\n\
-    bench-tracker [BINARY] [ISSUES]          what each verb costs at a given size";
+    bench-tracker [BINARY] [ISSUES]          what each verb costs at a given size\n\
+    docs [--check|--flags] [--bin PATH]      man page and reference flag tables from the CLI";
 
 /// The workspace's publishable crates, dependencies first.
 ///

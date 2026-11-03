@@ -41,6 +41,869 @@
 | =merge-driver=                                                            | git's merge driver for =issues.org=: merges by heading, keeps a clash as a note; =--install= registers it in this repository |
 | =surface=                                                                 | This binary's own subcommands, aliases and flags as JSON; hidden, and not about the tracker |
 
+* Flags
+
+The table above says what each command is for. The tables in this section
+are the flags, taken from =vissue --help=, so a flag renamed in the parser
+is a stale row until they are regenerated:
+
+#+begin_src console
+$ cargo run -q -p xtask -- docs
+#+end_src
+
+Flags that clap copies onto every command are listed once. A hidden flag is
+not listed, because =--help= does not show it.
+
+# [[[cog
+# # docs/orgmode/reference.org is three directories below the workspace.
+# import pathlib
+# import subprocess
+# root = pathlib.Path(cog.inFile).resolve().parents[2]
+# if not (root / "Cargo.toml").is_file():
+#     raise SystemExit(f"cog: {root} is not the vissue workspace")
+# subprocess.check_call(
+#     ["cargo", "build", "-q", "--locked", "-p", "vissue-cli", "--bin", "vissue"],
+#     cwd=root,
+# )
+# binary = root / "target" / "debug" / "vissue"
+# cog.out(
+#     subprocess.check_output(
+#         ["cargo", "run", "-q", "--locked", "-p", "xtask", "--", "docs", "--flags", "--bin", str(binary)],
+#         cwd=root,
+#         text=True,
+#     )
+# )
+# ]]]
+** Shared flags
+
+| Flag | Meaning |
+|------+---------|
+| =--root= =<ROOT>= | Tracker root. Falls back to =ISSUE_ROOT=, =VISSUE_ROOT=, then the current directory |
+| =--prefix= =<PREFIX>= | Directory under the root holding one subdirectory per project. Falls back to =VISSUE_PREFIX=, then =prefix= in vissue.toml, then =Software= |
+| =--no-route= | Ignore =$VISSUE_CONFIG= / =~/.config/vissue/config.toml= and keep every verb on the process default layout |
+| =-h=, =--help= | Print help |
+| =-V=, =--version= | Print version |
+
+** =create=
+
+Create an issue. Pass the body with =--body= or =--body-file= (=-= reads stdin); omit both to leave the body empty for a later edit
+
+Usage: =vissue create [OPTIONS] <TITLE>=
+
+| Argument | Meaning |
+|----------+---------|
+| =<TITLE>= | One-line title |
+
+| Flag | Meaning |
+|------+---------|
+| =-p=, =--project= =<PROJECT>= | Project name. =-p= wins, then the current file's project, then the git repo (remote name, or else the top-level directory), then the prefix default |
+| =--priority= =<PRIORITY>= | Priority cookie: A high, B mid, C low |
+| =-t=, =--type= =<ISSUE_TYPE>= | Type tag such as feature, bug, or task |
+| =--deadline= =<DEADLINE>= | Org deadline like =<2026-05-15 Fri>= or =[2026-05-15]= |
+| =--scheduled= =<SCHEDULED>= | Org scheduled date like =<2026-05-01 Mon>= |
+| =--tags= =<TAGS>= | Comma- or colon-separated tags |
+| =--parent= =<PARENT>= | Parent id, which must already exist |
+| =--id= =<ID>= | Keep this id instead of minting one. Form is ={project}-= plus =0-9a-z= |
+| =-q=, =--quiet= | Print only the new id |
+| =--body= =<BODY>= | Body text written under the heading |
+| =--body-file= =<BODY_FILE>= | Read the body from a file; =-= reads stdin |
+
+** =q=
+
+Quick capture: create and print only the id
+
+Usage: =vissue q [OPTIONS] <TITLE>=
+
+| Argument | Meaning |
+|----------+---------|
+| =<TITLE>= | One-line title |
+
+| Flag | Meaning |
+|------+---------|
+| =-p=, =--project= =<PROJECT>= | Project name. =-p= wins, then the current file's project, then the git repo (remote name, or else the top-level directory), then the prefix default |
+| =-t=, =--type= =<ISSUE_TYPE>= | Issue type, recorded as a tag: task, bug, epic, or any word |
+| =--parent= =<PARENT>= | Parent id, which must already exist |
+
+** =list=
+
+List issues, sorted by priority then state then id
+
+Usage: =vissue list [OPTIONS]=
+
+| Flag | Meaning |
+|------+---------|
+| =-p=, =--project= =<PROJECT>= | Only this project; every project when omitted |
+| =-s=, =--state= =<STATE>= | Filter by state: TODO, STARTED, BLOCKED, DONE, or CANCELLED |
+| =--json= | Emit JSON rows instead of text |
+| =--unclaimed= | Only issues nobody holds a claim on |
+| =--claimed-by= =<WHO>= | Only issues this identity holds a claim on |
+| =--parent= =<ID>= | Only direct children of this issue (=:PARENT:=) |
+| =--tag= =<TAG>= | Only issues carrying this tag on the heading; repeat to require several |
+| =--limit= =<N>= | Print at most this many rows, after sorting |
+
+** =show=
+
+Show one issue: metadata, then the body
+
+Usage: =vissue show [OPTIONS] [ID]=
+
+| Argument | Meaning |
+|----------+---------|
+| =[ID]= | Issue id. Omit with =--all= |
+
+| Flag | Meaning |
+|------+---------|
+| =--all= | Print =show= for every id, loading each project once |
+| =--json= | Emit a JSON object instead of text |
+| =--org= | Emit the heading's org text in full, nothing else. Use this to write the issue out as the specification someone works from |
+
+** =update=
+
+Update state, priority, or blocker edges
+
+Usage: =vissue update [OPTIONS] <ID>=
+
+| Argument | Meaning |
+|----------+---------|
+| =<ID>= |  |
+
+| Flag | Meaning |
+|------+---------|
+| =-s=, =--state= =<STATE>= | New state: TODO, STARTED, BLOCKED, DONE, or CANCELLED |
+| =--priority= =<PRIORITY>= | New priority: A, B, or C |
+| =--block= =<BLOCK>= | Add a blocker edge |
+| =--unblock= =<UNBLOCK>= | Remove a blocker edge |
+| =-t=, =--tag= =<TAG>= | Add a tag; repeat it, or give several with commas |
+| =--untag= =<UNTAG>= | Remove a tag; repeat it, or give several with commas |
+| =--if-state= =<IF_STATE>= | Refuse unless the heading is still this state |
+| =--if-gen= =<IF_GEN>= | Refuse unless the corpus generation is still this value |
+
+** =resolve=
+
+Pick one terminal after a sibling close
+
+Usage: =vissue resolve [OPTIONS] --state <STATE> <ID>=
+
+| Argument | Meaning |
+|----------+---------|
+| =<ID>= |  |
+
+| Flag | Meaning |
+|------+---------|
+| =-s=, =--state= =<STATE>= | The terminal state to pick: DONE or CANCELLED |
+
+** =reject=
+
+Reject an issue, redirecting to an existing destination or a new replacement
+
+Usage: =vissue reject [OPTIONS] <ID> [TITLE]=
+
+| Argument | Meaning |
+|----------+---------|
+| =<ID>= | Issue id to reject |
+| =[TITLE]= | Title of the newly created replacement |
+
+| Flag | Meaning |
+|------+---------|
+| =--to= =<TO>= | Existing destination issue |
+| =-p=, =--project= =<PROJECT>= | Project for a newly created replacement |
+| =--reason= =<REASON>= | Why this issue is rejected |
+
+** =ready=
+
+Actionable issues: TODO or STARTED with no open blocker
+
+Usage: =vissue ready [OPTIONS]=
+
+| Flag | Meaning |
+|------+---------|
+| =-p=, =--project= =<PROJECT>= | Only this project; every project when omitted |
+| =--json= | Emit JSON rows instead of text |
+| =--unclaimed= | Only issues nobody holds a claim on |
+| =--claimed-by= =<WHO>= | Only issues this identity holds a claim on |
+| =--parent= =<ID>= | Only direct children of this issue (=:PARENT:=) |
+| =--tag= =<TAG>= | Only issues carrying this tag on the heading; repeat to require several |
+| =--limit= =<N>= | Print at most this many rows, after sorting |
+
+** =claim=
+
+Take an issue: move it to STARTED and stamp the claim
+
+Usage: =vissue claim [OPTIONS] <ID>=
+
+| Argument | Meaning |
+|----------+---------|
+| =<ID>= |  |
+
+| Flag | Meaning |
+|------+---------|
+| =--force= | Take over a claim held by another identity |
+
+** =release=
+
+Drop every claim stamp held by one identity, including one left on a closed heading. State stays
+
+Usage: =vissue release [OPTIONS] --holder <HOLDER>=
+
+| Flag | Meaning |
+|------+---------|
+| =--holder= =<HOLDER>= | Identity whose claims to drop |
+| =--older-than= =<OLDER_THAN>= | Only claims whose claim stamp is older than this many days |
+| =--dry-run= | Print what would be released without writing |
+| =--why= =<WHY>= | Why this holder is being released; written on each ticket |
+
+** =vote=
+
+Cast this agent's vote on an issue, or show the tally with no =--for=.
+
+One ballot per identity and a recast replaces it, so several agents can disagree on the record and a reader sees whether they agree.
+
+Usage: =vissue vote [OPTIONS] <ID>=
+
+| Argument | Meaning |
+|----------+---------|
+| =<ID>= |  |
+
+| Flag | Meaning |
+|------+---------|
+| =--for= =<CHOICE>= | What to vote for. Omit to read the tally without casting |
+| =--json= | The ballots as JSON rows of =agent=, =choice=, =stamp=; reads only |
+| =--used= =<USED>= | Deed accessions this ballot used, or =none= |
+| =--confidence= =<CONFIDENCE>= | Probability in (0, =1]= that the choice is the outcome |
+| =--withdraw= | Take back this identity's ballot; the logbook keeps what it was |
+
+** =deed=
+
+Cite, drop, or list the deeds this issue's work produced.
+
+A deed is deedar's record of a product: =deedar get <id>= returns it and =deedar trail <id>= walks what it was built from. The tracker stores the accession and nothing else, so the next unit opens the work instead of rereading a transcript.
+
+Usage: =vissue deed [OPTIONS] <ID>=
+
+| Argument | Meaning |
+|----------+---------|
+| =<ID>= |  |
+
+| Flag | Meaning |
+|------+---------|
+| =--add= =<DEED>= | A deed accession this issue produced. Repeatable |
+| =--remove= =<DEED>= | A citation to drop. Repeatable |
+
+** =recall=
+
+The working set for an issue: its plan, its inputs' deeds, and its own.
+
+What to open before working a node, derived from =:PARENT:=, =:BLOCKED_BY:=, and =:DISCOVERED_FROM:= rather than retrieved by resemblance. =related= answers the other question.
+
+Usage: =vissue recall [OPTIONS] <ID>=
+
+| Argument | Meaning |
+|----------+---------|
+| =<ID>= |  |
+
+| Flag | Meaning |
+|------+---------|
+| =-d=, =--depth= =<DEPTH>= | Hops of the blocker walk. One is enough when the deeds carry their own sources, which =deedar trail= walks =[default: 1]= |
+| =--deeds-only= | Print only the deed accessions, one per line |
+| =--excerpts= | Include a capped excerpt of each input's heading |
+| =--json= | Emit a JSON object instead of text |
+
+** =consensus=
+
+Weigh an issue's ballots by who the group listens to (DeGroot).
+
+=vote= counts. This averages over the trust graph in =[consensus.trust]=, reports each agent's social power, and says when there is no consensus to reach rather than reporting one that is not there.
+
+Usage: =vissue consensus [OPTIONS] <ID>=
+
+| Argument | Meaning |
+|----------+---------|
+| =<ID>= |  |
+
+| Flag | Meaning |
+|------+---------|
+| =--children= | Roll up over this issue's children instead of reading its own ballots |
+| =--gate= | Exit non-zero when there is nothing settled to act on |
+| =--quorum= =<N>= | With =--gate=, also exit non-zero when fewer than N identities voted. One ballot settles on itself, so a gate without a quorum passes on whoever voted first |
+| =--deadline= =<RFC3339>= | With =--quorum=, the RFC 3339 time the ballots were due. Past it, a gate still short of its quorum has timed out: the issue gets one =quorum timed out= note and the gate exits 3, so a caller tells "wait for more ballots" (exit 1) from "the vote lapsed" (exit 3) |
+| =--json= | Emit a JSON object instead of text |
+| =--trust= =<JSON>= | Trust rows laid over =[consensus.trust]=: =[[from, to, weight], ...]= |
+| =--susceptibility-of= =<JSON>= | Per-agent susceptibility laid over =[consensus.susceptibility_of]=: ={"agent": s}= with s in =[0, 1]=; 0 holds the agent to its ballot |
+| =--file-dissent= | File a =Dissent holds OPTION= child for each option a voter still leads with after an anchored settle. Without it the verb only reads |
+
+** =migrate-ledger=
+
+Split each =issues.org= into one append-only file per issue.
+
+After this, a note or a field change appends to =PROJECT/issues/ID.org= and =issues.org= is not written. =--dry-run= reports the split and writes nothing. =--freeze-shows= holds every project lock, writes both show dumps, and then performs the split.
+
+Usage: =vissue migrate-ledger [OPTIONS]=
+
+| Flag | Meaning |
+|------+---------|
+| =--dry-run= | Report the split and do not write |
+| =--freeze-shows= =<DIR>= | Directory for =before.txt= and =after.txt=. Holds every project lock for the dry-run, the split, and both shows |
+
+** =note=
+
+Add a dated note to the top of an issue's logbook; state and claim untouched
+
+Usage: =vissue note [OPTIONS] <ID> <TEXT>...=
+
+| Argument | Meaning |
+|----------+---------|
+| =<ID>= |  |
+| =<TEXT>...= | The note. Multiple words are joined with spaces |
+
+** =append=
+
+Append a dated report to an issue's body.
+
+For recording work that was done. The logbook holds one line per event, so a written report belongs here instead. Markdown is safe.
+
+Usage: =vissue append [OPTIONS] <ID> [WORDS]...=
+
+| Argument | Meaning |
+|----------+---------|
+| =<ID>= |  |
+| =[WORDS]...= | The text to append, as words after the id (=vissue append ID "..."=) |
+
+| Flag | Meaning |
+|------+---------|
+| =--text= =<TEXT>= | The text to append |
+| =--file= =<FILE>= | Read the text from a file; =-= reads stdin |
+
+** =claims=
+
+Every live claim, oldest first: who holds what, and for how long
+
+Usage: =vissue claims [OPTIONS]=
+
+| Flag | Meaning |
+|------+---------|
+| =--by= =<BY>= | Only claims held by this identity |
+| =-p=, =--project= =<PROJECT>= | Only claims in this project |
+| =--json= | Machine-readable output |
+
+** =fold=
+
+Fold an inbox org file: each unstamped =* TODO <title>= heading becomes an issue, then the heading is stamped with the id and flipped to DONE in place. Already-stamped headings are skipped
+
+Usage: =vissue fold [OPTIONS] <FILE>=
+
+| Argument | Meaning |
+|----------+---------|
+| =<FILE>= | The inbox file to fold |
+
+| Flag | Meaning |
+|------+---------|
+| =-p=, =--project= =<PROJECT>= | Project the folded issues are created in. Auto-detected from .project-ctx.toml when omitted |
+
+** =agenda=
+
+Dated open work: deadlines and scheduled starts inside a horizon, overdue first
+
+Usage: =vissue agenda [OPTIONS]=
+
+| Flag | Meaning |
+|------+---------|
+| =-d=, =--days= =<DAYS>= | Days ahead to include =[default: 14]= |
+| =-p=, =--project= =<PROJECT>= | Only this project; every project when omitted |
+| =--json= | Emit a JSON array instead of text |
+
+** =hygiene=
+
+Checklist for agents and CI: stalled claims plus corpus validation
+
+Usage: =vissue hygiene [OPTIONS]=
+
+| Flag | Meaning |
+|------+---------|
+| =--stale-days= =<STALE_DAYS>= | Days a claim may be held before it counts as stale |
+
+** =whoami=
+
+Print the identity this tracker would record on a claim
+
+Usage: =vissue whoami [OPTIONS]=
+
+No flags of its own.
+
+** =waiting-on=
+
+Issues waiting on this one
+
+Usage: =vissue waiting-on [OPTIONS] <ID>=
+
+| Argument | Meaning |
+|----------+---------|
+| =<ID>= |  |
+
+** =body-excerpt=
+
+The first lines of an issue's file range
+
+Usage: =vissue body-excerpt [OPTIONS] <ID>=
+
+| Argument | Meaning |
+|----------+---------|
+| =<ID>= |  |
+
+| Flag | Meaning |
+|------+---------|
+| =--json= | Emit a JSON object instead of text |
+
+** =search=
+
+Substring search over ids, titles, properties, and bodies
+
+Usage: =vissue search [OPTIONS] <QUERY>=
+
+| Argument | Meaning |
+|----------+---------|
+| =<QUERY>= |  |
+
+| Flag | Meaning |
+|------+---------|
+| =-n=, =--limit= =<LIMIT>= | Most hits to print =[default: 20]= |
+| =--json= | Emit a JSON array instead of text |
+| =-p=, =--project= =<PROJECT>= | Search only this project's issues |
+
+** =children=
+
+Issues whose =:PARENT:= matches this id
+
+Usage: =vissue children [OPTIONS] <ID>=
+
+| Argument | Meaning |
+|----------+---------|
+| =<ID>= |  |
+
+| Flag | Meaning |
+|------+---------|
+| =--json= | Emit a JSON array instead of text |
+
+** =ancestors=
+
+Blockers transitively required by this issue
+
+Usage: =vissue ancestors [OPTIONS] <ID>=
+
+| Argument | Meaning |
+|----------+---------|
+| =<ID>= |  |
+
+| Flag | Meaning |
+|------+---------|
+| =-d=, =--depth= =<DEPTH>= | How many blocker hops to follow =[default: 3]= |
+| =--json= | Emit a JSON array instead of text |
+
+** =impact=
+
+Issues transitively waiting on this issue
+
+Usage: =vissue impact [OPTIONS] <ID>=
+
+| Argument | Meaning |
+|----------+---------|
+| =<ID>= |  |
+
+| Flag | Meaning |
+|------+---------|
+| =-d=, =--depth= =<DEPTH>= | How many waiting hops to follow =[default: 3]= |
+| =--json= | Emit a JSON array instead of text |
+
+** =related=
+
+Explain bounded Org and lexical connections around an issue
+
+Usage: =vissue related [OPTIONS] <ID>=
+
+| Argument | Meaning |
+|----------+---------|
+| =<ID>= |  |
+
+| Flag | Meaning |
+|------+---------|
+| =-d=, =--depth= =<DEPTH>= | How many hops to follow =[default: 2]= |
+| =-n=, =--limit= =<LIMIT>= | Most connections to print =[default: 20]= |
+| =--format= =<FORMAT>= | text or org; org emits links to the source headings =[default: text]= |
+
+** =stale=
+
+Open issues whose =:CREATED:= is older than N days
+
+Usage: =vissue stale [OPTIONS]=
+
+| Flag | Meaning |
+|------+---------|
+| =-d=, =--days= =<DAYS>= | Age in days past which an open issue counts as stale =[default: 30]= |
+| =-p=, =--project= =<PROJECT>= | Only this project; every project when omitted |
+
+** =count=
+
+Print only the matching issue count
+
+Usage: =vissue count [OPTIONS]=
+
+| Flag | Meaning |
+|------+---------|
+| =-p=, =--project= =<PROJECT>= | Only this project; every project when omitted |
+| =-s=, =--state= =<STATE>= | Count only issues in this state: TODO, STARTED, BLOCKED, DONE, or CANCELLED |
+| =-r=, =--ready= | Count only actionable issues |
+
+** =export=
+
+One JSON object per issue per line
+
+Usage: =vissue export [OPTIONS]=
+
+| Flag | Meaning |
+|------+---------|
+| =-p=, =--project= =<PROJECT>= | Only this project; every project when omitted |
+
+** =tree=
+
+Children and blockers below an id
+
+Usage: =vissue tree [OPTIONS] <ID>=
+
+| Argument | Meaning |
+|----------+---------|
+| =<ID>= |  |
+
+| Flag | Meaning |
+|------+---------|
+| =-f=, =--format= =<FORMAT>= | ascii or dot =[default: ascii]= |
+| =--json= | Emit the tree as JSON instead of ascii or dot |
+
+** =cycles=
+
+Cycles in the blocker graph
+
+Usage: =vissue cycles [OPTIONS]=
+
+No flags of its own.
+
+** =graph=
+
+The blocker and parent graph as Graphviz DOT
+
+Usage: =vissue graph [OPTIONS]=
+
+| Flag | Meaning |
+|------+---------|
+| =-p=, =--project= =<PROJECT>= | Only this project; every project when omitted |
+
+** =satchel=
+
+Pack a slice of the tracker so somebody else can open it.
+
+Writes a BagIt directory: the issues named, everything they stand on, and the deed accessions their work produced. The deeds themselves come from the deed store, which is the only thing that can vouch for them.
+
+vissue satchel =--out= DIR =--project= X =--issue= Y ... fill DIR/data/deeds from the deed store ... vissue satchel =--seal= DIR vissue satchel =--verify= DIR
+
+Usage: =vissue satchel [OPTIONS]=
+
+| Flag | Meaning |
+|------+---------|
+| =--out= =<OUT>= | Where to write the satchel |
+| =--project= =<PROJECT>= | Take these projects whole. Repeatable |
+| =--issue= =<ISSUE>= | Take these issues, and whatever they stand on. Repeatable |
+| =--seal= =<SEAL>= | Re-manifest a satchel over everything now in its payload |
+| =--verify= =<VERIFY>= | Check a satchel that arrived |
+
+** =refile=
+
+Move an issue to another project's file
+
+Usage: =vissue refile [OPTIONS] --to <TO> <ID>=
+
+| Argument | Meaning |
+|----------+---------|
+| =<ID>= |  |
+
+| Flag | Meaning |
+|------+---------|
+| =--to= =<TO>= | Target project |
+
+** =backlinks=
+
+Issues referring to this id
+
+Usage: =vissue backlinks [OPTIONS] <ID>=
+
+| Argument | Meaning |
+|----------+---------|
+| =<ID>= |  |
+
+| Flag | Meaning |
+|------+---------|
+| =--json= | Emit a JSON array instead of text |
+
+** =roadmap=
+
+A markdown roadmap of active and closed work
+
+Usage: =vissue roadmap [OPTIONS]=
+
+| Flag | Meaning |
+|------+---------|
+| =-p=, =--project= =<PROJECT>= | Only this project; every project when omitted |
+
+** =check=
+
+Validate the corpus. Exits non-zero on any error
+
+Usage: =vissue check [OPTIONS]=
+
+No flags of its own.
+
+** =normalize=
+
+Rewrite files onto the Org / ELPA / vissue property split
+
+Usage: =vissue normalize [OPTIONS]=
+
+| Flag | Meaning |
+|------+---------|
+| =-p=, =--project= =<PROJECT>= | Only this project; every project when omitted |
+| =--dry-run= | Print what would change without writing |
+
+** =digest=
+
+A content digest of the corpus, for telling whether a copy is current
+
+Usage: =vissue digest [OPTIONS]=
+
+| Flag | Meaning |
+|------+---------|
+| =-p=, =--project= =<PROJECTS>= | Project to include; repeat for several. Omit for every project |
+| =--json= | Emit a JSON object instead of text |
+| =-q=, =--quiet= | Print only the combined digest |
+
+** =project=
+
+Run the projection this repository's vissue.toml declares: fold each board's inbox into its source, apply its claims file, rewrite its mirror. A source not on this machine is reported and skipped
+
+Usage: =vissue project [OPTIONS]=
+
+| Flag | Meaning |
+|------+---------|
+| =--check= | Compare each mirror's stamp against its source instead of writing. Exits 0 when every reachable mirror is fresh, 1 when one is stale |
+
+** =merge-driver=
+
+Merge three versions of one issues.org by heading: git's merge driver. Notes, ballots, tags and properties that commute merge on their own; a field both sides changed keeps ours and is written on the heading as a merge-conflict note. A side that does not parse leaves git's ordinary conflict. =--install= registers the driver in the repository you stand in
+
+Usage: =vissue merge-driver [OPTIONS] [BASE] [OURS] [THEIRS] [PATH]=
+
+| Argument | Meaning |
+|----------+---------|
+| =[BASE]= | The common ancestor (git's %O) |
+| =[OURS]= | Ours (%A); the merge is written here |
+| =[THEIRS]= | Theirs (%B) |
+| =[PATH]= | The file's path in the tree (%P); its directory names the project |
+
+| Flag | Meaning |
+|------+---------|
+| =--install= | Register the driver in this repository's git config and .gitattributes instead of merging |
+
+** =mirror=
+
+Write a read-only projection of one or more projects to a file
+
+Usage: =vissue mirror [OPTIONS]=
+
+| Flag | Meaning |
+|------+---------|
+| =-p=, =--project= =<PROJECTS>= | Project to include; repeat for several. Omit for every project |
+| =-o=, =--out= =<OUT>= | Destination file; =-= writes to standard output |
+| =--check= =<CHECK>= | Compare an existing mirror's stamp against the tracker instead of writing. Exits 0 when fresh, 1 when stale |
+| =-f=, =--format= =<FORMAT>= | org or markdown =[default: org]= |
+| =-s=, =--state= =<STATE>= | Include only this state |
+
+** =events=
+
+Change events with a sequence above =--since=
+
+Usage: =vissue events [OPTIONS]=
+
+| Flag | Meaning |
+|------+---------|
+| =--since= =<SINCE>= | Only events newer than this sequence =[default: 0]= |
+| =-n=, =--limit= =<LIMIT>= | Maximum events returned =[default: 50]= |
+
+** =ping=
+
+Append a manual event, waking pollers without editing an issue
+
+Usage: =vissue ping [OPTIONS]=
+
+| Flag | Meaning |
+|------+---------|
+| =--detail= =<DETAIL>= | A line recorded with the event |
+
+** =wait=
+
+Block until the generation passes =--last=, or until an issue is terminal. Exits 2 on timeout
+
+Usage: =vissue wait [OPTIONS]=
+
+| Flag | Meaning |
+|------+---------|
+| =--last= =<LAST>= | The generation already seen; returns once the counter passes it =[default: 0]= |
+| =--id= =<ID>= | Issue to watch when =--until-terminal= is set |
+| =--until-terminal= | Block until the issue is DONE or CANCELLED |
+| =--poll-ms= =<POLL_MS>= | How often to look, in milliseconds =[default: 200]= |
+| =--timeout-ms= =<TIMEOUT_MS>= | Give up after this many milliseconds; exit 2 =[default: 10000]= |
+
+** =gen=
+
+Print the current generation counter
+
+Usage: =vissue gen [OPTIONS]=
+
+No flags of its own.
+
+** =projects=
+
+List the projects found under the layout prefix
+
+Usage: =vissue projects [OPTIONS]=
+
+| Flag | Meaning |
+|------+---------|
+| =--json= | Emit a JSON array instead of one name per line |
+
+** =identity=
+
+Print the resolved binary, root, and prefix
+
+Usage: =vissue identity [OPTIONS]=
+
+No flags of its own.
+
+** =serve=
+
+Own the per-user Unix control socket.
+
+Unix only. On Windows this command exits 1.
+
+Usage: =vissue serve [OPTIONS] [COMMAND]=
+
+| Flag | Meaning |
+|------+---------|
+| =-d=, =--detach= | Detach after the socket accepts. The child is placed in its own process group (not a new session) and can still receive SIGHUP from the parent terminal |
+| =-s=, =--socket= =<SOCKET>= | Control socket path. Falls back to =VISSUE_CONTROL_SOCKET=, then =$XDG_RUNTIME_DIR/vissue/control.sock=, then =~/.vissue/run/control.sock= |
+
+** =serve stop=
+
+Signal the owner (SIGTERM, then SIGKILL) and wait
+
+Usage: =vissue serve stop [OPTIONS]=
+
+| Flag | Meaning |
+|------+---------|
+| =-s=, =--socket= =<SOCKET>= | Control socket path. Falls back to =VISSUE_CONTROL_SOCKET=, then =$XDG_RUNTIME_DIR/vissue/control.sock=, then =~/.vissue/run/control.sock= |
+
+** =serve restart=
+
+Stop, then start detached
+
+Usage: =vissue serve restart [OPTIONS]=
+
+| Flag | Meaning |
+|------+---------|
+| =-s=, =--socket= =<SOCKET>= | Control socket path. Falls back to =VISSUE_CONTROL_SOCKET=, then =$XDG_RUNTIME_DIR/vissue/control.sock=, then =~/.vissue/run/control.sock= |
+
+** =serve status=
+
+Print a live/pid/socket snapshot. Exit 0 if live, 1 otherwise
+
+Usage: =vissue serve status [OPTIONS]=
+
+| Flag | Meaning |
+|------+---------|
+| =--json= | Machine-readable object |
+| =-s=, =--socket= =<SOCKET>= | Control socket path. Falls back to =VISSUE_CONTROL_SOCKET=, then =$XDG_RUNTIME_DIR/vissue/control.sock=, then =~/.vissue/run/control.sock= |
+
+** =serve help=
+
+Print this message or the help of the given subcommand(s)
+
+** =tui=
+
+Interactive board over ready, list, claims, agenda, and search.
+
+First paint reads the files. Unless =--offline=, the board then attaches to =vissue serve= (starting it when the socket is free). A root or prefix mismatch stays on the files and does not mutate the wrong vault. On Windows, omit =--offline= to get a Unix-only error; =--offline= still runs.
+
+Usage: =vissue tui [OPTIONS]=
+
+| Flag | Meaning |
+|------+---------|
+| =--offline= | Never attach, never spawn serve; CatalogService plus generation poll |
+| =-s=, =--socket= =<SOCKET>= | Control socket path. Falls back to =VISSUE_CONTROL_SOCKET=, then =$XDG_RUNTIME_DIR/vissue/control.sock=, then =~/.vissue/run/control.sock= |
+
+** =hud=
+
+Task board. Default execs =vissue-hud=. Home is the project list.
+
+=--rofi= is the seat dmenu picker: Return opens the heading in =$EDITOR=, Alt+c claims, Alt+n notes.
+
+Usage: =vissue hud [OPTIONS]=
+
+| Flag | Meaning |
+|------+---------|
+| =--mode= =<MODE>= | ready, list (all), claims, stale, or new. Used by =--rofi= =[default: ready]= |
+| =--offline= | Never attach, never spawn serve |
+| =--foreground= | Stay on the terminal |
+| =--toggle= | Show or hide a running board, or dismiss a live rofi picker |
+| =--show= | Show a running board |
+| =--hide= | Hide a running board, or dismiss a live rofi picker |
+| =--install-desktop= | Write a user-local .desktop launcher and Sway overlay include |
+| =--iced= | Use the iced board. Default when =--rofi= is absent |
+| =--rofi= | Use the rofi picker instead of the iced board |
+| =-s=, =--socket= =<SOCKET>= | Control socket path. Falls back to =VISSUE_CONTROL_SOCKET=, then =$XDG_RUNTIME_DIR/vissue/control.sock=, then =~/.vissue/run/control.sock= |
+
+** =completions=
+
+Write a shell completion script to stdout.
+
+Generated from this binary's own argument definitions, so it cannot drift from the commands it completes.
+
+Usage: =vissue completions [OPTIONS] <SHELL>=
+
+| Argument | Meaning |
+|----------+---------|
+| =<SHELL>= | Shell to generate for =[possible values: bash, elvish, fish, powershell, zsh]= |
+
+** =man=
+
+Write the roff manual page to stdout
+
+Usage: =vissue man [OPTIONS]=
+
+No flags of its own.
+
+** =keys=
+
+Print the HUD key catalog, or check a keys.toml overlay.
+
+Defaults live in code. =~/.config/vissue/keys.toml= or =VISSUE_KEYS= overlays diffs. A bad file keeps defaults and =--check= exits 1.
+
+Usage: =vissue keys [OPTIONS]=
+
+| Flag | Meaning |
+|------+---------|
+| =--check= | Load the overlay and exit 1 on conflict |
+| =--occupancy= | Print taken chords |
+
+** =help=
+
+Print this message or the help of the given subcommand(s)
+# [[[end]]]
+
 * Projects
 
 A project is a directory under the prefix holding one =issues.org=. Naming
