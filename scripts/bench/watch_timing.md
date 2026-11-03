@@ -6,7 +6,7 @@ Every number below outside the macOS section was taken on an Intel Xeon (family 
 It has 8 cores at 1 thread each.
 It ran Ubuntu 24.04.5 with Linux 6.12.94 on ext4, rustc 1.97.1 and `cargo build --release`, on CPU only.
 The editors were vim 9.1 and Emacs 29.3, with git 2.43.0.
-The six runs are in `scripts/bench/data/watch_timing/linux/`, recorded at commit 8b94dcc, and each keeps the header its run printed.
+The six runs are in `scripts/bench/data/watch_timing/linux/`, recorded at commit 2593c2a, and each keeps the header its run printed.
 
 ```sh
 bash scripts/bench/watch_timing.sh OUT
