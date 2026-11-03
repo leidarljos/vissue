@@ -344,6 +344,12 @@ pub struct ConsensusSection {
     /// Weight a row that does not name its writer gives it when no other voter
     /// names it either; otherwise the writer gets the mean weight the others
     /// give it.
+    ///
+    /// The default is the holding probability of the lazy random walk
+    /// `(I + P) / 2`. `P` is a trust row normalised with a zero on the
+    /// diagonal, and `I` contributes the other half. That walk is aperiodic
+    /// for every `P`, and it keeps `P`'s stationary distribution (Levin,
+    /// Peres, and Wilmer, Markov Chains and Mixing Times, section 1.3).
     pub self_weight: f64,
     /// How far an agent moves off the ballot it cast, in `[0, 1]`: one is
     /// DeGroot (the default), below one is Friedkin-Johnsen.
@@ -361,8 +367,11 @@ pub struct ConsensusSection {
 impl Default for ConsensusSection {
     fn default() -> Self {
         Self {
-            // Positive on purpose. A zero diagonal is what makes a trust graph
-            // periodic, and a tracker nobody has configured should converge.
+            // Holding probability of the lazy walk (I + P) / 2. P is a trust
+            // row normalised with a zero diagonal; I contributes one half. The
+            // walk is aperiodic for every P and keeps P's stationary
+            // distribution (Levin, Peres, and Wilmer, Markov Chains and
+            // Mixing Times, section 1.3).
             self_weight: 0.5,
             susceptibility: 1.0,
             susceptibility_of: BTreeMap::new(),

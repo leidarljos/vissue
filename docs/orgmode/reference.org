@@ -1044,7 +1044,7 @@ overriding the compiled defaults key by key.
 | =issues.id_length=           | =4=        | Base36 characters in a generated id suffix  |
 | =issues.stale_claim_days=    | =7=        | When =hygiene= calls a claim stale          |
 | =issues.expect_deeds=        | =false=    | Whether =hygiene= reports work that closed naming no deed |
-| =consensus.self_weight=      | =0.5=      | Weight a trust row that does not name its writer gives it when no other voter names it either |
+| =consensus.self_weight=      | =0.5=      | Holding probability of the lazy walk =(I + P) / 2=; fallback when no other voter names the writer |
 | =consensus.susceptibility=   | =1.0=      | How far an agent moves off the ballot it cast; below 1 anchors it |
 | =consensus.susceptibility_of.<agent>= | unset | That agent's susceptibility, where it differs from the default |
 | =consensus.tolerance=        | =1e-9=     | Largest disagreement that still counts as settled |
@@ -1629,6 +1629,12 @@ names its writer keeps that weight as written. Each row is then normalised, so
 rows in which every voter weighs a given voter alike settle as the weighted
 vote they describe. The consensus crate builds the matrix the same way from the
 same rows, so the seat gets one answer from either.
+
+The default =self_weight= is the holding probability of the lazy walk
+=(I + P) / 2=. =P= is a trust row normalised with a zero on the diagonal, and
+=I= contributes the one half. Levin, Peres, and Wilmer, /Markov Chains and
+Mixing Times/, section 1.3: that walk is aperiodic for every =P=, and it keeps
+the stationary distribution of =P=.
 
 That default is why the verb is safe on a tracker nobody has configured: every
 agent listens to every other equally, the influence matrix is doubly

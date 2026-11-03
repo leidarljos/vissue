@@ -1323,4 +1323,148 @@ mod tests {
         // carol wrote nothing, so it listens to all three alike.
         assert!(weights[2].iter().all(|w| (w - 1.0 / 3.0).abs() < 1e-12));
     }
+
+    /// The default `self_weight` is the holding probability of the lazy walk
+    /// `(I + P) / 2`, built here from `P` rather than written out as a
+    /// literal. Levin, Peres, and Wilmer, Markov Chains and Mixing Times,
+    /// section 1.3: the walk is aperiodic for every `P` and keeps `P`'s
+    /// stationary distribution.
+    #[test]
+    fn the_default_self_weight_is_the_lazy_holding_probability() {
+        let names = ["alice", "bob", "carol"];
+        let mut stated = ConsensusSection::default();
+        stated.trust.insert(
+            "alice".into(),
+            BTreeMap::from([("bob".into(), 1.0), ("carol".into(), 3.0)]),
+        );
+        stated
+            .trust
+            .insert("bob".into(), BTreeMap::from([("alice".into(), 1.0)]));
+        stated.trust.insert(
+            "carol".into(),
+            BTreeMap::from([("alice".into(), 1.0), ("bob".into(), 1.0)]),
+        );
+        let transition = walk_omitting_self(&stated, &names);
+        let lazy = lazy_walk(&transition);
+        assert_eq!(
+            ConsensusSection::default().self_weight,
+            lazy[0][0],
+            "the default is the diagonal (I + P) / 2 writes"
+        );
+        for (i, row) in lazy.iter().enumerate() {
+            assert!(
+                (row[i] - lazy[0][0]).abs() < 1e-12,
+                "every holding probability is the same half: {row:?}"
+            );
+            assert!(transition[i][i].abs() < 1e-12, "P has a zero diagonal");
+        }
+        let pi_walk = stationary(&transition);
+        let pi_lazy = stationary(&lazy);
+        for (got, want) in pi_walk.iter().zip(&pi_lazy) {
+            assert!(
+                (got - want).abs() < 1e-9,
+                "stationary {pi_walk:?} vs {pi_lazy:?}"
+            );
+        }
+
+        // No rows: P is the simple random walk on the others, and the same
+        // half is the holding probability of that walk.
+        let bare = walk_omitting_self(&ConsensusSection::default(), &names);
+        let bare_lazy = lazy_walk(&bare);
+        assert_eq!(ConsensusSection::default().self_weight, bare_lazy[0][0]);
+        let pi_bare = stationary(&bare);
+        let pi_bare_lazy = stationary(&bare_lazy);
+        for (got, want) in pi_bare.iter().zip(&pi_bare_lazy) {
+            assert!((got - want).abs() < 1e-9, "{pi_bare:?} vs {pi_bare_lazy:?}");
+        }
+
+        // A 2-cycle is periodic with a zero diagonal. The lazy walk's
+        // diagonal is still the default holding probability, and it keeps
+        // the cycle's stationary distribution.
+        let mut cycle = ConsensusSection::default();
+        cycle
+            .trust
+            .insert("alice".into(), BTreeMap::from([("bob".into(), 1.0)]));
+        cycle
+            .trust
+            .insert("bob".into(), BTreeMap::from([("alice".into(), 1.0)]));
+        let pair = ["alice", "bob"];
+        let cycle_p = walk_omitting_self(&cycle, &pair);
+        let cycle_lazy = lazy_walk(&cycle_p);
+        assert!((cycle_p[0][0]).abs() < 1e-12 && (cycle_p[0][1] - 1.0).abs() < 1e-12);
+        assert_eq!(ConsensusSection::default().self_weight, cycle_lazy[0][0]);
+        let pi_cycle = stationary(&cycle_p);
+        let pi_cycle_lazy = stationary(&cycle_lazy);
+        for (got, want) in pi_cycle.iter().zip(&pi_cycle_lazy) {
+            assert!(
+                (got - want).abs() < 1e-9,
+                "{pi_cycle:?} vs {pi_cycle_lazy:?}"
+            );
+        }
+    }
+
+    /// `P` for rows that do not name their writer: the stated positive trust
+    /// on other voters, normalised. An agent with no row walks uniformly on
+    /// the others. The diagonal stays zero, which is the chain the lazy walk
+    /// then holds against.
+    fn walk_omitting_self(cfg: &ConsensusSection, names: &[&str]) -> Vec<Vec<f64>> {
+        let n = names.len();
+        let mut transition = vec![vec![0.0; n]; n];
+        for (i, name) in names.iter().enumerate() {
+            let Some(spec) = cfg.trust.get(*name) else {
+                if n > 1 {
+                    let share = 1.0 / (n - 1) as f64;
+                    for (j, weight) in transition[i].iter_mut().enumerate() {
+                        if i != j {
+                            *weight = share;
+                        }
+                    }
+                }
+                continue;
+            };
+            let mut sum = 0.0;
+            for (j, other) in names.iter().enumerate() {
+                if i == j {
+                    continue;
+                }
+                if let Some(weight) = spec.get(*other).filter(|weight| **weight > 0.0) {
+                    transition[i][j] = *weight;
+                    sum += *weight;
+                }
+            }
+            if sum > 0.0 {
+                for weight in &mut transition[i] {
+                    *weight /= sum;
+                }
+            }
+        }
+        transition
+    }
+
+    fn lazy_walk(transition: &[Vec<f64>]) -> Vec<Vec<f64>> {
+        let n = transition.len();
+        let mut out = vec![vec![0.0; n]; n];
+        for (i, row) in transition.iter().enumerate() {
+            for (j, step) in row.iter().enumerate() {
+                let eye = if i == j { 1.0 } else { 0.0 };
+                out[i][j] = (eye + step) / 2.0;
+            }
+        }
+        out
+    }
+
+    fn stationary(transition: &[Vec<f64>]) -> Vec<f64> {
+        let n = transition.len();
+        let mut pi = vec![1.0 / n as f64; n];
+        for _ in 0..10_000 {
+            let mut next = vec![0.0; n];
+            for (i, weight) in pi.iter().enumerate() {
+                for (j, step) in transition[i].iter().enumerate() {
+                    next[j] += weight * step;
+                }
+            }
+            pi = next;
+        }
+        pi
+    }
 }
