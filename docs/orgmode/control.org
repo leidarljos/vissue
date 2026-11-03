@@ -91,11 +91,13 @@ are =snake_case=.
 =protocolVersion= other than 1 is =-32602= with ={"supported": 1}=.
 Missing or empty =params.agent= is =-32602= (=agent is required=).
 
-=revision= is serve-local and starts at 1. It increments on every
-catalog rebuild, including an Emacs edit that never touched the
-generation file. =generation= is the on-disk counter (=vissue gen=).
-A client that just attached drops =since_revision= for one full fetch
-and never feeds a core generation into =issue/list.since_revision=.
+=revision= is serve-local and starts at 1.
+It increments on every catalog rebuild that changes a project's parsed issues.
+That includes an Emacs edit that never touched the generation file.
+A rebuild that changes none, after a touch or an edit that parses the same, leaves it unchanged.
+=generation= is the on-disk counter (=vissue gen=).
+A newly attached client drops =since_revision= for one full fetch.
+It never feeds a core generation into =issue/list.since_revision=.
 
 * Identity
 
@@ -214,19 +216,19 @@ source). =report= is the same text the CLI prints. =agent= on a
 mutation is optional and overrides the connection agent.
 
 Mutations go through the same library ops and file lock as the CLI.
-Serve is not an exclusive writer. A =vissue claim= in another
-terminal, an MCP tool call, and an Emacs =C-c C-x= all land in the
-file; serve notices via the generation counter and =issues.org=
-watches, rebuilds 200 ms after the last signal, and pushes
-=vault/changed=.
+Serve is not an exclusive writer.
+Writes land in the file from a =vissue claim= in another terminal, an =MCP= tool call, and an Emacs =C-c C-x=.
+Serve notices via the generation counter and =issues.org= watches, and rebuilds 200 ms after the last signal.
+It pushes =vault/changed= only when that rebuild changed a project's parsed issues.
+A touch sends nothing, and neither does an edit whose parsed issues match.
 
 ** Notifications
 
 No =id= on these messages. Broadcast after the mutating RPC's
 response, so the caller can apply its own result before the echo.
 
-- =vault/changed= after a catalog rebuild. Params: =generation=,
-  =revision=, =projects= (dirty names), =ids= when known.
+- =vault/changed= after a catalog rebuild that changed a project's parsed issues.
+  Params: =generation=, =revision=, =projects= (the projects that changed), =ids= when known.
 - =issue/selected= after =issue/open=. Params: =id=, =project=.
 - =serve/shutting_down= when the owner is exiting. Params: ={}=.
 
