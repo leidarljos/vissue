@@ -1,0 +1,115 @@
+# commit: a8ff15100fd5b1802d930e96a6be452a07108537
+# date: 2026-11-03T10:53:53+0000
+# os: Ubuntu 24.04.5 LTS, x86_64
+# kernel: Linux 6.12.94+
+# cpu: Intel(R) Xeon(R) Processor (family 6, model 207)
+# cores: 8 logical, 1 thread(s) per core
+# governor: not exposed: no cpufreq in /sys
+# filesystem: ext4
+# build profile: release
+# rustc: rustc 1.97.1 (8bab26f4f 2026-07-14)
+# git: git version 2.43.0
+# vim: VIM - Vi IMproved 9.1 (2024 Jan 02, compiled Aug 24 2026 22:13:04)
+# emacs: GNU Emacs 29.3
+# python3: Python 3.12.3
+# run: 3 of 6
+rebuild 33716287
+rebuild 28978435
+rebuild 25285517
+rebuild 22578350
+rebuild 22473299
+rebuild 22658138
+rebuild 22232757
+rebuild 22747602
+rebuild 21698532
+rebuild 23144149
+rebuild 22776860
+rebuild 22200598
+rebuild 22544554
+rebuild 23027780
+rebuild 22921383
+rebuild 23413260
+rebuild 22045146
+rebuild 21996697
+rebuild 24005988
+rebuild 22772406
+rebuild 24309645
+rebuild 22858216
+rebuild 22764988
+rebuild 22970357
+rebuild 22741598
+rebuild 22743820
+rebuild 22831202
+rebuild 22896535
+rebuild 22904312
+rebuild 22962294
+rebuild 22560784
+rebuild 22915097
+rebuild 22698228
+rebuild 23133250
+rebuild 22593111
+rebuild 23030839
+rebuild 22682523
+rebuild 23348904
+rebuild 22966416
+rebuild 22983802
+rebuild 22987116
+rebuild 22776067
+rebuild 22966752
+rebuild 22912045
+rebuild 23144490
+rebuild 22898746
+rebuild 23191846
+rebuild 23388207
+rebuild 23151351
+rebuild 23102015
+rebuild 23022067
+rebuild 23129168
+rebuild 23019992
+rebuild 23177895
+rebuild 27868917
+rebuild 23591352
+rebuild 23310118
+rebuild 23168379
+rebuild 23843847
+rebuild 23230201
+rebuild 23036367
+rebuild 22960738
+rebuild 23316518
+rebuild 23536631
+rebuild 23216309
+rebuild 23321113
+rebuild 23321093
+rebuild 23407126
+rebuild 23187211
+rebuild 23395133
+rebuild 23252478
+rebuild 23310409
+rebuild 22991134
+rebuild 23343916
+rebuild 23260204
+rebuild 23136115
+rebuild 23287983
+rebuild 23366639
+rebuild 23611118
+rebuild 23173044
+rebuild 23507479
+rebuild 23766051
+rebuild 23763997
+rebuild 24773302
+rebuild 23640392
+rebuild 23323168
+rebuild 20459149
+rebuild 24255268
+rebuild 23306006
+rebuild 22703326
+rebuild 23723103
+rebuild 25932339
+rebuild 21125486
+rebuild 25792099
+rebuild 21541899
+rebuild 25362261
+rebuild 23528014
+rebuild 23219527
+rebuild 23707238
+rebuild 22352190
