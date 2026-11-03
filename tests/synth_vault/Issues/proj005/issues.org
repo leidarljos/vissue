@@ -1,0 +1,33 @@
+#+TITLE: proj005 issues
+#+VISSUE: 1
+#+CATEGORY: proj005
+#+TAGS: { bug(b) feature(f) task(t) chore(c) plan(p) }
+#+TAGS: docs(d) perf ignore ARCHIVE
+#+EXCLUDE_TAGS: noexport
+#+SELECT_TAGS: export
+#+PRIORITIES: A C C
+#+FILETAGS: :issues:proj005:noexport:
+
+* TODO [#B] holder node window voter accession fuse  :feature:
+:PROPERTIES:
+:ID:         proj005-0000
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:END:
+
+plan accession claim issue holder plan tracker plan fuse window
+panel generation blocker plan parent window head accession bridge blocker
+head blocker tracker plan parent reclaim tracker accession manifest node
+
+* TODO [#A] claim lease claim blocker lease node  :feature:
+:PROPERTIES:
+:ID:         proj005-0001
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:END:
+
+panel satchel deed blocker bridge satchel deed panel panel claim
+claim scorer bridge accession claim manifest tracker parent deed tracker
+plan manifest scorer token ballot scorer parent claim passage fence
+bridge head proof lease claim fuse node reclaim reclaim manifest
+window manifest fuse voter plan token panel scorer generation head

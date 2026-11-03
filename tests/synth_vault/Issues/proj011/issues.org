@@ -1,0 +1,43 @@
+#+TITLE: proj011 issues
+#+VISSUE: 1
+#+CATEGORY: proj011
+#+TAGS: { bug(b) feature(f) task(t) chore(c) plan(p) }
+#+TAGS: docs(d) perf ignore ARCHIVE
+#+EXCLUDE_TAGS: noexport
+#+SELECT_TAGS: export
+#+PRIORITIES: A C C
+#+FILETAGS: :issues:proj011:noexport:
+
+* TODO [#B] graph parent passage generation head bridge  :bug:
+:PROPERTIES:
+:ID:         proj011-0000
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:BLOCKED_BY: ljos-001j
+:END:
+
+claim voter fence tracker deed accession parent ballot quiet holder
+panel parent issue token panel quiet parent passage graph accession
+quiet quiet node bridge plan blocker node graph graph generation
+node quiet ballot deed issue fence panel satchel window ballot
+plan head reclaim token proof bridge blocker accession fuse generation
+
+* DONE [#A] head bridge parent passage reclaim graph  :task:
+:PROPERTIES:
+:ID:         proj011-0001
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:DEEDS:      deed-9qkpn0
+:END:
+:LOGBOOK:
+- Note: "claim bridge bridge bridge graph scorer manifest token" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+bridge issue scorer accession quiet accession claim token manifest satchel
+token holder bridge scorer deed accession satchel scorer window quiet
+accession issue lease accession reclaim head token deed head panel
+manifest scorer issue fuse voter manifest bridge panel reclaim window
+plan fuse fuse quiet manifest reclaim ballot reclaim deed deed
+voter node voter scorer fence proof lease reclaim window fence

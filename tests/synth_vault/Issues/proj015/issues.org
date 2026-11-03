@@ -1,0 +1,39 @@
+#+TITLE: proj015 issues
+#+VISSUE: 1
+#+CATEGORY: proj015
+#+TAGS: { bug(b) feature(f) task(t) chore(c) plan(p) }
+#+TAGS: docs(d) perf ignore ARCHIVE
+#+EXCLUDE_TAGS: noexport
+#+SELECT_TAGS: export
+#+PRIORITIES: A C C
+#+FILETAGS: :issues:proj015:noexport:
+
+* TODO [#A] fence window tracker proof plan node  :bug:
+:PROPERTIES:
+:ID:         proj015-0000
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:END:
+
+voter token token blocker satchel fence fuse node lease holder
+generation plan manifest fence plan deed scorer accession plan tracker
+blocker window plan scorer head panel blocker parent scorer window
+reclaim deed passage reclaim bridge tracker accession holder manifest manifest
+
+* STARTED [#C] ballot graph fuse passage holder passage  :bug:
+:PROPERTIES:
+:ID:         proj015-0001
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:ORDERED:    t
+:CLAIMED_BY: seat-bench
+:CLAIMED_AT: [2026-09-11 Fri 09:00]
+:END:
+:LOGBOOK:
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+token issue panel voter head issue manifest passage bridge node
+voter plan passage window satchel window deed deed satchel parent
+voter generation parent graph bridge accession tracker fuse reclaim tracker
+head plan manifest voter deed head manifest fence issue manifest

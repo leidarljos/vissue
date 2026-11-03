@@ -1,0 +1,34 @@
+#+TITLE: proj012 issues
+#+VISSUE: 1
+#+CATEGORY: proj012
+#+TAGS: { bug(b) feature(f) task(t) chore(c) plan(p) }
+#+TAGS: docs(d) perf ignore ARCHIVE
+#+EXCLUDE_TAGS: noexport
+#+SELECT_TAGS: export
+#+PRIORITIES: A C C
+#+FILETAGS: :issues:proj012:noexport:
+
+* TODO [#C] token issue parent node fuse token  :task:
+:PROPERTIES:
+:ID:         proj012-0000
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:END:
+
+fuse scorer voter fuse lease graph generation proof fence graph
+accession claim scorer voter lease passage proof manifest claim voter
+scorer window parent quiet lease scorer reclaim quiet claim parent
+
+* TODO [#A] graph scorer claim tracker passage accession  :bug:
+:PROPERTIES:
+:ID:         proj012-0001
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:BLOCKED_BY: proj012-0000
+:PARENT:     proj012-0000
+:END:
+
+passage holder proof manifest plan fuse lease lease generation proof
+ballot window panel satchel quiet manifest tracker manifest window holder
+manifest claim manifest graph window holder quiet quiet holder holder
+token scorer blocker blocker token quiet deed passage scorer scorer

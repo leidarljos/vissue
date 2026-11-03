@@ -1,0 +1,37 @@
+#+TITLE: proj019 issues
+#+VISSUE: 1
+#+CATEGORY: proj019
+#+TAGS: { bug(b) feature(f) task(t) chore(c) plan(p) }
+#+TAGS: docs(d) perf ignore ARCHIVE
+#+EXCLUDE_TAGS: noexport
+#+SELECT_TAGS: export
+#+PRIORITIES: A C C
+#+FILETAGS: :issues:proj019:noexport:
+
+* BLOCKED [#A] fence parent parent voter head window  :feature:
+:PROPERTIES:
+:ID:         proj019-0000
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:END:
+
+claim panel accession ballot lease holder accession manifest fence fence
+lease ballot tracker token generation quiet voter deed fuse graph
+deed tracker claim fence plan reclaim head ballot blocker graph
+window lease blocker generation tracker deed node deed fence fuse
+
+* STARTED [#C] plan claim holder satchel voter window  :task:
+:PROPERTIES:
+:ID:         proj019-0001
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:CLAIMED_BY: seat-bench
+:CLAIMED_AT: [2026-09-11 Fri 09:00]
+:END:
+:LOGBOOK:
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+graph graph tracker parent passage node holder voter deed satchel
+generation node token reclaim head blocker manifest head passage manifest
+passage bridge lease ballot issue issue tracker blocker claim voter

@@ -1,0 +1,160 @@
+ljos-0018              BLOCKED   [#A]  ballot generation fuse tracker accession blocker
+ljos-001m              BLOCKED   [#A]  token graph token passage lease proof
+ljos-0032              BLOCKED   [#A]  node blocker claim node lease satchel
+ljos-001d              CANCELLED [#A]  satchel fuse satchel ballot issue claim
+ljos-0022              CANCELLED [#A]  bridge issue fence holder manifest issue
+ljos-002p              CANCELLED [#A]  proof blocker proof generation fence blocker
+ljos-0008              DONE      [#A]  voter panel fuse manifest holder graph
+ljos-000l              DONE      [#A]  head claim voter claim accession tracker
+ljos-000o              DONE      [#A]  fence satchel graph node passage passage
+ljos-000t              DONE      [#A]  parent manifest ballot issue graph quiet
+ljos-001r              DONE      [#A]  lease fuse issue scorer accession holder
+ljos-002b              DONE      [#A]  manifest reclaim accession issue proof panel
+ljos-0036              DONE      [#A]  graph lease fence voter plan reclaim
+ljos-0004              STARTED   [#A]  manifest holder voter window lease issue  (claimed ?d by seat-bench)
+ljos-000a              STARTED   [#A]  manifest blocker lease graph generation lease  (claimed ?d by seat-bench)
+ljos-000s              STARTED   [#A]  lease ballot bridge head node head  (claimed ?d by seat-bench)
+ljos-000x              STARTED   [#A]  panel generation claim tracker blocker bridge  (claimed ?d by seat-bench)
+ljos-0017              STARTED   [#A]  issue head manifest blocker holder reclaim  (claimed ?d by seat-bench)
+ljos-0024              STARTED   [#A]  fence quiet ballot parent panel fuse  (claimed ?d by seat-bench)
+ljos-0028              STARTED   [#A]  accession lease reclaim accession accession plan  (claimed ?d by seat-bench)
+ljos-002d              STARTED   [#A]  manifest parent bridge fence manifest reclaim  (claimed ?d by seat-bench)
+ljos-002l              STARTED   [#A]  graph accession window parent reclaim holder  (claimed ?d by seat-bench)
+ljos-0000              TODO      [#A]  panel generation fence parent window token
+ljos-0006              TODO      [#A]  quiet quiet holder lease holder scorer
+ljos-000g              TODO      [#A]  tracker proof head ballot issue holder
+ljos-000m              TODO      [#A]  graph reclaim tracker fence claim ballot
+ljos-000n              TODO      [#A]  bridge voter head quiet node holder
+ljos-000z              TODO      [#A]  holder voter lease lease generation holder
+ljos-0010              TODO      [#A]  fence parent issue panel panel deed
+ljos-0014              TODO      [#A]  satchel plan blocker proof voter node
+ljos-001c              TODO      [#A]  panel window voter bridge head fuse
+ljos-001h              TODO      [#A]  accession accession parent node bridge token
+ljos-0021              TODO      [#A]  quiet claim reclaim window tracker token
+ljos-0027              TODO      [#A]  fence scorer quiet deed scorer manifest
+ljos-002i              TODO      [#A]  issue parent lease fuse node tracker
+ljos-002u              TODO      [#A]  holder reclaim scorer scorer passage generation
+ljos-002x              TODO      [#A]  plan issue node passage token claim
+ljos-0038              TODO      [#A]  satchel graph panel fence scorer scorer
+ljos-0001              BLOCKED   [#B]  deed node blocker quiet voter issue
+ljos-000d              BLOCKED   [#B]  plan satchel fence bridge fuse deed
+ljos-002h              BLOCKED   [#B]  node satchel plan scorer holder ballot
+ljos-002j              BLOCKED   [#B]  reclaim passage lease quiet window graph
+ljos-0005              CANCELLED [#B]  manifest manifest fence node token node
+ljos-0025              CANCELLED [#B]  scorer passage scorer holder voter generation
+ljos-002k              CANCELLED [#B]  claim reclaim generation quiet proof plan
+ljos-0002              DONE      [#B]  head manifest quiet ballot token bridge
+ljos-000q              DONE      [#B]  proof lease plan issue blocker manifest
+ljos-0015              DONE      [#B]  satchel parent bridge token generation graph
+ljos-0016              DONE      [#B]  deed issue window panel holder issue
+ljos-001b              DONE      [#B]  voter graph plan deed quiet proof
+ljos-001e              DONE      [#B]  reclaim graph scorer issue lease blocker
+ljos-001s              DONE      [#B]  proof ballot graph claim bridge fence
+ljos-002f              DONE      [#B]  accession scorer window satchel node parent
+ljos-002q              DONE      [#B]  graph parent voter deed claim generation
+ljos-002s              DONE      [#B]  bridge accession claim passage blocker ballot
+ljos-0031              DONE      [#B]  holder lease token reclaim tracker scorer
+ljos-0035              DONE      [#B]  lease proof window lease accession node
+ljos-000e              STARTED   [#B]  bridge lease deed head fence parent  (claimed ?d by seat-bench)
+ljos-0011              STARTED   [#B]  lease manifest bridge token bridge voter  (claimed ?d by seat-bench)
+ljos-0020              STARTED   [#B]  fence head lease fuse parent quiet  (claimed ?d by seat-bench)
+ljos-002g              STARTED   [#B]  fuse fence graph satchel deed head  (claimed ?d by seat-bench)
+ljos-002o              STARTED   [#B]  claim token fence fuse scorer reclaim  (claimed ?d by seat-bench)
+ljos-002z              STARTED   [#B]  blocker voter tracker reclaim issue graph  (claimed ?d by seat-bench)
+ljos-0034              STARTED   [#B]  lease fence fence generation token fuse  (claimed ?d by seat-bench)
+ljos-000b              TODO      [#B]  accession node generation claim deed reclaim
+ljos-000h              TODO      [#B]  blocker scorer reclaim claim lease tracker
+ljos-000k              TODO      [#B]  plan passage fence reclaim bridge reclaim
+ljos-000p              TODO      [#B]  fuse manifest quiet ballot deed fence
+ljos-000r              TODO      [#B]  deed holder parent generation bridge accession
+ljos-000u              TODO      [#B]  passage scorer voter claim claim token
+ljos-000v              TODO      [#B]  ballot panel generation lease generation lease
+ljos-000y              TODO      [#B]  parent tracker reclaim quiet tracker accession
+ljos-001f              TODO      [#B]  token head issue scorer parent ballot
+ljos-001j              TODO      [#B]  quiet voter manifest scorer ballot plan
+ljos-001u              TODO      [#B]  issue deed reclaim fence voter deed
+ljos-001v              TODO      [#B]  satchel tracker generation window deed panel
+ljos-0029              TODO      [#B]  manifest window fuse scorer plan window
+ljos-002c              TODO      [#B]  passage tracker manifest token issue quiet
+ljos-002m              TODO      [#B]  scorer window issue fence reclaim holder
+ljos-002r              TODO      [#B]  deed bridge ballot lease token claim
+ljos-002v              TODO      [#B]  blocker bridge graph token reclaim ballot
+ljos-002y              TODO      [#B]  deed panel accession accession passage scorer
+ljos-0037              TODO      [#B]  voter voter quiet head tracker claim
+ljos-0013              BLOCKED   [#C]  node tracker accession ballot passage manifest
+ljos-001z              BLOCKED   [#C]  claim generation reclaim bridge proof bridge
+ljos-0030              BLOCKED   [#C]  accession manifest deed token generation tracker
+ljos-003b              BLOCKED   [#C]  voter node lease ballot head claim
+ljos-0012              CANCELLED [#C]  head holder window ballot issue voter
+ljos-001a              CANCELLED [#C]  generation blocker passage window ballot satchel
+ljos-001p              CANCELLED [#C]  accession reclaim proof claim lease lease
+ljos-0007              DONE      [#C]  parent claim passage holder window holder
+ljos-000c              DONE      [#C]  holder deed tracker ballot panel holder
+ljos-001k              DONE      [#C]  generation graph token head bridge scorer
+ljos-001n              DONE      [#C]  deed parent head ballot voter scorer
+ljos-001q              DONE      [#C]  parent passage claim proof panel quiet
+ljos-001t              DONE      [#C]  head parent blocker blocker node quiet
+ljos-001w              DONE      [#C]  passage generation fuse voter reclaim proof
+ljos-001x              DONE      [#C]  node accession panel parent token window
+ljos-003a              DONE      [#C]  token reclaim graph fuse blocker manifest
+ljos-000i              STARTED   [#C]  parent tracker voter panel plan issue  (claimed ?d by seat-bench)
+ljos-0033              STARTED   [#C]  accession token passage blocker claim satchel  (claimed ?d by seat-bench)
+ljos-0003              TODO      [#C]  holder voter plan passage ballot panel
+ljos-0009              TODO      [#C]  proof claim fence graph lease panel
+ljos-000f              TODO      [#C]  proof manifest satchel accession token parent
+ljos-000j              TODO      [#C]  lease window deed head graph accession
+ljos-000w              TODO      [#C]  head ballot passage tracker bridge node
+ljos-0019              TODO      [#C]  parent deed deed manifest parent bridge
+ljos-001g              TODO      [#C]  issue panel token bridge accession manifest
+ljos-001i              TODO      [#C]  passage holder head lease blocker parent
+ljos-001l              TODO      [#C]  fuse manifest node plan proof fuse
+ljos-001o              TODO      [#C]  panel voter holder proof plan token
+ljos-001y              TODO      [#C]  generation lease head issue bridge fence
+ljos-0023              TODO      [#C]  manifest tracker bridge generation parent ballot
+ljos-0026              TODO      [#C]  satchel accession generation voter accession fuse
+ljos-002a              TODO      [#C]  head plan bridge reclaim panel manifest
+ljos-002e              TODO      [#C]  node ballot passage graph voter ballot
+ljos-002n              TODO      [#C]  accession lease parent panel plan parent
+ljos-002t              TODO      [#C]  panel fuse satchel passage blocker fuse
+ljos-002w              TODO      [#C]  issue ballot fuse parent proof parent
+ljos-0039              TODO      [#C]  parent manifest node deed lease bridge
+proj000-0000           TODO      [#B]  graph node issue accession generation proof
+proj000-0001           TODO      [#C]  graph proof holder holder passage holder
+proj001-0001           DONE      [#A]  tracker voter manifest satchel fuse bridge
+proj001-0000           STARTED   [#C]  proof fence scorer claim graph scorer  (claimed ?d by seat-bench)
+proj002-0000           TODO      [#A]  window proof tracker window graph lease
+proj002-0001           TODO      [#B]  bridge plan graph accession generation fence
+proj003-0001           DONE      [#B]  accession passage tracker deed generation issue
+proj003-0000           BLOCKED   [#C]  holder lease reclaim scorer reclaim token
+proj004-0000           DONE      [#B]  passage fence holder satchel voter token
+proj004-0001           TODO      [#C]  fuse reclaim fuse proof generation parent
+proj005-0001           TODO      [#A]  claim lease claim blocker lease node
+proj005-0000           TODO      [#B]  holder node window voter accession fuse
+proj006-0000           BLOCKED   [#B]  voter holder proof fence quiet passage
+proj006-0001           TODO      [#C]  claim issue token plan scorer manifest
+proj007-0000           TODO      [#A]  plan fence plan fence claim blocker
+proj007-0001           TODO      [#B]  passage reclaim bridge scorer passage holder
+proj008-0000           TODO      [#B]  scorer scorer fuse node accession blocker
+proj008-0001           TODO      [#B]  voter satchel lease fence reclaim reclaim
+proj009-0000           BLOCKED   [#C]  ballot holder deed generation fence generation
+proj009-0001           DONE      [#C]  panel generation head passage ballot fuse
+proj010-0001           TODO      [#A]  proof deed scorer passage proof voter
+proj010-0000           BLOCKED   [#B]  scorer ballot quiet accession claim satchel
+proj011-0001           DONE      [#A]  head bridge parent passage reclaim graph
+proj011-0000           TODO      [#B]  graph parent passage generation head bridge
+proj012-0001           TODO      [#A]  graph scorer claim tracker passage accession
+proj012-0000           TODO      [#C]  token issue parent node fuse token
+proj013-0000           TODO      [#B]  head window issue lease tracker generation
+proj013-0001           TODO      [#C]  generation ballot quiet reclaim fence graph
+proj014-0000           STARTED   [#A]  fuse reclaim proof graph fuse head  (claimed ?d by seat-bench)
+proj014-0001           TODO      [#B]  holder fuse fuse lease voter quiet
+proj015-0000           TODO      [#A]  fence window tracker proof plan node
+proj015-0001           STARTED   [#C]  ballot graph fuse passage holder passage  (claimed ?d by seat-bench)
+proj016-0001           CANCELLED [#A]  generation plan quiet claim generation proof
+proj016-0000           DONE      [#A]  blocker proof panel tracker fuse graph
+proj017-0000           DONE      [#A]  satchel node panel plan proof node
+proj017-0001           TODO      [#C]  token manifest deed plan window reclaim
+proj018-0000           TODO      [#B]  claim accession fuse satchel fuse generation
+proj018-0001           TODO      [#B]  reclaim window ballot blocker issue scorer
+proj019-0000           BLOCKED   [#A]  fence parent parent voter head window
+proj019-0001           STARTED   [#C]  plan claim holder satchel voter window  (claimed ?d by seat-bench)

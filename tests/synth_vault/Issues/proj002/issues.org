@@ -1,0 +1,33 @@
+#+TITLE: proj002 issues
+#+VISSUE: 1
+#+CATEGORY: proj002
+#+TAGS: { bug(b) feature(f) task(t) chore(c) plan(p) }
+#+TAGS: docs(d) perf ignore ARCHIVE
+#+EXCLUDE_TAGS: noexport
+#+SELECT_TAGS: export
+#+PRIORITIES: A C C
+#+FILETAGS: :issues:proj002:noexport:
+
+* TODO [#A] window proof tracker window graph lease  :task:
+:PROPERTIES:
+:ID:         proj002-0000
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:BLOCKED_BY: ljos-000a
+:END:
+
+quiet node quiet graph claim voter blocker node lease lease
+token fence fence reclaim holder bridge accession fence passage manifest
+
+* TODO [#B] bridge plan graph accession generation fence  :task:
+:PROPERTIES:
+:ID:         proj002-0001
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:BLOCKED_BY: proj002-0000
+:END:
+
+accession passage bridge holder reclaim ballot window blocker generation issue
+holder parent voter proof satchel deed voter lease node deed
+blocker fence blocker bridge token fence scorer holder reclaim blocker
+voter head blocker head blocker parent node ballot fence parent

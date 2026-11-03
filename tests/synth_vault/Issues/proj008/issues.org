@@ -1,0 +1,33 @@
+#+TITLE: proj008 issues
+#+VISSUE: 1
+#+CATEGORY: proj008
+#+TAGS: { bug(b) feature(f) task(t) chore(c) plan(p) }
+#+TAGS: docs(d) perf ignore ARCHIVE
+#+EXCLUDE_TAGS: noexport
+#+SELECT_TAGS: export
+#+PRIORITIES: A C C
+#+FILETAGS: :issues:proj008:noexport:
+
+* TODO [#B] scorer scorer fuse node accession blocker  :feature:
+:PROPERTIES:
+:ID:         proj008-0000
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:END:
+
+panel quiet deed token holder claim claim blocker lease ballot
+accession blocker bridge head bridge graph manifest passage claim lease
+manifest window window blocker accession panel bridge token accession graph
+satchel ballot ballot scorer blocker plan graph lease manifest blocker
+satchel fence manifest blocker panel window lease graph claim accession
+
+* TODO [#B] voter satchel lease fence reclaim reclaim  :bug:
+:PROPERTIES:
+:ID:         proj008-0001
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:PARENT:     proj008-0000
+:END:
+
+tracker tracker token holder window window fence issue holder proof
+parent reclaim generation tracker bridge plan tracker satchel proof fence

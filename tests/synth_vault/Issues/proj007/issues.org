@@ -1,0 +1,34 @@
+#+TITLE: proj007 issues
+#+VISSUE: 1
+#+CATEGORY: proj007
+#+TAGS: { bug(b) feature(f) task(t) chore(c) plan(p) }
+#+TAGS: docs(d) perf ignore ARCHIVE
+#+EXCLUDE_TAGS: noexport
+#+SELECT_TAGS: export
+#+PRIORITIES: A C C
+#+FILETAGS: :issues:proj007:noexport:
+
+* TODO [#A] plan fence plan fence claim blocker  :feature:
+:PROPERTIES:
+:ID:         proj007-0000
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:END:
+
+head quiet panel reclaim window accession proof issue tracker node
+reclaim node quiet plan proof manifest ballot proof deed deed
+quiet panel reclaim head fence holder reclaim scorer accession token
+passage deed quiet proof bridge parent head issue scorer bridge
+
+* TODO [#B] passage reclaim bridge scorer passage holder  :feature:
+:PROPERTIES:
+:ID:         proj007-0001
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:BLOCKED_BY: proj007-0000
+:END:
+
+tracker proof accession manifest voter voter parent satchel panel holder
+head plan parent scorer window lease generation plan blocker tracker
+bridge manifest passage panel voter fuse satchel proof ballot deed
+quiet window panel fuse tracker tracker lease fuse holder panel

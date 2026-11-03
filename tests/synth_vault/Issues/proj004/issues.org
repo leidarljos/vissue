@@ -1,0 +1,42 @@
+#+TITLE: proj004 issues
+#+VISSUE: 1
+#+CATEGORY: proj004
+#+TAGS: { bug(b) feature(f) task(t) chore(c) plan(p) }
+#+TAGS: docs(d) perf ignore ARCHIVE
+#+EXCLUDE_TAGS: noexport
+#+SELECT_TAGS: export
+#+PRIORITIES: A C C
+#+FILETAGS: :issues:proj004:noexport:
+
+* DONE [#B] passage fence holder satchel voter token  :feature:
+:PROPERTIES:
+:ID:         proj004-0000
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:DEEDS:      deed-9lbd8h
+:END:
+:LOGBOOK:
+- Note: "passage token voter fence accession quiet parent window" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+parent proof quiet node quiet satchel issue blocker proof voter
+accession manifest token claim node head window token fence graph
+tracker claim tracker claim satchel bridge node quiet ballot blocker
+deed issue head satchel voter reclaim tracker blocker holder tracker
+reclaim bridge token plan parent passage accession blocker node lease
+graph passage bridge parent voter holder plan ballot accession accession
+
+* TODO [#C] fuse reclaim fuse proof generation parent  :feature:
+:PROPERTIES:
+:ID:         proj004-0001
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:BLOCKED_BY: ljos-0002 ljos-001t
+:END:
+
+node plan accession parent claim graph manifest deed manifest ballot
+manifest satchel satchel deed token node lease fuse proof issue
+panel issue claim scorer issue node parent panel blocker generation
+claim tracker quiet issue holder parent deed graph passage panel

@@ -1,0 +1,678 @@
+[
+  {
+    "blocked_by": [],
+    "claimed_at": "[2026-09-11 Fri 09:00]",
+    "claimed_by": "seat-bench",
+    "id": "ljos-0004",
+    "parent": null,
+    "priority": "A",
+    "project": "ljos",
+    "state": "STARTED",
+    "title": "manifest holder voter window lease issue"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": "[2026-09-11 Fri 09:00]",
+    "claimed_by": "seat-bench",
+    "id": "ljos-000a",
+    "parent": null,
+    "priority": "A",
+    "project": "ljos",
+    "state": "STARTED",
+    "title": "manifest blocker lease graph generation lease"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": "[2026-09-11 Fri 09:00]",
+    "claimed_by": "seat-bench",
+    "id": "ljos-000s",
+    "parent": null,
+    "priority": "A",
+    "project": "ljos",
+    "state": "STARTED",
+    "title": "lease ballot bridge head node head"
+  },
+  {
+    "blocked_by": [
+      "ljos-000t",
+      "ljos-0005"
+    ],
+    "claimed_at": "[2026-09-11 Fri 09:00]",
+    "claimed_by": "seat-bench",
+    "id": "ljos-000x",
+    "parent": null,
+    "priority": "A",
+    "project": "ljos",
+    "state": "STARTED",
+    "title": "panel generation claim tracker blocker bridge"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": "[2026-09-11 Fri 09:00]",
+    "claimed_by": "seat-bench",
+    "id": "ljos-0017",
+    "parent": "ljos-0012",
+    "priority": "A",
+    "project": "ljos",
+    "state": "STARTED",
+    "title": "issue head manifest blocker holder reclaim"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": "[2026-09-11 Fri 09:00]",
+    "claimed_by": "seat-bench",
+    "id": "ljos-0024",
+    "parent": null,
+    "priority": "A",
+    "project": "ljos",
+    "state": "STARTED",
+    "title": "fence quiet ballot parent panel fuse"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": "[2026-09-11 Fri 09:00]",
+    "claimed_by": "seat-bench",
+    "id": "ljos-0028",
+    "parent": null,
+    "priority": "A",
+    "project": "ljos",
+    "state": "STARTED",
+    "title": "accession lease reclaim accession accession plan"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": "[2026-09-11 Fri 09:00]",
+    "claimed_by": "seat-bench",
+    "id": "ljos-002d",
+    "parent": "ljos-0009",
+    "priority": "A",
+    "project": "ljos",
+    "state": "STARTED",
+    "title": "manifest parent bridge fence manifest reclaim"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": "[2026-09-11 Fri 09:00]",
+    "claimed_by": "seat-bench",
+    "id": "ljos-002l",
+    "parent": "ljos-002k",
+    "priority": "A",
+    "project": "ljos",
+    "state": "STARTED",
+    "title": "graph accession window parent reclaim holder"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "ljos-0000",
+    "parent": null,
+    "priority": "A",
+    "project": "ljos",
+    "state": "TODO",
+    "title": "panel generation fence parent window token"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "ljos-0006",
+    "parent": "ljos-0004",
+    "priority": "A",
+    "project": "ljos",
+    "state": "TODO",
+    "title": "quiet quiet holder lease holder scorer"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "ljos-000n",
+    "parent": null,
+    "priority": "A",
+    "project": "ljos",
+    "state": "TODO",
+    "title": "bridge voter head quiet node holder"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "ljos-000z",
+    "parent": null,
+    "priority": "A",
+    "project": "ljos",
+    "state": "TODO",
+    "title": "holder voter lease lease generation holder"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "ljos-0014",
+    "parent": null,
+    "priority": "A",
+    "project": "ljos",
+    "state": "TODO",
+    "title": "satchel plan blocker proof voter node"
+  },
+  {
+    "blocked_by": [
+      "ljos-001b"
+    ],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "ljos-001h",
+    "parent": "ljos-001f",
+    "priority": "A",
+    "project": "ljos",
+    "state": "TODO",
+    "title": "accession accession parent node bridge token"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "ljos-0021",
+    "parent": null,
+    "priority": "A",
+    "project": "ljos",
+    "state": "TODO",
+    "title": "quiet claim reclaim window tracker token"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "ljos-002i",
+    "parent": null,
+    "priority": "A",
+    "project": "ljos",
+    "state": "TODO",
+    "title": "issue parent lease fuse node tracker"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": "[2026-09-11 Fri 09:00]",
+    "claimed_by": "seat-bench",
+    "id": "ljos-000e",
+    "parent": null,
+    "priority": "B",
+    "project": "ljos",
+    "state": "STARTED",
+    "title": "bridge lease deed head fence parent"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": "[2026-09-11 Fri 09:00]",
+    "claimed_by": "seat-bench",
+    "id": "ljos-002g",
+    "parent": null,
+    "priority": "B",
+    "project": "ljos",
+    "state": "STARTED",
+    "title": "fuse fence graph satchel deed head"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": "[2026-09-11 Fri 09:00]",
+    "claimed_by": "seat-bench",
+    "id": "ljos-002o",
+    "parent": null,
+    "priority": "B",
+    "project": "ljos",
+    "state": "STARTED",
+    "title": "claim token fence fuse scorer reclaim"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": "[2026-09-11 Fri 09:00]",
+    "claimed_by": "seat-bench",
+    "id": "ljos-002z",
+    "parent": null,
+    "priority": "B",
+    "project": "ljos",
+    "state": "STARTED",
+    "title": "blocker voter tracker reclaim issue graph"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "ljos-000k",
+    "parent": "ljos-0007",
+    "priority": "B",
+    "project": "ljos",
+    "state": "TODO",
+    "title": "plan passage fence reclaim bridge reclaim"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "ljos-000p",
+    "parent": null,
+    "priority": "B",
+    "project": "ljos",
+    "state": "TODO",
+    "title": "fuse manifest quiet ballot deed fence"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "ljos-000r",
+    "parent": null,
+    "priority": "B",
+    "project": "ljos",
+    "state": "TODO",
+    "title": "deed holder parent generation bridge accession"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "ljos-000u",
+    "parent": null,
+    "priority": "B",
+    "project": "ljos",
+    "state": "TODO",
+    "title": "passage scorer voter claim claim token"
+  },
+  {
+    "blocked_by": [
+      "ljos-000l"
+    ],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "ljos-001f",
+    "parent": "ljos-000b",
+    "priority": "B",
+    "project": "ljos",
+    "state": "TODO",
+    "title": "token head issue scorer parent ballot"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "ljos-001j",
+    "parent": null,
+    "priority": "B",
+    "project": "ljos",
+    "state": "TODO",
+    "title": "quiet voter manifest scorer ballot plan"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "ljos-001u",
+    "parent": null,
+    "priority": "B",
+    "project": "ljos",
+    "state": "TODO",
+    "title": "issue deed reclaim fence voter deed"
+  },
+  {
+    "blocked_by": [
+      "ljos-001r"
+    ],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "ljos-001v",
+    "parent": null,
+    "priority": "B",
+    "project": "ljos",
+    "state": "TODO",
+    "title": "satchel tracker generation window deed panel"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "ljos-0029",
+    "parent": null,
+    "priority": "B",
+    "project": "ljos",
+    "state": "TODO",
+    "title": "manifest window fuse scorer plan window"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "ljos-002r",
+    "parent": null,
+    "priority": "B",
+    "project": "ljos",
+    "state": "TODO",
+    "title": "deed bridge ballot lease token claim"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "ljos-002v",
+    "parent": null,
+    "priority": "B",
+    "project": "ljos",
+    "state": "TODO",
+    "title": "blocker bridge graph token reclaim ballot"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "ljos-002y",
+    "parent": null,
+    "priority": "B",
+    "project": "ljos",
+    "state": "TODO",
+    "title": "deed panel accession accession passage scorer"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "ljos-0037",
+    "parent": null,
+    "priority": "B",
+    "project": "ljos",
+    "state": "TODO",
+    "title": "voter voter quiet head tracker claim"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "ljos-0009",
+    "parent": null,
+    "priority": "C",
+    "project": "ljos",
+    "state": "TODO",
+    "title": "proof claim fence graph lease panel"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "ljos-0019",
+    "parent": null,
+    "priority": "C",
+    "project": "ljos",
+    "state": "TODO",
+    "title": "parent deed deed manifest parent bridge"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "ljos-001o",
+    "parent": null,
+    "priority": "C",
+    "project": "ljos",
+    "state": "TODO",
+    "title": "panel voter holder proof plan token"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "ljos-0026",
+    "parent": null,
+    "priority": "C",
+    "project": "ljos",
+    "state": "TODO",
+    "title": "satchel accession generation voter accession fuse"
+  },
+  {
+    "blocked_by": [
+      "ljos-0015"
+    ],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "ljos-002a",
+    "parent": null,
+    "priority": "C",
+    "project": "ljos",
+    "state": "TODO",
+    "title": "head plan bridge reclaim panel manifest"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "ljos-002e",
+    "parent": null,
+    "priority": "C",
+    "project": "ljos",
+    "state": "TODO",
+    "title": "node ballot passage graph voter ballot"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "ljos-002t",
+    "parent": null,
+    "priority": "C",
+    "project": "ljos",
+    "state": "TODO",
+    "title": "panel fuse satchel passage blocker fuse"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "proj000-0000",
+    "parent": null,
+    "priority": "B",
+    "project": "proj000",
+    "state": "TODO",
+    "title": "graph node issue accession generation proof"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "proj000-0001",
+    "parent": "proj000-0000",
+    "priority": "C",
+    "project": "proj000",
+    "state": "TODO",
+    "title": "graph proof holder holder passage holder"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": "[2026-09-11 Fri 09:00]",
+    "claimed_by": "seat-bench",
+    "id": "proj001-0000",
+    "parent": null,
+    "priority": "C",
+    "project": "proj001",
+    "state": "STARTED",
+    "title": "proof fence scorer claim graph scorer"
+  },
+  {
+    "blocked_by": [
+      "ljos-0002",
+      "ljos-001t"
+    ],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "proj004-0001",
+    "parent": null,
+    "priority": "C",
+    "project": "proj004",
+    "state": "TODO",
+    "title": "fuse reclaim fuse proof generation parent"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "proj005-0001",
+    "parent": null,
+    "priority": "A",
+    "project": "proj005",
+    "state": "TODO",
+    "title": "claim lease claim blocker lease node"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "proj005-0000",
+    "parent": null,
+    "priority": "B",
+    "project": "proj005",
+    "state": "TODO",
+    "title": "holder node window voter accession fuse"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "proj007-0000",
+    "parent": null,
+    "priority": "A",
+    "project": "proj007",
+    "state": "TODO",
+    "title": "plan fence plan fence claim blocker"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "proj008-0000",
+    "parent": null,
+    "priority": "B",
+    "project": "proj008",
+    "state": "TODO",
+    "title": "scorer scorer fuse node accession blocker"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "proj008-0001",
+    "parent": "proj008-0000",
+    "priority": "B",
+    "project": "proj008",
+    "state": "TODO",
+    "title": "voter satchel lease fence reclaim reclaim"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "proj012-0000",
+    "parent": null,
+    "priority": "C",
+    "project": "proj012",
+    "state": "TODO",
+    "title": "token issue parent node fuse token"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "proj013-0000",
+    "parent": null,
+    "priority": "B",
+    "project": "proj013",
+    "state": "TODO",
+    "title": "head window issue lease tracker generation"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": "[2026-09-11 Fri 09:00]",
+    "claimed_by": "seat-bench",
+    "id": "proj014-0000",
+    "parent": null,
+    "priority": "A",
+    "project": "proj014",
+    "state": "STARTED",
+    "title": "fuse reclaim proof graph fuse head"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "proj014-0001",
+    "parent": "proj014-0000",
+    "priority": "B",
+    "project": "proj014",
+    "state": "TODO",
+    "title": "holder fuse fuse lease voter quiet"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "proj015-0000",
+    "parent": null,
+    "priority": "A",
+    "project": "proj015",
+    "state": "TODO",
+    "title": "fence window tracker proof plan node"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": "[2026-09-11 Fri 09:00]",
+    "claimed_by": "seat-bench",
+    "id": "proj015-0001",
+    "parent": null,
+    "priority": "C",
+    "project": "proj015",
+    "state": "STARTED",
+    "title": "ballot graph fuse passage holder passage"
+  },
+  {
+    "blocked_by": [
+      "proj017-0000"
+    ],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "proj017-0001",
+    "parent": null,
+    "priority": "C",
+    "project": "proj017",
+    "state": "TODO",
+    "title": "token manifest deed plan window reclaim"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "proj018-0000",
+    "parent": null,
+    "priority": "B",
+    "project": "proj018",
+    "state": "TODO",
+    "title": "claim accession fuse satchel fuse generation"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": null,
+    "claimed_by": null,
+    "id": "proj018-0001",
+    "parent": null,
+    "priority": "B",
+    "project": "proj018",
+    "state": "TODO",
+    "title": "reclaim window ballot blocker issue scorer"
+  },
+  {
+    "blocked_by": [],
+    "claimed_at": "[2026-09-11 Fri 09:00]",
+    "claimed_by": "seat-bench",
+    "id": "proj019-0001",
+    "parent": null,
+    "priority": "C",
+    "project": "proj019",
+    "state": "STARTED",
+    "title": "plan claim holder satchel voter window"
+  }
+]

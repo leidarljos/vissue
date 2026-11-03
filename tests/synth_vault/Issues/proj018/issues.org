@@ -1,0 +1,31 @@
+#+TITLE: proj018 issues
+#+VISSUE: 1
+#+CATEGORY: proj018
+#+TAGS: { bug(b) feature(f) task(t) chore(c) plan(p) }
+#+TAGS: docs(d) perf ignore ARCHIVE
+#+EXCLUDE_TAGS: noexport
+#+SELECT_TAGS: export
+#+PRIORITIES: A C C
+#+FILETAGS: :issues:proj018:noexport:
+
+* TODO [#B] claim accession fuse satchel fuse generation  :bug:
+:PROPERTIES:
+:ID:         proj018-0000
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:END:
+
+window quiet fence panel quiet voter quiet graph blocker panel
+passage holder voter ballot issue quiet fuse passage plan accession
+deed window window holder voter bridge tracker ballot token holder
+
+* TODO [#B] reclaim window ballot blocker issue scorer  :task:
+:PROPERTIES:
+:ID:         proj018-0001
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:END:
+
+issue plan manifest bridge head window quiet parent generation panel
+token fence ballot ballot generation scorer voter passage tracker holder
+graph blocker plan fence quiet claim parent passage lease lease

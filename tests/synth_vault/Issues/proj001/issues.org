@@ -1,0 +1,45 @@
+#+TITLE: proj001 issues
+#+VISSUE: 1
+#+CATEGORY: proj001
+#+TAGS: { bug(b) feature(f) task(t) chore(c) plan(p) }
+#+TAGS: docs(d) perf ignore ARCHIVE
+#+EXCLUDE_TAGS: noexport
+#+SELECT_TAGS: export
+#+PRIORITIES: A C C
+#+FILETAGS: :issues:proj001:noexport:
+
+* STARTED [#C] proof fence scorer claim graph scorer  :bug:
+:PROPERTIES:
+:ID:         proj001-0000
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:CLAIMED_BY: seat-bench
+:CLAIMED_AT: [2026-09-11 Fri 09:00]
+:END:
+:LOGBOOK:
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+panel node proof manifest passage graph fuse parent fence voter
+tracker generation ballot fuse bridge reclaim fuse accession blocker lease
+head bridge accession fuse issue voter panel claim quiet head
+accession blocker node proof fence reclaim window proof satchel holder
+
+* DONE [#A] tracker voter manifest satchel fuse bridge  :feature:
+:PROPERTIES:
+:ID:         proj001-0001
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:BLOCKED_BY: proj001-0000
+:END:
+:LOGBOOK:
+- Note: "claim satchel ballot proof panel fence bridge scorer" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+accession scorer window manifest manifest voter issue proof accession quiet
+blocker bridge voter lease fuse fuse issue quiet satchel manifest
+token panel issue deed parent window panel reclaim panel node
+voter scorer issue reclaim manifest issue plan deed panel graph
+quiet parent fence ballot head plan fuse claim issue scorer

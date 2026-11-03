@@ -1,0 +1,39 @@
+#+TITLE: proj009 issues
+#+VISSUE: 1
+#+CATEGORY: proj009
+#+TAGS: { bug(b) feature(f) task(t) chore(c) plan(p) }
+#+TAGS: docs(d) perf ignore ARCHIVE
+#+EXCLUDE_TAGS: noexport
+#+SELECT_TAGS: export
+#+PRIORITIES: A C C
+#+FILETAGS: :issues:proj009:noexport:
+
+* BLOCKED [#C] ballot holder deed generation fence generation  :bug:
+:PROPERTIES:
+:ID:         proj009-0000
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:ORDERED:    t
+:END:
+
+token head quiet token quiet reclaim ballot manifest fuse reclaim
+manifest token plan proof accession satchel proof graph head node
+bridge lease fuse voter claim quiet quiet quiet claim holder
+
+* DONE [#C] panel generation head passage ballot fuse  :task:
+:PROPERTIES:
+:ID:         proj009-0001
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:PARENT:     proj009-0000
+:DEEDS:      deed-v6jxoy
+:END:
+:LOGBOOK:
+- Note: "claim lease ballot panel accession fuse satchel passage" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+plan generation blocker window passage holder bridge quiet voter satchel
+quiet voter panel lease passage blocker blocker voter passage lease
+plan blocker manifest proof voter fuse reclaim scorer satchel tracker

@@ -1,0 +1,41 @@
+#+TITLE: proj003 issues
+#+VISSUE: 1
+#+CATEGORY: proj003
+#+TAGS: { bug(b) feature(f) task(t) chore(c) plan(p) }
+#+TAGS: docs(d) perf ignore ARCHIVE
+#+EXCLUDE_TAGS: noexport
+#+SELECT_TAGS: export
+#+PRIORITIES: A C C
+#+FILETAGS: :issues:proj003:noexport:
+
+* BLOCKED [#C] holder lease reclaim scorer reclaim token  :feature:
+:PROPERTIES:
+:ID:         proj003-0000
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:END:
+
+passage proof passage window accession tracker generation lease node tracker
+lease node passage deed reclaim panel voter voter head ballot
+reclaim claim quiet reclaim deed fuse claim graph holder quiet
+generation node head issue accession parent voter voter fuse voter
+
+* DONE [#B] accession passage tracker deed generation issue  :feature:
+:PROPERTIES:
+:ID:         proj003-0001
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:BLOCKED_BY: proj003-0000
+:END:
+:LOGBOOK:
+- Note: "claim node head lease reclaim accession token blocker" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+voter passage plan manifest fuse voter bridge passage deed issue
+fence token fuse fence ballot satchel proof bridge fence graph
+blocker fuse passage node head accession plan bridge voter proof
+issue voter manifest window head issue tracker accession ballot generation
+token issue head fence panel graph holder generation plan window
+holder fence head fuse ballot generation deed fuse fence plan

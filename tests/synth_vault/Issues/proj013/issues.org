@@ -1,0 +1,32 @@
+#+TITLE: proj013 issues
+#+VISSUE: 1
+#+CATEGORY: proj013
+#+TAGS: { bug(b) feature(f) task(t) chore(c) plan(p) }
+#+TAGS: docs(d) perf ignore ARCHIVE
+#+EXCLUDE_TAGS: noexport
+#+SELECT_TAGS: export
+#+PRIORITIES: A C C
+#+FILETAGS: :issues:proj013:noexport:
+
+* TODO [#B] head window issue lease tracker generation  :feature:
+:PROPERTIES:
+:ID:         proj013-0000
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:END:
+
+node claim parent manifest node issue fence parent bridge scorer
+satchel proof accession bridge issue generation node fuse parent generation
+
+* TODO [#C] generation ballot quiet reclaim fence graph  :bug:
+:PROPERTIES:
+:ID:         proj013-0001
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:BLOCKED_BY: ljos-002e
+:END:
+
+fence passage issue head node fuse holder quiet deed proof
+accession token voter passage proof quiet scorer generation bridge token
+plan tracker panel tracker quiet parent panel blocker generation deed
+passage generation accession generation token passage tracker tracker voter reclaim

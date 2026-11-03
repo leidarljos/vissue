@@ -1,0 +1,35 @@
+#+TITLE: proj010 issues
+#+VISSUE: 1
+#+CATEGORY: proj010
+#+TAGS: { bug(b) feature(f) task(t) chore(c) plan(p) }
+#+TAGS: docs(d) perf ignore ARCHIVE
+#+EXCLUDE_TAGS: noexport
+#+SELECT_TAGS: export
+#+PRIORITIES: A C C
+#+FILETAGS: :issues:proj010:noexport:
+
+* BLOCKED [#B] scorer ballot quiet accession claim satchel  :feature:
+:PROPERTIES:
+:ID:         proj010-0000
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:END:
+
+blocker fuse blocker ballot parent lease scorer voter accession accession
+panel issue window graph blocker ballot accession quiet scorer plan
+window bridge graph plan fence bridge parent issue generation holder
+
+* TODO [#A] proof deed scorer passage proof voter  :task:
+:PROPERTIES:
+:ID:         proj010-0001
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:BLOCKED_BY: proj010-0000
+:END:
+
+plan proof head claim tracker blocker graph fence tracker head
+panel manifest token generation bridge parent tracker deed reclaim fence
+panel graph graph blocker manifest reclaim passage passage passage proof
+issue scorer voter blocker panel issue graph head panel plan
+accession satchel fuse voter bridge token generation tracker parent holder
+blocker fuse deed generation ballot plan window tracker tracker holder

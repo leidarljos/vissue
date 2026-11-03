@@ -340,47 +340,22 @@ impl<'a> CatalogService<'a> {
 ///
 /// Does not fail for a parsed catalog.
 pub fn issues_rows_from(issues: &[IssueRec], q: ListQuery) -> Result<Vec<IssueRow>> {
-    let active_blockers: HashSet<&str> = if q.ready {
-        issues
-            .iter()
-            .filter(|r| r.heading.state != "DONE" && r.heading.state != "CANCELLED")
-            .map(|r| r.heading.id.as_str())
-            .collect()
-    } else {
-        HashSet::new()
-    };
-    // Built once for the whole call; per-issue scans make `ready` quadratic.
-    let ordering = q.ready.then(|| OrderingIndex::new(issues));
+    let mut picked: Vec<&IssueRec> = Vec::new();
+    for rec in issues {
+        if project_selected(&rec.project, q.project.as_deref())
+            && q.state.as_deref().is_none_or(|s| rec.heading.state == s)
+            && (!q.ready || READY_STATES.contains(&rec.heading.state.as_str()))
+        {
+            picked.push(rec);
+        }
+    }
+    if q.ready {
+        let holds = Holds::of(issues, &picked);
+        picked.retain(|rec| !holds.hold(rec));
+    }
 
     let mut rows: Vec<(char, String, String, IssueRow)> = Vec::new();
-    for rec in issues {
-        if !project_selected(&rec.project, q.project.as_deref()) {
-            continue;
-        }
-        if let Some(state) = q.state.as_deref()
-            && rec.heading.state != state
-        {
-            continue;
-        }
-        if q.ready {
-            if !READY_STATES.contains(&rec.heading.state.as_str()) {
-                continue;
-            }
-            if rec
-                .heading
-                .blocked_by()
-                .iter()
-                .any(|b| active_blockers.contains(b.as_str()))
-            {
-                continue;
-            }
-            if ordering
-                .as_ref()
-                .is_some_and(|index| ordered_sibling_holds(rec, index))
-            {
-                continue;
-            }
-        }
+    for rec in picked {
         if let Some(needle) = q.query.as_deref()
             && !list_query_matches(rec, needle)
         {
@@ -411,50 +386,94 @@ pub fn issues_rows_from(issues: &[IssueRec], q: ListQuery) -> Result<Vec<IssueRo
     Ok(out)
 }
 
-/// Parents and their children, indexed once for a `ready` call.
-struct OrderingIndex<'a> {
-    by_id: HashMap<&'a str, &'a IssueRec>,
-    children: HashMap<&'a str, Vec<&'a IssueRec>>,
+/// What keeps a `ready` candidate back: an open blocker, or an open sibling
+/// ahead of it under an `ORDERED` parent.
+///
+/// Only the ids the candidates name are looked up. The CLI asks once per
+/// project, so anything here that indexes the whole corpus is paid once per
+/// project: issues times projects, on a tracker of many small ones.
+struct Holds<'a> {
+    open_blockers: HashSet<&'a str>,
+    /// Each named `ORDERED` parent, with its open children.
+    ordered: HashMap<&'a str, Vec<&'a IssueRec>>,
 }
 
-impl<'a> OrderingIndex<'a> {
-    fn new(issues: &'a [IssueRec]) -> Self {
-        let mut by_id = HashMap::with_capacity(issues.len());
-        let mut children: HashMap<&str, Vec<&IssueRec>> = HashMap::new();
-        for rec in issues {
-            by_id.insert(rec.heading.id.as_str(), rec);
-            if let Some(parent) = rec.heading.parent() {
-                children.entry(parent).or_default().push(rec);
+fn is_open(rec: &IssueRec) -> bool {
+    rec.heading.state != "DONE" && rec.heading.state != "CANCELLED"
+}
+
+fn steps_out_of_order(rec: &IssueRec) -> bool {
+    crate::org::org_property_is_set(&rec.heading.properties, "NOBLOCKING")
+}
+
+impl<'a> Holds<'a> {
+    fn of(issues: &'a [IssueRec], candidates: &[&IssueRec]) -> Self {
+        let mut blockers: HashSet<String> = HashSet::new();
+        let mut parents: HashSet<&str> = HashSet::new();
+        for rec in candidates {
+            blockers.extend(rec.heading.blocked_by());
+            if !steps_out_of_order(rec)
+                && let Some(parent) = rec.heading.parent()
+            {
+                parents.insert(parent);
             }
         }
-        Self { by_id, children }
+        let mut open_blockers = HashSet::new();
+        // Should an id appear twice, its last heading decides whether it is
+        // `ORDERED`.
+        let mut parent_recs: HashMap<&str, &IssueRec> = HashMap::new();
+        if !blockers.is_empty() || !parents.is_empty() {
+            for rec in issues {
+                let id = rec.heading.id.as_str();
+                if is_open(rec) && blockers.contains(id) {
+                    open_blockers.insert(id);
+                }
+                if parents.contains(id) {
+                    parent_recs.insert(id, rec);
+                }
+            }
+        }
+        parent_recs
+            .retain(|_, rec| crate::org::org_property_is_set(&rec.heading.properties, "ORDERED"));
+        let mut ordered: HashMap<&str, Vec<&IssueRec>> = HashMap::new();
+        if !parent_recs.is_empty() {
+            for rec in issues {
+                if let Some(parent) = rec.heading.parent()
+                    && parent_recs.contains_key(parent)
+                    && is_open(rec)
+                {
+                    ordered.entry(parent).or_default().push(rec);
+                }
+            }
+        }
+        Self {
+            open_blockers,
+            ordered,
+        }
     }
-}
 
-fn ordered_sibling_holds(rec: &IssueRec, index: &OrderingIndex<'_>) -> bool {
-    if crate::org::org_property_is_set(&rec.heading.properties, "NOBLOCKING") {
-        return false;
+    fn hold(&self, rec: &IssueRec) -> bool {
+        if rec
+            .heading
+            .blocked_by()
+            .iter()
+            .any(|b| self.open_blockers.contains(b.as_str()))
+        {
+            return true;
+        }
+        if steps_out_of_order(rec) {
+            return false;
+        }
+        rec.heading
+            .parent()
+            .and_then(|parent| self.ordered.get(parent))
+            .is_some_and(|siblings| {
+                siblings.iter().any(|sib| {
+                    sib.heading.id != rec.heading.id
+                        && sib.heading.line_start < rec.heading.line_start
+                })
+            })
     }
-    let Some(parent_id) = rec.heading.parent() else {
-        return false;
-    };
-    let Some(parent) = index.by_id.get(parent_id) else {
-        return false;
-    };
-    if !crate::org::org_property_is_set(&parent.heading.properties, "ORDERED") {
-        return false;
-    }
-    index
-        .children
-        .get(parent_id)
-        .into_iter()
-        .flatten()
-        .any(|sib| {
-            sib.heading.id != rec.heading.id
-                && sib.heading.line_start < rec.heading.line_start
-                && sib.heading.state != "DONE"
-                && sib.heading.state != "CANCELLED"
-        })
 }
 
 fn list_query_matches(rec: &IssueRec, needle: &str) -> bool {

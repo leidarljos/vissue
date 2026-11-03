@@ -1,0 +1,40 @@
+#+TITLE: proj014 issues
+#+VISSUE: 1
+#+CATEGORY: proj014
+#+TAGS: { bug(b) feature(f) task(t) chore(c) plan(p) }
+#+TAGS: docs(d) perf ignore ARCHIVE
+#+EXCLUDE_TAGS: noexport
+#+SELECT_TAGS: export
+#+PRIORITIES: A C C
+#+FILETAGS: :issues:proj014:noexport:
+
+* STARTED [#A] fuse reclaim proof graph fuse head  :bug:
+:PROPERTIES:
+:ID:         proj014-0000
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:ORDERED:    t
+:CLAIMED_BY: seat-bench
+:CLAIMED_AT: [2026-09-11 Fri 09:00]
+:END:
+:LOGBOOK:
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+token reclaim proof fence window fuse deed manifest accession node
+graph fuse fuse accession node generation satchel proof voter plan
+proof fence holder fence fence generation window reclaim graph panel
+token satchel passage fuse bridge graph reclaim token fuse bridge
+scorer blocker head deed fence scorer parent claim bridge holder
+
+* TODO [#B] holder fuse fuse lease voter quiet  :feature:
+:PROPERTIES:
+:ID:         proj014-0001
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:PARENT:     proj014-0000
+:NOBLOCKING: t
+:END:
+
+token blocker accession node generation node scorer tracker graph manifest
+quiet voter parent manifest proof voter parent graph quiet head

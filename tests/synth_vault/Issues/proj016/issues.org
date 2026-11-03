@@ -1,0 +1,43 @@
+#+TITLE: proj016 issues
+#+VISSUE: 1
+#+CATEGORY: proj016
+#+TAGS: { bug(b) feature(f) task(t) chore(c) plan(p) }
+#+TAGS: docs(d) perf ignore ARCHIVE
+#+EXCLUDE_TAGS: noexport
+#+SELECT_TAGS: export
+#+PRIORITIES: A C C
+#+FILETAGS: :issues:proj016:noexport:
+
+* DONE [#A] blocker proof panel tracker fuse graph  :bug:
+:PROPERTIES:
+:ID:         proj016-0000
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:DEEDS:      deed-4bniwf
+:END:
+:LOGBOOK:
+- Note: "accession manifest proof generation proof ballot passage claim" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+blocker blocker node accession accession bridge token tracker blocker tracker
+tracker quiet bridge token manifest reclaim graph claim bridge generation
+voter holder claim accession plan proof plan head deed proof
+holder accession holder panel quiet voter quiet manifest graph generation
+
+* CANCELLED [#A] generation plan quiet claim generation proof  :feature:
+:PROPERTIES:
+:ID:         proj016-0001
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:BLOCKED_BY: proj016-0000
+:PARENT:     proj016-0000
+:END:
+
+graph lease satchel satchel quiet satchel blocker lease tracker manifest
+token issue accession accession holder fuse generation ballot voter reclaim
+reclaim lease scorer fuse scorer ballot node deed token reclaim
+voter plan plan node node bridge scorer issue scorer claim
+accession token generation scorer accession passage panel plan ballot fence
+passage head token node reclaim head deed proof manifest lease

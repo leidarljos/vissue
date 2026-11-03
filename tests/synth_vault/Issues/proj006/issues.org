@@ -1,0 +1,36 @@
+#+TITLE: proj006 issues
+#+VISSUE: 1
+#+CATEGORY: proj006
+#+TAGS: { bug(b) feature(f) task(t) chore(c) plan(p) }
+#+TAGS: docs(d) perf ignore ARCHIVE
+#+EXCLUDE_TAGS: noexport
+#+SELECT_TAGS: export
+#+PRIORITIES: A C C
+#+FILETAGS: :issues:proj006:noexport:
+
+* BLOCKED [#B] voter holder proof fence quiet passage  :bug:
+:PROPERTIES:
+:ID:         proj006-0000
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:END:
+
+token node blocker tracker ballot blocker generation node manifest claim
+tracker proof quiet satchel panel voter fence proof reclaim accession
+deed accession passage tracker quiet bridge window issue passage lease
+fuse plan holder ballot satchel parent window claim blocker quiet
+
+* TODO [#C] claim issue token plan scorer manifest  :task:
+:PROPERTIES:
+:ID:         proj006-0001
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:BLOCKED_BY: ljos-0005 proj004-0000 ljos-001j
+:END:
+
+reclaim holder holder panel head blocker lease proof holder ballot
+voter graph ballot graph node proof reclaim passage panel head
+generation fence issue lease blocker accession claim voter quiet tracker
+blocker node window graph node passage parent quiet node ballot
+quiet claim plan reclaim scorer tracker tracker token tracker head
+voter ballot voter reclaim graph parent parent proof passage generation

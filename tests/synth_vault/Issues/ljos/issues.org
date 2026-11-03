@@ -1,0 +1,1785 @@
+#+TITLE: ljos issues
+#+VISSUE: 1
+#+CATEGORY: ljos
+#+TAGS: { bug(b) feature(f) task(t) chore(c) plan(p) }
+#+TAGS: docs(d) perf ignore ARCHIVE
+#+EXCLUDE_TAGS: noexport
+#+SELECT_TAGS: export
+#+PRIORITIES: A C C
+#+FILETAGS: :issues:ljos:noexport:
+
+* TODO [#A] panel generation fence parent window token  :feature:
+:PROPERTIES:
+:ID:         ljos-0000
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:END:
+
+reclaim generation fence proof proof fence node fence window proof
+generation parent scorer token node panel panel scorer generation scorer
+scorer satchel generation node generation window plan holder deed proof
+holder window token scorer deed window parent fuse quiet token
+scorer scorer panel reclaim manifest token window voter fence scorer
+generation ballot reclaim bridge fuse window proof issue accession head
+
+* BLOCKED [#B] deed node blocker quiet voter issue  :feature:
+:PROPERTIES:
+:ID:         ljos-0001
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:END:
+
+deed ballot fence token passage proof quiet issue accession holder
+bridge proof generation fuse fence issue window scorer blocker claim
+parent accession accession voter manifest ballot bridge scorer blocker head
+fence parent fence graph bridge voter fuse fence generation tracker
+voter deed panel scorer fuse parent head deed voter satchel
+
+* DONE [#B] head manifest quiet ballot token bridge  :bug:
+:PROPERTIES:
+:ID:         ljos-0002
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:DEEDS:      deed-rrpacc
+:END:
+:LOGBOOK:
+- Note: "plan bridge fence quiet head satchel window graph" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+parent proof plan window graph voter proof manifest fuse claim
+satchel node holder fence quiet holder node fuse node lease
+bridge parent scorer quiet graph deed lease holder proof window
+
+* TODO [#C] holder voter plan passage ballot panel  :feature:
+:PROPERTIES:
+:ID:         ljos-0003
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:BLOCKED_BY: ljos-0002 ljos-0001 ljos-0000
+:END:
+
+generation reclaim fence reclaim head quiet token accession ballot generation
+token lease scorer holder window token manifest ballot lease fence
+plan reclaim ballot satchel holder panel graph manifest ballot manifest
+bridge token token plan bridge head bridge bridge deed fence
+holder token tracker accession tracker graph bridge parent voter quiet
+
+* STARTED [#A] manifest holder voter window lease issue  :task:
+:PROPERTIES:
+:ID:         ljos-0004
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:CLAIMED_BY: seat-bench
+:CLAIMED_AT: [2026-09-11 Fri 09:00]
+:END:
+:LOGBOOK:
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+passage manifest quiet manifest issue node window window issue passage
+accession panel node ballot blocker blocker issue plan reclaim blocker
+node parent satchel tracker blocker node reclaim passage bridge manifest
+tracker lease lease blocker graph bridge graph reclaim voter ballot
+
+* CANCELLED [#B] manifest manifest fence node token node  :task:
+:PROPERTIES:
+:ID:         ljos-0005
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:BLOCKED_BY: ljos-0004 ljos-0000
+:END:
+
+parent fuse token satchel blocker voter issue reclaim bridge claim
+quiet proof blocker panel accession fence blocker tracker satchel head
+
+* TODO [#A] quiet quiet holder lease holder scorer  :task:
+:PROPERTIES:
+:ID:         ljos-0006
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:PARENT:     ljos-0004
+:END:
+
+holder window window holder lease lease blocker tracker panel token
+passage tracker holder proof plan reclaim parent plan reclaim lease
+graph reclaim deed passage node issue scorer accession graph window
+proof parent holder generation tracker manifest claim head fuse scorer
+
+* DONE [#C] parent claim passage holder window holder  :feature:
+:PROPERTIES:
+:ID:         ljos-0007
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:BLOCKED_BY: ljos-0006 ljos-0001
+:DEEDS:      deed-a1zcz4
+:END:
+:LOGBOOK:
+- Note: "bridge ballot tracker token window generation accession fuse" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+passage window bridge blocker issue token claim window generation node
+reclaim graph generation issue token passage head window lease issue
+claim fence head accession ballot passage ballot passage reclaim voter
+graph head passage window blocker bridge passage node voter passage
+claim claim graph window claim reclaim parent head holder proof
+token satchel head accession fence fuse node proof fence reclaim
+
+* DONE [#A] voter panel fuse manifest holder graph  :bug:
+:PROPERTIES:
+:ID:         ljos-0008
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:PARENT:     ljos-0001
+:END:
+:LOGBOOK:
+- Note: "parent node quiet voter proof passage satchel accession" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+reclaim manifest accession fence tracker manifest lease accession window head
+head voter lease satchel accession passage ballot deed passage fence
+token blocker node claim token fence graph graph generation claim
+issue quiet graph issue holder parent proof plan fuse parent
+graph satchel holder window passage scorer bridge voter accession fence
+
+* TODO [#C] proof claim fence graph lease panel  :bug:
+:PROPERTIES:
+:ID:         ljos-0009
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:END:
+
+fence graph plan token head lease accession window proof graph
+ballot holder generation passage voter node token quiet graph generation
+quiet reclaim deed panel deed passage issue reclaim deed head
+
+* STARTED [#A] manifest blocker lease graph generation lease  :feature:
+:PROPERTIES:
+:ID:         ljos-000a
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:CLAIMED_BY: seat-bench
+:CLAIMED_AT: [2026-09-11 Fri 09:00]
+:END:
+:LOGBOOK:
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+bridge node head token fuse parent panel proof fuse bridge
+window parent claim satchel passage deed voter reclaim node accession
+reclaim parent claim voter tracker panel holder satchel manifest generation
+parent holder lease fence panel tracker claim graph proof quiet
+generation fence fuse parent satchel plan passage fuse deed ballot
+node voter deed generation head quiet quiet graph head lease
+
+* TODO [#B] accession node generation claim deed reclaim  :task:
+:PROPERTIES:
+:ID:         ljos-000b
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:BLOCKED_BY: ljos-0001 ljos-0007
+:END:
+
+passage issue lease fence graph parent fence holder satchel scorer
+generation satchel lease deed deed panel node fence scorer passage
+plan issue holder fuse claim voter blocker claim ballot satchel
+
+* DONE [#C] holder deed tracker ballot panel holder  :feature:
+:PROPERTIES:
+:ID:         ljos-000c
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:END:
+:LOGBOOK:
+- Note: "tracker voter blocker passage holder passage issue passage" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+parent parent blocker lease parent fuse scorer blocker claim voter
+fuse voter panel node fence lease generation holder panel manifest
+token satchel parent head window generation panel lease panel window
+fuse node bridge graph lease head blocker fence tracker passage
+claim window fence fuse passage fence tracker tracker bridge graph
+blocker fence plan graph node tracker issue reclaim node tracker
+
+* BLOCKED [#B] plan satchel fence bridge fuse deed  :feature:
+:PROPERTIES:
+:ID:         ljos-000d
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:END:
+
+accession graph panel tracker voter deed ballot scorer holder lease
+bridge generation bridge graph fuse token voter reclaim fuse bridge
+deed voter passage deed head head head issue token claim
+
+* STARTED [#B] bridge lease deed head fence parent  :bug:
+:PROPERTIES:
+:ID:         ljos-000e
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:CLAIMED_BY: seat-bench
+:CLAIMED_AT: [2026-09-11 Fri 09:00]
+:END:
+:LOGBOOK:
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+fence scorer fence holder tracker passage graph manifest holder ballot
+parent panel passage graph claim token voter manifest node bridge
+claim claim bridge satchel lease quiet lease bridge fuse head
+
+* TODO [#C] proof manifest satchel accession token parent  :bug:
+:PROPERTIES:
+:ID:         ljos-000f
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:BLOCKED_BY: ljos-000d ljos-0006
+:PARENT:     ljos-000e
+:ORDERED:    t
+:END:
+
+manifest fence satchel satchel plan scorer fence manifest proof issue
+graph plan generation graph token generation parent fuse deed panel
+holder node graph proof passage accession reclaim issue manifest blocker
+proof claim lease blocker issue panel satchel claim window window
+
+* TODO [#A] tracker proof head ballot issue holder  :bug:
+:PROPERTIES:
+:ID:         ljos-000g
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:BLOCKED_BY: ljos-0004
+:PARENT:     ljos-000f
+:END:
+
+deed graph tracker tracker panel graph satchel panel node deed
+bridge window fuse satchel token quiet panel quiet fence reclaim
+passage claim blocker bridge window node head accession issue head
+proof holder window reclaim node fence quiet accession window fence
+
+* TODO [#B] blocker scorer reclaim claim lease tracker  :feature:
+:PROPERTIES:
+:ID:         ljos-000h
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:BLOCKED_BY: ljos-000g ljos-0006 ljos-000f
+:PARENT:     ljos-000f
+:END:
+
+graph scorer manifest holder fuse passage passage panel blocker plan
+plan reclaim fence graph claim node satchel satchel panel head
+proof deed plan parent plan lease holder generation proof voter
+issue claim blocker bridge scorer bridge lease fence satchel parent
+passage plan head head node blocker token node holder holder
+
+* STARTED [#C] parent tracker voter panel plan issue  :bug:
+:PROPERTIES:
+:ID:         ljos-000i
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:BLOCKED_BY: ljos-0000
+:PARENT:     ljos-000f
+:CLAIMED_BY: seat-bench
+:CLAIMED_AT: [2026-09-11 Fri 09:00]
+:END:
+:LOGBOOK:
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+panel voter deed holder panel graph passage panel proof voter
+issue token token fence deed passage scorer reclaim satchel graph
+
+* TODO [#C] lease window deed head graph accession  :bug:
+:PROPERTIES:
+:ID:         ljos-000j
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:PARENT:     ljos-000f
+:END:
+
+lease proof voter panel deed generation lease reclaim bridge claim
+fuse panel proof fence graph node fuse proof manifest node
+bridge generation voter accession voter proof manifest fuse satchel reclaim
+
+* TODO [#B] plan passage fence reclaim bridge reclaim  :task:
+:PROPERTIES:
+:ID:         ljos-000k
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:PARENT:     ljos-0007
+:END:
+
+ballot bridge ballot quiet claim node bridge proof fuse generation
+ballot holder satchel generation reclaim lease ballot holder proof generation
+
+* DONE [#A] head claim voter claim accession tracker  :feature:
+:PROPERTIES:
+:ID:         ljos-000l
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:BLOCKED_BY: ljos-000a
+:PARENT:     ljos-000k
+:DEEDS:      deed-qw67j4
+:END:
+:LOGBOOK:
+- Note: "parent manifest accession head quiet token lease fence" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+fence manifest proof claim token window issue reclaim satchel manifest
+issue parent deed parent blocker proof fence generation voter bridge
+reclaim manifest window head reclaim accession manifest tracker claim bridge
+lease panel proof node blocker panel issue satchel generation satchel
+
+* TODO [#A] graph reclaim tracker fence claim ballot  :bug:
+:PROPERTIES:
+:ID:         ljos-000m
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:BLOCKED_BY: ljos-0001 ljos-0008 ljos-000a
+:END:
+
+blocker panel fence lease parent node token bridge voter head
+issue satchel blocker graph proof parent bridge holder bridge quiet
+lease blocker tracker deed parent voter issue holder ballot node
+accession plan accession head manifest blocker blocker ballot fence passage
+reclaim satchel issue quiet node proof fence panel generation bridge
+window window accession quiet proof claim token fence graph ballot
+
+* TODO [#A] bridge voter head quiet node holder  :feature:
+:PROPERTIES:
+:ID:         ljos-000n
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:END:
+
+issue parent deed deed graph scorer graph manifest graph tracker
+graph reclaim head node quiet node node holder deed claim
+
+* DONE [#A] fence satchel graph node passage passage  :feature:
+:PROPERTIES:
+:ID:         ljos-000o
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:DEEDS:      deed-xq0sbd
+:END:
+:LOGBOOK:
+- Note: "claim parent node parent head manifest generation claim" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+node token generation reclaim ballot parent scorer reclaim fence manifest
+passage plan quiet head ballot graph issue issue fuse lease
+token panel ballot voter ballot manifest reclaim generation manifest accession
+holder generation reclaim graph generation ballot tracker panel reclaim parent
+
+* TODO [#B] fuse manifest quiet ballot deed fence  :feature:
+:PROPERTIES:
+:ID:         ljos-000p
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:END:
+
+blocker satchel fuse window holder panel window fence panel quiet
+satchel voter graph proof deed fuse deed proof generation deed
+
+* DONE [#B] proof lease plan issue blocker manifest  :feature:
+:PROPERTIES:
+:ID:         ljos-000q
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:BLOCKED_BY: ljos-0006 ljos-0000
+:DEEDS:      deed-6fdyx6
+:END:
+:LOGBOOK:
+- Note: "satchel scorer claim manifest head issue quiet holder" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+generation window holder panel blocker satchel fence scorer ballot manifest
+tracker passage quiet holder manifest deed quiet passage quiet fence
+
+* TODO [#B] deed holder parent generation bridge accession  :bug:
+:PROPERTIES:
+:ID:         ljos-000r
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:END:
+
+voter parent claim quiet panel blocker plan node ballot satchel
+ballot plan reclaim parent bridge quiet scorer reclaim generation satchel
+passage quiet satchel manifest token holder node tracker parent claim
+reclaim generation claim window parent issue fuse generation fuse parent
+accession token satchel ballot head window plan panel issue deed
+panel proof deed scorer node proof satchel fuse manifest head
+
+* STARTED [#A] lease ballot bridge head node head  :bug:
+:PROPERTIES:
+:ID:         ljos-000s
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:CLAIMED_BY: seat-bench
+:CLAIMED_AT: [2026-09-11 Fri 09:00]
+:END:
+:LOGBOOK:
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+satchel token fence holder manifest proof manifest fence blocker head
+passage passage fuse generation generation panel holder fence tracker accession
+issue tracker passage fence generation issue passage claim satchel panel
+blocker holder lease plan fence ballot tracker voter parent token
+reclaim holder claim bridge deed blocker blocker quiet fuse blocker
+
+* DONE [#A] parent manifest ballot issue graph quiet  :bug:
+:PROPERTIES:
+:ID:         ljos-000t
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:DEEDS:      deed-y3ot50
+:END:
+:LOGBOOK:
+- Note: "reclaim scorer graph ballot passage node accession manifest" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+reclaim quiet satchel quiet panel graph fuse accession claim satchel
+quiet blocker blocker graph token issue passage generation panel plan
+
+* TODO [#B] passage scorer voter claim claim token  :task:
+:PROPERTIES:
+:ID:         ljos-000u
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:END:
+
+graph satchel manifest scorer holder manifest accession issue fence head
+node quiet ballot tracker generation deed parent passage graph deed
+panel plan scorer fuse claim accession tracker lease tracker generation
+node holder deed ballot panel proof proof passage manifest claim
+
+* TODO [#B] ballot panel generation lease generation lease  :bug:
+:PROPERTIES:
+:ID:         ljos-000v
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:BLOCKED_BY: ljos-000b ljos-000h ljos-0007
+:END:
+
+reclaim manifest ballot parent bridge quiet holder lease blocker node
+voter holder head token fence panel holder plan fuse blocker
+graph satchel blocker graph lease generation panel parent window claim
+
+* TODO [#C] head ballot passage tracker bridge node  :task:
+:PROPERTIES:
+:ID:         ljos-000w
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:BLOCKED_BY: ljos-0001
+:END:
+
+issue token lease ballot window fuse reclaim holder proof reclaim
+passage ballot panel passage panel panel proof parent ballot quiet
+
+* STARTED [#A] panel generation claim tracker blocker bridge  :feature:
+:PROPERTIES:
+:ID:         ljos-000x
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:BLOCKED_BY: ljos-000t ljos-0005
+:CLAIMED_BY: seat-bench
+:CLAIMED_AT: [2026-09-11 Fri 09:00]
+:END:
+:LOGBOOK:
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+token graph node panel generation token accession claim tracker voter
+plan graph voter generation graph panel window fuse proof fuse
+blocker passage graph deed panel claim reclaim fence claim passage
+
+* TODO [#B] parent tracker reclaim quiet tracker accession  :bug:
+:PROPERTIES:
+:ID:         ljos-000y
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:BLOCKED_BY: ljos-000f ljos-000o ljos-000u
+:END:
+
+plan lease proof tracker node scorer claim deed blocker reclaim
+satchel ballot scorer fence scorer quiet holder generation lease token
+
+* TODO [#A] holder voter lease lease generation holder  :feature:
+:PROPERTIES:
+:ID:         ljos-000z
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:END:
+
+plan scorer issue manifest reclaim parent parent window claim fuse
+fence claim plan issue voter satchel token node reclaim reclaim
+
+* TODO [#A] fence parent issue panel panel deed  :task:
+:PROPERTIES:
+:ID:         ljos-0010
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:BLOCKED_BY: ljos-000d ljos-000i ljos-000k
+:END:
+
+graph deed generation voter issue manifest accession issue ballot passage
+bridge plan deed ballot tracker lease blocker proof lease proof
+passage issue token manifest bridge voter generation window scorer reclaim
+voter plan parent fence scorer parent deed quiet proof lease
+
+* STARTED [#B] lease manifest bridge token bridge voter  :bug:
+:PROPERTIES:
+:ID:         ljos-0011
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:BLOCKED_BY: ljos-000m ljos-000w
+:CLAIMED_BY: seat-bench
+:CLAIMED_AT: [2026-09-11 Fri 09:00]
+:END:
+:LOGBOOK:
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+parent reclaim voter node bridge quiet token panel issue fence
+bridge blocker voter window blocker token panel accession manifest token
+satchel satchel claim claim tracker fence proof claim panel lease
+manifest reclaim deed graph proof claim window passage quiet satchel
+
+* CANCELLED [#C] head holder window ballot issue voter  :bug:
+:PROPERTIES:
+:ID:         ljos-0012
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:END:
+
+plan parent head fuse window tracker accession quiet head head
+voter issue graph scorer node holder accession head panel claim
+voter node passage reclaim graph deed issue voter parent parent
+
+* BLOCKED [#C] node tracker accession ballot passage manifest  :bug:
+:PROPERTIES:
+:ID:         ljos-0013
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:BLOCKED_BY: ljos-000g
+:END:
+
+quiet fuse token reclaim satchel holder holder blocker deed tracker
+deed proof graph reclaim token panel token graph reclaim claim
+
+* TODO [#A] satchel plan blocker proof voter node  :bug:
+:PROPERTIES:
+:ID:         ljos-0014
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:END:
+
+tracker satchel lease tracker node plan proof voter scorer scorer
+tracker panel proof plan node fuse tracker panel claim claim
+issue panel voter scorer plan node fuse quiet panel token
+head proof accession graph panel voter token claim proof node
+blocker satchel voter voter panel quiet graph plan proof bridge
+head lease ballot plan proof passage fuse fuse plan quiet
+
+* DONE [#B] satchel parent bridge token generation graph  :bug:
+:PROPERTIES:
+:ID:         ljos-0015
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:BLOCKED_BY: ljos-000x
+:DEEDS:      deed-ek5trk
+:END:
+:LOGBOOK:
+- Note: "voter bridge passage lease panel blocker parent manifest" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+accession proof tracker head reclaim fuse quiet satchel passage issue
+token tracker ballot manifest panel generation graph graph satchel satchel
+generation lease fence proof proof panel voter fuse manifest scorer
+graph token node deed tracker satchel passage node blocker satchel
+head reclaim quiet holder issue fence blocker blocker panel reclaim
+bridge panel window tracker node parent holder manifest fuse panel
+
+* DONE [#B] deed issue window panel holder issue  :feature:
+:PROPERTIES:
+:ID:         ljos-0016
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:BLOCKED_BY: ljos-000h
+:END:
+:LOGBOOK:
+- Note: "fuse quiet bridge lease blocker tracker blocker graph" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+node panel deed accession bridge bridge proof ballot panel fence
+fuse claim manifest holder deed plan satchel generation fence parent
+scorer claim accession blocker holder passage parent manifest panel scorer
+lease fuse lease reclaim fence panel deed graph ballot token
+
+* STARTED [#A] issue head manifest blocker holder reclaim  :bug:
+:PROPERTIES:
+:ID:         ljos-0017
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:PARENT:     ljos-0012
+:CLAIMED_BY: seat-bench
+:CLAIMED_AT: [2026-09-11 Fri 09:00]
+:END:
+:LOGBOOK:
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+blocker panel parent deed reclaim bridge voter reclaim passage fence
+tracker parent head fuse claim token window token graph proof
+node parent holder bridge bridge window generation bridge head claim
+holder voter bridge node bridge quiet window ballot plan tracker
+lease quiet parent accession head voter scorer bridge fuse deed
+parent head manifest proof proof fuse fence quiet panel manifest
+
+* BLOCKED [#A] ballot generation fuse tracker accession blocker  :bug:
+:PROPERTIES:
+:ID:         ljos-0018
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:END:
+
+reclaim voter proof panel holder accession token plan fuse manifest
+accession bridge issue passage window issue reclaim deed proof accession
+
+* TODO [#C] parent deed deed manifest parent bridge  :bug:
+:PROPERTIES:
+:ID:         ljos-0019
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:END:
+
+panel bridge blocker token accession reclaim accession voter deed holder
+scorer panel fence blocker generation satchel tracker window claim satchel
+window scorer generation satchel deed token lease generation reclaim parent
+
+* CANCELLED [#C] generation blocker passage window ballot satchel  :task:
+:PROPERTIES:
+:ID:         ljos-001a
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:END:
+
+reclaim generation fuse panel head panel issue quiet token fuse
+quiet plan generation proof issue token panel lease manifest plan
+
+* DONE [#B] voter graph plan deed quiet proof  :task:
+:PROPERTIES:
+:ID:         ljos-001b
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:PARENT:     ljos-0010
+:DEEDS:      deed-2sp46x
+:END:
+:LOGBOOK:
+- Note: "parent token issue blocker proof scorer voter satchel" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+fence lease fuse satchel ballot scorer fuse holder bridge issue
+proof window token fence panel bridge reclaim claim holder panel
+lease proof lease lease fuse fuse token plan fence reclaim
+plan token holder bridge lease graph tracker scorer node head
+tracker tracker quiet generation manifest issue tracker voter voter plan
+
+* TODO [#A] panel window voter bridge head fuse  :feature:
+:PROPERTIES:
+:ID:         ljos-001c
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:BLOCKED_BY: ljos-0019
+:PARENT:     ljos-0003
+:NOBLOCKING: t
+:END:
+
+fence satchel deed deed tracker ballot quiet plan parent bridge
+ballot generation accession manifest scorer tracker head bridge fuse quiet
+holder blocker token manifest panel quiet panel blocker proof bridge
+satchel issue blocker head graph blocker issue scorer accession deed
+graph generation ballot panel voter blocker parent ballot accession plan
+ballot tracker lease parent holder ballot parent deed scorer proof
+
+* CANCELLED [#A] satchel fuse satchel ballot issue claim  :feature:
+:PROPERTIES:
+:ID:         ljos-001d
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:END:
+
+proof quiet scorer parent issue claim blocker generation deed parent
+holder blocker claim plan scorer holder graph plan blocker blocker
+window fuse issue bridge manifest window fence window window bridge
+blocker satchel reclaim blocker issue tracker node deed ballot generation
+
+* DONE [#B] reclaim graph scorer issue lease blocker  :task:
+:PROPERTIES:
+:ID:         ljos-001e
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:DEEDS:      deed-sa7hdc
+:END:
+:LOGBOOK:
+- Note: "scorer passage claim graph claim parent passage accession" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+passage scorer reclaim reclaim reclaim reclaim fence quiet blocker voter
+deed manifest scorer scorer manifest satchel issue passage plan holder
+node generation bridge manifest plan token manifest panel head blocker
+fence holder accession ballot lease manifest graph passage ballot lease
+token generation reclaim plan plan scorer bridge scorer scorer reclaim
+
+* TODO [#B] token head issue scorer parent ballot  :feature:
+:PROPERTIES:
+:ID:         ljos-001f
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:BLOCKED_BY: ljos-000l
+:PARENT:     ljos-000b
+:ORDERED:    t
+:END:
+
+manifest plan voter head bridge plan claim fence plan ballot
+panel satchel token voter fence graph accession scorer node panel
+fence fuse passage satchel quiet head plan quiet manifest node
+tracker node quiet generation graph manifest generation claim window claim
+lease parent generation graph blocker passage voter tracker panel issue
+bridge generation token holder accession issue lease reclaim fuse tracker
+
+* TODO [#C] issue panel token bridge accession manifest  :feature:
+:PROPERTIES:
+:ID:         ljos-001g
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:BLOCKED_BY: ljos-000o ljos-000a
+:PARENT:     ljos-001f
+:END:
+
+head voter reclaim blocker generation quiet parent node fence ballot
+plan manifest claim tracker holder issue head token satchel parent
+
+* TODO [#A] accession accession parent node bridge token  :feature:
+:PROPERTIES:
+:ID:         ljos-001h
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:BLOCKED_BY: ljos-001b
+:PARENT:     ljos-001f
+:NOBLOCKING: t
+:END:
+
+claim holder head plan holder graph proof proof node holder
+lease graph scorer parent deed accession blocker quiet graph bridge
+token accession head claim bridge token holder passage generation panel
+claim blocker fuse reclaim window bridge parent deed token graph
+issue reclaim manifest proof graph node node token satchel deed
+proof claim quiet generation parent tracker deed holder panel lease
+
+* TODO [#C] passage holder head lease blocker parent  :feature:
+:PROPERTIES:
+:ID:         ljos-001i
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:BLOCKED_BY: ljos-000r ljos-0002
+:END:
+
+quiet holder parent quiet passage issue node voter quiet reclaim
+ballot fence parent fence claim ballot tracker bridge issue graph
+quiet reclaim holder ballot fuse voter panel blocker reclaim scorer
+deed reclaim lease fence voter tracker passage proof parent tracker
+generation passage blocker manifest accession deed parent panel plan bridge
+fence lease proof issue bridge holder plan fuse graph node
+
+* TODO [#B] quiet voter manifest scorer ballot plan  :bug:
+:PROPERTIES:
+:ID:         ljos-001j
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:END:
+
+fence token manifest voter node parent parent plan accession issue
+voter plan satchel scorer issue claim generation deed plan token
+tracker bridge head passage lease passage blocker window holder lease
+node fence node ballot quiet quiet token deed graph window
+parent lease lease token voter tracker reclaim graph lease parent
+ballot panel scorer head passage node voter head token manifest
+
+* DONE [#C] generation graph token head bridge scorer  :bug:
+:PROPERTIES:
+:ID:         ljos-001k
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:BLOCKED_BY: ljos-0007
+:END:
+:LOGBOOK:
+- Note: "plan node holder fuse scorer head tracker satchel" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+parent lease panel satchel voter proof ballot parent ballot passage
+generation satchel generation issue manifest accession satchel node parent accession
+voter proof parent scorer blocker accession parent satchel plan window
+
+* TODO [#C] fuse manifest node plan proof fuse  :bug:
+:PROPERTIES:
+:ID:         ljos-001l
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:BLOCKED_BY: ljos-000b ljos-0004 ljos-000k
+:END:
+
+node holder proof satchel issue head panel generation blocker claim
+claim generation generation plan panel ballot graph fuse ballot graph
+
+* BLOCKED [#A] token graph token passage lease proof  :task:
+:PROPERTIES:
+:ID:         ljos-001m
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:BLOCKED_BY: ljos-000j
+:END:
+
+ballot passage claim graph fence head scorer window holder head
+token passage holder claim deed proof scorer deed graph node
+
+* DONE [#C] deed parent head ballot voter scorer  :task:
+:PROPERTIES:
+:ID:         ljos-001n
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:BLOCKED_BY: ljos-0019 ljos-000n ljos-000t
+:DEEDS:      deed-m1ztne
+:END:
+:LOGBOOK:
+- Note: "lease node accession node reclaim passage window satchel" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+satchel lease manifest quiet plan node accession window accession bridge
+graph deed claim reclaim deed generation issue lease quiet window
+fence ballot plan manifest head fuse generation passage satchel parent
+head manifest tracker issue token passage node fuse tracker holder
+proof accession fuse manifest holder fuse reclaim ballot ballot plan
+graph parent parent passage token tracker plan tracker issue bridge
+
+* TODO [#C] panel voter holder proof plan token  :task:
+:PROPERTIES:
+:ID:         ljos-001o
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:END:
+
+satchel scorer holder proof plan blocker graph plan ballot ballot
+token satchel plan head voter head deed tracker manifest deed
+manifest satchel passage window ballot satchel panel accession lease blocker
+tracker plan bridge satchel head deed quiet window deed blocker
+holder proof scorer satchel scorer node fence parent accession accession
+
+* CANCELLED [#C] accession reclaim proof claim lease lease  :bug:
+:PROPERTIES:
+:ID:         ljos-001p
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:END:
+
+issue deed window ballot proof passage parent passage tracker fuse
+proof satchel head manifest generation ballot fuse manifest head lease
+fuse fence passage node token proof manifest passage satchel panel
+window scorer holder claim reclaim proof bridge satchel head issue
+ballot claim scorer accession voter passage tracker parent fence quiet
+manifest accession manifest fence parent deed passage quiet token panel
+
+* DONE [#C] parent passage claim proof panel quiet  :feature:
+:PROPERTIES:
+:ID:         ljos-001q
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:PARENT:     ljos-001l
+:END:
+:LOGBOOK:
+- Note: "ballot token manifest scorer panel panel tracker generation" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+lease blocker lease deed voter voter window lease deed satchel
+parent token scorer lease fuse lease reclaim quiet bridge issue
+window scorer graph plan panel claim window passage holder scorer
+reclaim proof ballot token holder quiet passage issue passage token
+lease token fence quiet passage bridge parent head ballot proof
+
+* DONE [#A] lease fuse issue scorer accession holder  :task:
+:PROPERTIES:
+:ID:         ljos-001r
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:BLOCKED_BY: ljos-0002
+:END:
+:LOGBOOK:
+- Note: "scorer fence manifest reclaim head ballot satchel lease" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+node claim satchel scorer issue generation head generation ballot node
+node node generation quiet scorer plan quiet accession lease claim
+
+* DONE [#B] proof ballot graph claim bridge fence  :feature:
+:PROPERTIES:
+:ID:         ljos-001s
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:BLOCKED_BY: ljos-000s ljos-001g ljos-0013
+:DEEDS:      deed-hadm11
+:END:
+:LOGBOOK:
+- Note: "fence quiet quiet manifest satchel quiet lease claim" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+satchel window manifest token accession window plan satchel accession satchel
+panel fence token proof parent manifest window node satchel reclaim
+head deed manifest node proof generation graph fuse lease accession
+blocker holder node voter holder fence reclaim graph window parent
+
+* DONE [#C] head parent blocker blocker node quiet  :feature:
+:PROPERTIES:
+:ID:         ljos-001t
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:BLOCKED_BY: ljos-001c ljos-000q
+:DEEDS:      deed-w5l1y3
+:END:
+:LOGBOOK:
+- Note: "fuse holder voter graph ballot claim head scorer" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+window node satchel ballot passage reclaim holder plan issue token
+fuse passage fence window plan graph tracker issue issue satchel
+lease fuse voter scorer holder deed lease satchel voter fence
+voter quiet issue plan node accession reclaim fuse claim token
+
+* TODO [#B] issue deed reclaim fence voter deed  :task:
+:PROPERTIES:
+:ID:         ljos-001u
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:END:
+
+deed manifest satchel plan head issue panel claim panel plan
+plan holder graph quiet lease manifest fuse blocker fuse voter
+manifest claim proof lease fuse voter voter head node plan
+satchel manifest claim panel token quiet deed token graph ballot
+tracker node voter fuse generation satchel generation ballot quiet proof
+
+* TODO [#B] satchel tracker generation window deed panel  :bug:
+:PROPERTIES:
+:ID:         ljos-001v
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:BLOCKED_BY: ljos-001r
+:END:
+
+fuse fuse scorer manifest lease token parent issue issue panel
+deed claim generation claim plan scorer ballot voter generation node
+fuse token generation blocker accession reclaim issue manifest tracker fence
+proof voter tracker satchel tracker ballot parent node graph passage
+fence manifest proof head accession voter passage tracker voter parent
+
+* DONE [#C] passage generation fuse voter reclaim proof  :feature:
+:PROPERTIES:
+:ID:         ljos-001w
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:DEEDS:      deed-ijwtcj
+:END:
+:LOGBOOK:
+- Note: "quiet window quiet issue panel node window graph" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+generation quiet manifest manifest proof fence reclaim panel deed holder
+holder fuse voter bridge fuse bridge node voter node lease
+passage voter head holder panel manifest voter deed holder claim
+
+* DONE [#C] node accession panel parent token window  :task:
+:PROPERTIES:
+:ID:         ljos-001x
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:END:
+:LOGBOOK:
+- Note: "parent issue satchel parent reclaim token voter deed" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+manifest bridge reclaim generation generation claim graph deed reclaim token
+voter deed head token quiet accession head head scorer manifest
+
+* TODO [#C] generation lease head issue bridge fence  :bug:
+:PROPERTIES:
+:ID:         ljos-001y
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:BLOCKED_BY: ljos-000x ljos-000d ljos-001q
+:END:
+
+accession lease manifest fence panel deed panel ballot tracker panel
+voter graph panel node fence holder tracker lease lease issue
+satchel parent holder deed manifest quiet panel passage plan claim
+fuse quiet token blocker tracker parent deed tracker ballot accession
+satchel quiet panel parent manifest accession node manifest holder window
+manifest parent parent graph node generation generation token scorer blocker
+
+* BLOCKED [#C] claim generation reclaim bridge proof bridge  :feature:
+:PROPERTIES:
+:ID:         ljos-001z
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:END:
+
+voter node quiet holder head panel satchel fence generation plan
+head bridge reclaim reclaim tracker manifest lease generation parent ballot
+plan parent blocker passage proof holder deed fence fuse generation
+
+* STARTED [#B] fence head lease fuse parent quiet  :feature:
+:PROPERTIES:
+:ID:         ljos-0020
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:BLOCKED_BY: ljos-0000 ljos-001k
+:CLAIMED_BY: seat-bench
+:CLAIMED_AT: [2026-09-11 Fri 09:00]
+:END:
+:LOGBOOK:
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+reclaim bridge fence window accession passage head proof window panel
+plan holder satchel ballot ballot fence blocker blocker generation tracker
+fuse accession ballot fuse deed scorer scorer proof manifest bridge
+fuse panel holder deed plan accession passage claim panel lease
+plan reclaim node fuse tracker head voter fence holder fuse
+scorer manifest window scorer proof manifest passage node scorer head
+
+* TODO [#A] quiet claim reclaim window tracker token  :bug:
+:PROPERTIES:
+:ID:         ljos-0021
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:END:
+
+voter bridge node window head node window scorer voter token
+tracker passage scorer scorer fence plan proof fuse fence blocker
+head holder plan passage window passage voter parent issue token
+panel tracker passage token head parent fuse satchel window quiet
+
+* CANCELLED [#A] bridge issue fence holder manifest issue  :task:
+:PROPERTIES:
+:ID:         ljos-0022
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:PARENT:     ljos-0005
+:NOBLOCKING: t
+:END:
+
+head deed token voter holder proof claim fence ballot plan
+reclaim scorer token tracker plan manifest quiet manifest tracker parent
+accession blocker issue tracker fuse lease parent graph token node
+
+* TODO [#C] manifest tracker bridge generation parent ballot  :task:
+:PROPERTIES:
+:ID:         ljos-0023
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:BLOCKED_BY: ljos-000e ljos-0004
+:END:
+
+manifest reclaim voter head lease parent scorer head token blocker
+lease bridge token fence blocker graph quiet holder window deed
+plan fuse fuse satchel parent holder scorer claim graph window
+voter issue blocker graph head lease lease accession holder bridge
+
+* STARTED [#A] fence quiet ballot parent panel fuse  :bug:
+:PROPERTIES:
+:ID:         ljos-0024
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:CLAIMED_BY: seat-bench
+:CLAIMED_AT: [2026-09-11 Fri 09:00]
+:END:
+:LOGBOOK:
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+satchel node plan ballot passage fence manifest accession passage reclaim
+deed claim holder scorer ballot generation reclaim quiet parent manifest
+tracker head accession scorer head satchel manifest accession lease accession
+scorer bridge accession node lease node head claim ballot generation
+panel holder tracker fuse holder graph satchel graph fence passage
+
+* CANCELLED [#B] scorer passage scorer holder voter generation  :task:
+:PROPERTIES:
+:ID:         ljos-0025
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:PARENT:     ljos-000p
+:END:
+
+manifest blocker deed blocker blocker node plan blocker holder fuse
+fence deed issue accession tracker manifest passage plan panel node
+
+* TODO [#C] satchel accession generation voter accession fuse  :task:
+:PROPERTIES:
+:ID:         ljos-0026
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:END:
+
+blocker node manifest holder holder reclaim lease claim plan fuse
+head satchel head satchel scorer issue deed quiet scorer fence
+holder deed tracker deed graph tracker scorer window fuse accession
+
+* TODO [#A] fence scorer quiet deed scorer manifest  :task:
+:PROPERTIES:
+:ID:         ljos-0027
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:BLOCKED_BY: ljos-001i ljos-0008 ljos-001q
+:END:
+
+window lease issue quiet panel graph node voter lease reclaim
+generation satchel head reclaim claim ballot deed plan passage panel
+token reclaim node tracker generation holder ballot generation fence fence
+blocker parent claim scorer accession tracker holder lease reclaim graph
+
+* STARTED [#A] accession lease reclaim accession accession plan  :task:
+:PROPERTIES:
+:ID:         ljos-0028
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:CLAIMED_BY: seat-bench
+:CLAIMED_AT: [2026-09-11 Fri 09:00]
+:END:
+:LOGBOOK:
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+quiet generation plan proof blocker generation fence panel ballot accession
+issue bridge ballot satchel graph head plan lease lease accession
+scorer panel accession generation proof ballot voter tracker parent accession
+quiet fence lease holder reclaim holder passage issue parent fence
+
+* TODO [#B] manifest window fuse scorer plan window  :feature:
+:PROPERTIES:
+:ID:         ljos-0029
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:END:
+
+graph parent voter bridge issue generation issue panel deed panel
+issue window voter head window graph manifest passage passage graph
+holder graph lease window bridge token panel blocker issue manifest
+holder panel node satchel issue fence lease ballot holder token
+generation window passage reclaim window issue quiet graph ballot manifest
+tracker holder claim quiet plan tracker plan issue quiet passage
+
+* TODO [#C] head plan bridge reclaim panel manifest  :bug:
+:PROPERTIES:
+:ID:         ljos-002a
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:BLOCKED_BY: ljos-0015
+:ORDERED:    t
+:END:
+
+blocker panel satchel fuse plan manifest generation node scorer satchel
+proof satchel fuse panel plan node lease graph lease graph
+
+* DONE [#A] manifest reclaim accession issue proof panel  :bug:
+:PROPERTIES:
+:ID:         ljos-002b
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:PARENT:     ljos-002a
+:END:
+:LOGBOOK:
+- Note: "bridge plan plan issue graph issue holder parent" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+deed fence accession lease bridge plan claim node quiet accession
+fuse ballot ballot head reclaim scorer generation claim blocker reclaim
+plan claim tracker manifest generation issue issue plan head quiet
+proof plan holder deed fuse lease blocker token holder lease
+
+* TODO [#B] passage tracker manifest token issue quiet  :bug:
+:PROPERTIES:
+:ID:         ljos-002c
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:BLOCKED_BY: ljos-0017 ljos-002a
+:PARENT:     ljos-002a
+:END:
+
+claim generation scorer node reclaim blocker panel voter lease generation
+holder passage ballot node scorer proof voter token tracker lease
+generation claim accession fence claim token token bridge holder passage
+proof lease quiet node fuse window holder panel tracker window
+
+* STARTED [#A] manifest parent bridge fence manifest reclaim  :task:
+:PROPERTIES:
+:ID:         ljos-002d
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:PARENT:     ljos-0009
+:CLAIMED_BY: seat-bench
+:CLAIMED_AT: [2026-09-11 Fri 09:00]
+:END:
+:LOGBOOK:
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+graph fence generation reclaim passage generation proof blocker window manifest
+graph lease accession voter generation panel head window deed window
+accession voter proof plan tracker voter graph satchel proof accession
+window proof satchel holder satchel issue satchel claim proof blocker
+
+* TODO [#C] node ballot passage graph voter ballot  :bug:
+:PROPERTIES:
+:ID:         ljos-002e
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:END:
+
+parent ballot blocker generation voter generation satchel voter window accession
+fuse panel head window fuse accession head scorer lease bridge
+
+* DONE [#B] accession scorer window satchel node parent  :task:
+:PROPERTIES:
+:ID:         ljos-002f
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:DEEDS:      deed-ix8lzh
+:END:
+:LOGBOOK:
+- Note: "ballot fuse fuse parent accession fence panel blocker" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+fuse node ballot issue graph graph parent bridge plan tracker
+manifest passage scorer bridge scorer node holder fence issue passage
+manifest passage reclaim passage quiet parent manifest node fuse quiet
+holder parent fuse head quiet panel parent plan claim panel
+plan generation accession satchel manifest parent plan parent proof token
+proof holder voter graph satchel token manifest manifest fuse blocker
+
+* STARTED [#B] fuse fence graph satchel deed head  :feature:
+:PROPERTIES:
+:ID:         ljos-002g
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:CLAIMED_BY: seat-bench
+:CLAIMED_AT: [2026-09-11 Fri 09:00]
+:END:
+:LOGBOOK:
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+holder lease fuse holder manifest bridge passage fuse node ballot
+manifest passage accession blocker satchel graph lease window reclaim lease
+scorer graph generation scorer quiet deed voter window graph accession
+graph node graph parent head fence passage panel bridge plan
+fence reclaim holder proof blocker deed ballot issue manifest generation
+voter head satchel manifest generation voter issue deed proof proof
+
+* BLOCKED [#B] node satchel plan scorer holder ballot  :feature:
+:PROPERTIES:
+:ID:         ljos-002h
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:END:
+
+accession plan fence fence issue head satchel satchel passage proof
+bridge claim panel issue blocker lease token scorer scorer head
+head voter parent proof proof bridge quiet claim fence head
+
+* TODO [#A] issue parent lease fuse node tracker  :task:
+:PROPERTIES:
+:ID:         ljos-002i
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:END:
+
+issue satchel issue head token fence node plan fence scorer
+parent lease token bridge fence plan issue reclaim scorer head
+generation parent fuse reclaim voter accession bridge plan generation window
+voter tracker proof parent scorer holder proof parent generation plan
+
+* BLOCKED [#B] reclaim passage lease quiet window graph  :feature:
+:PROPERTIES:
+:ID:         ljos-002j
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:BLOCKED_BY: ljos-000w ljos-002c
+:END:
+
+claim proof fuse generation deed deed node plan satchel blocker
+proof plan window graph deed reclaim holder generation reclaim window
+panel manifest head fuse bridge voter scorer holder manifest blocker
+accession reclaim head voter window fuse generation tracker accession lease
+window fence proof scorer parent accession generation graph node blocker
+head deed reclaim voter reclaim blocker scorer ballot head satchel
+
+* CANCELLED [#B] claim reclaim generation quiet proof plan  :bug:
+:PROPERTIES:
+:ID:         ljos-002k
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:BLOCKED_BY: ljos-0024
+:ORDERED:    t
+:END:
+
+node fuse tracker fuse tracker deed blocker reclaim window parent
+quiet holder issue voter reclaim passage token head token reclaim
+blocker fence generation proof node fuse parent graph voter claim
+head fuse proof holder plan generation voter holder generation quiet
+parent head deed issue node plan scorer blocker accession voter
+
+* STARTED [#A] graph accession window parent reclaim holder  :feature:
+:PROPERTIES:
+:ID:         ljos-002l
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:PARENT:     ljos-002k
+:CLAIMED_BY: seat-bench
+:CLAIMED_AT: [2026-09-11 Fri 09:00]
+:END:
+:LOGBOOK:
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+satchel holder panel deed node panel window voter fence reclaim
+head holder tracker quiet proof accession fuse satchel token generation
+parent manifest token fuse reclaim panel passage passage fence deed
+bridge manifest lease issue blocker bridge claim fence reclaim bridge
+
+* TODO [#B] scorer window issue fence reclaim holder  :task:
+:PROPERTIES:
+:ID:         ljos-002m
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:PARENT:     ljos-002k
+:END:
+
+deed generation scorer ballot token lease manifest reclaim holder fuse
+deed generation quiet accession manifest head bridge node accession tracker
+manifest quiet token blocker parent deed blocker fence tracker window
+head token tracker window token blocker quiet ballot satchel head
+generation generation generation passage scorer token proof panel voter holder
+proof scorer parent manifest fence manifest tracker fuse tracker quiet
+
+* TODO [#C] accession lease parent panel plan parent  :bug:
+:PROPERTIES:
+:ID:         ljos-002n
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:BLOCKED_BY: ljos-000d
+:PARENT:     ljos-002k
+:END:
+
+graph window window token accession head node quiet scorer window
+generation passage graph manifest reclaim deed satchel window reclaim holder
+node tracker plan window passage node claim token lease token
+generation bridge blocker blocker voter scorer reclaim voter tracker node
+fence issue quiet holder parent graph lease proof satchel ballot
+
+* STARTED [#B] claim token fence fuse scorer reclaim  :task:
+:PROPERTIES:
+:ID:         ljos-002o
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:CLAIMED_BY: seat-bench
+:CLAIMED_AT: [2026-09-11 Fri 09:00]
+:END:
+:LOGBOOK:
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+parent node fence ballot accession token generation reclaim ballot issue
+voter quiet parent deed accession fence blocker issue head scorer
+
+* CANCELLED [#A] proof blocker proof generation fence blocker  :feature:
+:PROPERTIES:
+:ID:         ljos-002p
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:END:
+
+issue holder reclaim reclaim node fuse accession voter fence lease
+blocker claim bridge generation bridge passage issue accession fence issue
+ballot panel fence reclaim plan panel generation plan manifest blocker
+proof fence panel voter manifest scorer quiet blocker bridge fuse
+
+* DONE [#B] graph parent voter deed claim generation  :bug:
+:PROPERTIES:
+:ID:         ljos-002q
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:DEEDS:      deed-l8i4bu
+:END:
+:LOGBOOK:
+- Note: "tracker scorer window panel panel token fence blocker" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+issue parent plan node node reclaim scorer head window node
+claim bridge scorer fuse claim voter generation satchel fuse blocker
+satchel blocker panel fuse issue accession parent satchel satchel fence
+node panel fuse parent blocker accession fuse ballot claim parent
+
+* TODO [#B] deed bridge ballot lease token claim  :bug:
+:PROPERTIES:
+:ID:         ljos-002r
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:END:
+
+window reclaim fence manifest satchel plan head ballot generation deed
+accession fence graph quiet voter claim head proof fuse window
+blocker node token reclaim fuse panel generation satchel parent claim
+quiet satchel graph accession holder manifest quiet node manifest claim
+
+* DONE [#B] bridge accession claim passage blocker ballot  :feature:
+:PROPERTIES:
+:ID:         ljos-002s
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:PARENT:     ljos-001v
+:NOBLOCKING: t
+:DEEDS:      deed-hgq51t
+:END:
+:LOGBOOK:
+- Note: "head scorer blocker fuse graph tracker manifest fuse" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+window tracker plan issue passage fuse satchel holder issue claim
+graph fuse proof fence passage ballot accession head graph deed
+
+* TODO [#C] panel fuse satchel passage blocker fuse  :task:
+:PROPERTIES:
+:ID:         ljos-002t
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:END:
+
+generation claim parent claim fuse token window satchel head deed
+issue passage claim holder tracker ballot tracker head generation accession
+
+* TODO [#A] holder reclaim scorer scorer passage generation  :feature:
+:PROPERTIES:
+:ID:         ljos-002u
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:BLOCKED_BY: ljos-002a ljos-000z ljos-0028
+:END:
+
+lease proof window proof panel fence blocker fuse panel satchel
+bridge voter manifest voter claim graph accession quiet parent scorer
+bridge parent generation blocker window manifest claim holder reclaim passage
+blocker claim generation quiet deed tracker passage quiet fuse deed
+generation scorer deed satchel issue manifest voter quiet graph deed
+claim bridge reclaim ballot accession head satchel token fuse graph
+
+* TODO [#B] blocker bridge graph token reclaim ballot  :feature:
+:PROPERTIES:
+:ID:         ljos-002v
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:END:
+
+generation holder graph issue window bridge fuse window plan fuse
+proof issue fence graph satchel manifest voter satchel passage blocker
+deed plan panel token graph head issue lease generation window
+parent voter scorer deed manifest ballot manifest graph node claim
+
+* TODO [#C] issue ballot fuse parent proof parent  :bug:
+:PROPERTIES:
+:ID:         ljos-002w
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:BLOCKED_BY: ljos-000l ljos-002a
+:PARENT:     ljos-002k
+:END:
+
+satchel parent blocker tracker parent accession satchel satchel bridge blocker
+accession manifest plan quiet voter plan holder window tracker passage
+proof fuse claim deed holder reclaim accession fuse fence proof
+fence passage lease plan scorer fuse node scorer proof satchel
+reclaim scorer tracker graph blocker plan fuse blocker plan parent
+
+* TODO [#A] plan issue node passage token claim  :task:
+:PROPERTIES:
+:ID:         ljos-002x
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:BLOCKED_BY: ljos-001c ljos-0010 ljos-000g
+:END:
+
+ballot claim graph voter fence issue ballot ballot parent passage
+graph ballot reclaim claim node deed token manifest fuse scorer
+claim blocker fence manifest lease voter passage fence token parent
+accession reclaim lease head panel issue holder head graph passage
+generation head scorer window ballot blocker generation generation window parent
+
+* TODO [#B] deed panel accession accession passage scorer  :bug:
+:PROPERTIES:
+:ID:         ljos-002y
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:END:
+
+window voter lease node issue quiet lease blocker passage graph
+proof manifest fence panel graph tracker fence scorer token satchel
+satchel passage scorer proof node fuse plan claim generation blocker
+manifest window accession fuse graph fence panel bridge scorer holder
+proof head fuse claim voter ballot head reclaim accession ballot
+reclaim token satchel quiet deed issue reclaim fence tracker claim
+
+* STARTED [#B] blocker voter tracker reclaim issue graph  :bug:
+:PROPERTIES:
+:ID:         ljos-002z
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:CLAIMED_BY: seat-bench
+:CLAIMED_AT: [2026-09-11 Fri 09:00]
+:END:
+:LOGBOOK:
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+tracker tracker ballot tracker lease fence manifest reclaim proof lease
+parent plan panel tracker tracker panel window graph window manifest
+
+* BLOCKED [#C] accession manifest deed token generation tracker  :task:
+:PROPERTIES:
+:ID:         ljos-0030
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:BLOCKED_BY: ljos-002u
+:END:
+
+token plan holder manifest issue claim bridge bridge fence accession
+blocker accession bridge claim parent holder plan token passage scorer
+graph passage satchel reclaim manifest graph fuse lease reclaim voter
+graph parent passage proof issue tracker tracker satchel quiet blocker
+
+* DONE [#B] holder lease token reclaim tracker scorer  :bug:
+:PROPERTIES:
+:ID:         ljos-0031
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:BLOCKED_BY: ljos-001n
+:END:
+:LOGBOOK:
+- Note: "fence plan accession accession ballot window claim head" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+issue panel claim reclaim lease node reclaim claim manifest satchel
+claim token token scorer claim holder reclaim head head scorer
+scorer panel fuse voter head issue fence scorer tracker tracker
+generation plan bridge quiet satchel panel fuse plan voter node
+voter panel bridge voter claim bridge ballot holder token bridge
+
+* BLOCKED [#A] node blocker claim node lease satchel  :task:
+:PROPERTIES:
+:ID:         ljos-0032
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:PARENT:     ljos-002m
+:ORDERED:    t
+:END:
+
+blocker lease generation head generation satchel node node issue fuse
+generation window panel scorer proof graph generation holder head lease
+bridge issue token issue claim voter token quiet holder blocker
+
+* STARTED [#C] accession token passage blocker claim satchel  :task:
+:PROPERTIES:
+:ID:         ljos-0033
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       task
+:BLOCKED_BY: ljos-001z
+:PARENT:     ljos-0032
+:CLAIMED_BY: seat-bench
+:CLAIMED_AT: [2026-09-11 Fri 09:00]
+:END:
+:LOGBOOK:
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+ballot ballot ballot blocker blocker window fence voter generation fuse
+window ballot deed head satchel fuse lease window tracker reclaim
+lease quiet parent passage blocker parent head reclaim token voter
+panel tracker reclaim fuse proof token ballot fence window passage
+manifest fuse token fence tracker node plan claim plan token
+fence manifest graph deed deed issue deed holder bridge ballot
+
+* STARTED [#B] lease fence fence generation token fuse  :bug:
+:PROPERTIES:
+:ID:         ljos-0034
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:PARENT:     ljos-0032
+:CLAIMED_BY: seat-bench
+:CLAIMED_AT: [2026-09-11 Fri 09:00]
+:END:
+:LOGBOOK:
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+ballot scorer panel reclaim issue tracker issue blocker fence lease
+parent generation voter tracker lease fuse fuse holder plan proof
+blocker claim generation quiet ballot deed head graph voter holder
+graph blocker deed plan manifest lease accession satchel token quiet
+head quiet panel panel bridge issue ballot parent issue issue
+
+* DONE [#B] lease proof window lease accession node  :bug:
+:PROPERTIES:
+:ID:         ljos-0035
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:BLOCKED_BY: ljos-0000 ljos-002q
+:DEEDS:      deed-5mra0z
+:END:
+:LOGBOOK:
+- Note: "window quiet token generation parent plan accession proof" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+manifest fence window token head quiet reclaim passage generation panel
+fuse window node proof passage voter issue panel fence panel
+reclaim reclaim deed issue claim lease voter graph proof voter
+token quiet ballot head ballot fuse quiet voter tracker deed
+
+* DONE [#A] graph lease fence voter plan reclaim  :feature:
+:PROPERTIES:
+:ID:         ljos-0036
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:DEEDS:      deed-4xhfwi
+:END:
+:LOGBOOK:
+- Note: "ballot fence voter satchel deed fence fence tracker" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+window lease fence manifest fence holder window token tracker bridge
+panel passage voter claim graph issue head quiet claim token
+
+* TODO [#B] voter voter quiet head tracker claim  :feature:
+:PROPERTIES:
+:ID:         ljos-0037
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:END:
+
+lease satchel parent blocker node token plan reclaim blocker manifest
+fuse accession graph ballot lease plan reclaim fence claim fence
+quiet blocker fuse fuse scorer deed fuse graph quiet generation
+
+* TODO [#A] satchel graph panel fence scorer scorer  :bug:
+:PROPERTIES:
+:ID:         ljos-0038
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:BLOCKED_BY: ljos-000y
+:END:
+
+manifest window tracker quiet holder manifest blocker tracker graph manifest
+manifest quiet passage fuse token plan node blocker quiet deed
+issue satchel issue lease node panel reclaim claim node issue
+satchel plan manifest node panel claim bridge graph plan lease
+
+* TODO [#C] parent manifest node deed lease bridge  :feature:
+:PROPERTIES:
+:ID:         ljos-0039
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:BLOCKED_BY: ljos-001z ljos-002j
+:END:
+
+bridge quiet node proof head generation token reclaim fence graph
+manifest head bridge node accession window generation fence passage node
+bridge tracker reclaim scorer ballot plan plan satchel token generation
+proof passage generation node passage quiet passage plan accession reclaim
+token fence bridge graph head head blocker tracker holder fence
+
+* DONE [#C] token reclaim graph fuse blocker manifest  :feature:
+:PROPERTIES:
+:ID:         ljos-003a
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:DEEDS:      deed-0rtju6
+:END:
+:LOGBOOK:
+- Note: "panel panel blocker passage claim lease panel bridge" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+window panel node issue bridge fuse ballot holder panel manifest
+holder satchel blocker claim accession tracker generation plan plan manifest
+
+* BLOCKED [#C] voter node lease ballot head claim  :bug:
+:PROPERTIES:
+:ID:         ljos-003b
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       bug
+:END:
+
+parent reclaim deed tracker accession scorer reclaim fence satchel lease
+fuse quiet lease manifest bridge node fence bridge manifest passage
+plan tracker bridge fuse reclaim ballot claim reclaim reclaim parent

@@ -1,0 +1,40 @@
+#+TITLE: proj017 issues
+#+VISSUE: 1
+#+CATEGORY: proj017
+#+TAGS: { bug(b) feature(f) task(t) chore(c) plan(p) }
+#+TAGS: docs(d) perf ignore ARCHIVE
+#+EXCLUDE_TAGS: noexport
+#+SELECT_TAGS: export
+#+PRIORITIES: A C C
+#+FILETAGS: :issues:proj017:noexport:
+
+* DONE [#A] satchel node panel plan proof node  :feature:
+:PROPERTIES:
+:ID:         proj017-0000
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:END:
+:LOGBOOK:
+- Note: "passage blocker window blocker deed graph bridge issue" [2026-09-12 Sat 17:31]
+- State "DONE" from "STARTED" [2026-09-12 Sat 17:30]
+- State "STARTED" from "TODO" [2026-09-11 Fri 09:00]
+:END:
+
+head lease generation fuse satchel head node ballot ballot quiet
+issue ballot parent bridge window satchel quiet blocker token graph
+issue issue tracker head claim fence deed head plan reclaim
+voter lease fence fence claim fence quiet manifest lease proof
+proof passage head deed voter manifest passage manifest voter quiet
+
+* TODO [#C] token manifest deed plan window reclaim  :feature:
+:PROPERTIES:
+:ID:         proj017-0001
+:CREATED:    [2026-09-10 Thu]
+:TYPE:       feature
+:BLOCKED_BY: proj017-0000
+:END:
+
+parent token manifest fuse window panel accession holder accession fuse
+plan token accession quiet proof lease claim manifest node satchel
+lease quiet fuse reclaim fuse window head manifest satchel graph
+node quiet blocker voter head quiet parent manifest parent tracker
