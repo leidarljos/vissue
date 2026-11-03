@@ -1,0 +1,115 @@
+# commit: ee289fd0819a74ad4e3a81c9491fa8431edcdb63
+# date: 2026-11-03T12:10:00+0000
+# os: macOS 26.6.2 (25G83), arm64
+# kernel: Darwin 25.6.0
+# cpu: Apple M1 (Virtual)
+# cores: 3 logical, 3 physical
+# governor: none: macOS has no cpufreq governor
+# filesystem: apfs
+# build profile: release
+# rustc: rustc 1.97.1 (8bab26f4f 2026-07-14)
+# git: git version 2.56.0
+# vim: VIM - Vi IMproved 9.1 (2024 Jan 02, compiled Jul 31 2026 22:26:31)
+# emacs: GNU Emacs 31.1
+# python3: Python 3.15.1
+# run: 4 of 6
+rebuild 48590250
+rebuild 45867583
+rebuild 47297542
+rebuild 45711166
+rebuild 45750750
+rebuild 44639500
+rebuild 42394959
+rebuild 48382416
+rebuild 44634958
+rebuild 44124833
+rebuild 44707167
+rebuild 46455750
+rebuild 49194625
+rebuild 45204125
+rebuild 47687792
+rebuild 49275000
+rebuild 49957750
+rebuild 47274750
+rebuild 46876334
+rebuild 49735583
+rebuild 50688000
+rebuild 43898459
+rebuild 57102667
+rebuild 44993875
+rebuild 45961833
+rebuild 44084875
+rebuild 39827292
+rebuild 39703667
+rebuild 45392375
+rebuild 44784541
+rebuild 39827208
+rebuild 39432958
+rebuild 39733833
+rebuild 43072625
+rebuild 39567042
+rebuild 39792083
+rebuild 39643125
+rebuild 39746125
+rebuild 40703459
+rebuild 45386917
+rebuild 58876417
+rebuild 66210208
+rebuild 48376750
+rebuild 54945166
+rebuild 46972625
+rebuild 46185166
+rebuild 51521000
+rebuild 59032958
+rebuild 54333500
+rebuild 47557125
+rebuild 52144125
+rebuild 42953500
+rebuild 46482000
+rebuild 57319292
+rebuild 52554459
+rebuild 53273542
+rebuild 49448667
+rebuild 56537125
+rebuild 62851042
+rebuild 47848875
+rebuild 60221250
+rebuild 44909584
+rebuild 55366500
+rebuild 60314167
+rebuild 61009834
+rebuild 54409792
+rebuild 59190833
+rebuild 55978875
+rebuild 62769750
+rebuild 54223917
+rebuild 44737333
+rebuild 45524750
+rebuild 47934375
+rebuild 46607500
+rebuild 45927292
+rebuild 47833167
+rebuild 54230084
+rebuild 54618750
+rebuild 47485959
+rebuild 46331916
+rebuild 47535166
+rebuild 46473708
+rebuild 48392875
+rebuild 48224583
+rebuild 55577500
+rebuild 51414750
+rebuild 47710458
+rebuild 46838750
+rebuild 51046958
+rebuild 48443292
+rebuild 46936417
+rebuild 44217584
+rebuild 48442291
+rebuild 46975250
+rebuild 45351833
+rebuild 47709709
+rebuild 49078250
+rebuild 49296167
+rebuild 48109500
+rebuild 49195458
