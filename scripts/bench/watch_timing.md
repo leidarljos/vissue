@@ -29,22 +29,23 @@ The six raw outputs are in `data/watch_timing/`.
 The aim here is to find the longest gap between the events of one save.
 The table covers six runs of 40 saves per method, in ms.
 For the median, each run gives its p50, and the table shows the median of the six.
-The interquartile range (IQR) is the median p75 across runs less the median p25.
+The spread is the median p75 across runs less the median p25.
+It is not an interquartile range, since neither median is a quartile of one distribution.
 The max is the largest of any run, since the window has to outlast the worst gap.
 
-| method         | events | span median | span IQR | span max | gap median | gap IQR | gap max |
-|----------------|-------:|------------:|---------:|---------:|-----------:|--------:|--------:|
-| git checkout   |      5 |        0.10 |     0.26 |    11.95 |       0.03 |    0.08 |   11.94 |
-| vim            |     17 |        3.90 |     1.02 |     9.05 |       0.00 |    0.04 |    4.64 |
-| `vissue-note`  |     15 |        1.58 |     0.66 |     2.90 |       0.00 |    0.02 |    2.40 |
-| write + rename |      5 |        0.03 |     0.09 |     0.97 |       0.00 |    0.01 |    0.97 |
-| emacs          |      4 |        0.29 |     0.11 |     0.92 |       0.08 |    0.22 |    0.67 |
-| in-place write |      2 |        0.00 |     0.00 |     0.02 |       0.01 |    0.00 |    0.02 |
+| method         | events | span median | span spread | span max | gap median | gap spread | gap max |
+|----------------|-------:|------------:|------------:|---------:|-----------:|-----------:|--------:|
+| git checkout   |      5 |        0.10 |        0.26 |    11.95 |       0.03 |       0.08 |   11.94 |
+| vim            |     17 |        3.90 |        1.03 |     9.05 |       0.00 |       0.04 |    4.64 |
+| `vissue-note`  |     15 |        1.58 |        0.66 |     2.90 |       0.00 |       0.02 |    2.40 |
+| write + rename |      5 |        0.03 |        0.09 |     0.97 |       0.00 |       0.01 |    0.97 |
+| emacs          |      4 |        0.30 |        0.11 |     0.92 |       0.08 |       0.23 |    0.67 |
+| in-place write |      2 |        0.00 |        0.00 |     0.02 |       0.01 |       0.01 |    0.02 |
 
 Events is the most that one save raised.
 The `git checkout` maximum is over 100 times its p75.
 A few of its 240 saves have one long gap, and the window has to cover those.
-From an in-place write returning to its first event took 32.5 µs median, with an IQR of 53.5 µs and 580 µs at worst.
+From an in-place write returning to its first event took 32.5 µs median, with a spread of 53.5 µs and 580 µs at worst.
 
 ## The window
 
@@ -70,7 +71,7 @@ A run there can fill this in.
 ## One poll tick
 
 A tick reads the generation, lists the projects and stats each project's file.
-Over 1000 ticks per run on the 173-project tracker it took 1.05 ms median, with an IQR of 0.02 ms and 7.60 ms at worst.
+Over 1000 ticks per run on the 173-project tracker it took 1.05 ms median, with a spread of 0.02 ms and 7.60 ms at worst.
 At one tick per 250 ms the median tick costs 0.42% of one core while idle.
 If every tick were as slow as the worst, the poll would cost 3.0%.
 The poll can be at most 1000 - 200 - 30 = 770 ms under the ceiling below, and 250 ms is a choice inside that.
