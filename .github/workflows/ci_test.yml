@@ -148,6 +148,16 @@ jobs:
       # so this job installs no packages.
       - name: Workspace tests
         run: cargo test --locked --workspace --no-fail-fast
+      # The watcher's COALESCE_MS was set from Linux timings
+      # (scripts/bench/watch_timing.md). This prints the same table through
+      # FSEvents, so the macOS margin can be read off a run. Timings move with
+      # the runner's load, so the step reports and never fails the job. It
+      # reuses the test build's debug profile rather than a second, release
+      # build. Only the vissue-note row runs vissue code between events, so
+      # only that row reads slower than a release build would.
+      - name: Watcher timing through FSEvents
+        continue-on-error: true
+        run: cargo run --locked -p vissue-serve --example watch_timing
 
   coverage:
     name: coverage report
