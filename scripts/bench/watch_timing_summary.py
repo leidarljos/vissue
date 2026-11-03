@@ -4,7 +4,9 @@
 Each run file has raw lines in ns after any `#` header lines, which are printed as they are.
 A watch_timing run has one `save` line per save and one `tick` line per poll tick, and a rebuild timing run one `rebuild` line per full rebuild.
 This prints, for each run and then pooled over every save of every run, per method: the most events one save raised, and the median, interquartile range (IQR) and max of the span of a save and of the gaps inside one.
-It then prints the same for the delay to an in-place write's first event, for the poll tick and for the full rebuild.
+It then prints the same for the delay to an in-place write's first event.
+It prints the median, 95th percentile (p95) and max of the longest gap of each save that raised two or more events, over every method.
+For the poll tick and the full rebuild it prints the median, IQR, p95 and max.
 
 Quartiles are the type-7 estimator (Hyndman and Fan, 1996), the default of R and numpy: linear interpolation between the two samples around rank (n-1)p.
 Times are kept as exact decimals of whole nanoseconds and rounded half up, so a value ending in 5 rounds the same way wherever it falls.
@@ -27,13 +29,22 @@ def quantile(sorted_values, p):
     return sorted_values[lo] + (h - lo) * (sorted_values[lo + 1] - sorted_values[lo])
 
 
-def stats(values, unit, places):
-    """Median, interquartile range (IQR) and max of `values` in ns, in `unit`, rounded half up."""
+def stats(values, unit, places, iqr=True, p95=False):
+    """Median, interquartile range (IQR), 95th percentile (p95) and max of `values` in ns, in `unit`, rounded half up.
+
+    `iqr` and `p95` say which of the middle two to give.
+    """
+    width = 2 + iqr + p95
     if not values:
-        return ["-", "-", "-"]
+        return ["-"] * width
     v = sorted(Decimal(x) / unit for x in values)
     step = Decimal(1).scaleb(-places)
-    out = [quantile(v, "0.5"), quantile(v, "0.75") - quantile(v, "0.25"), v[-1]]
+    out = [quantile(v, "0.5")]
+    if iqr:
+        out.append(quantile(v, "0.75") - quantile(v, "0.25"))
+    if p95:
+        out.append(quantile(v, "0.95"))
+    out.append(v[-1])
     return [str(x.quantize(step, rounding=ROUND_HALF_UP)) for x in out]
 
 
@@ -46,14 +57,16 @@ def parse(path):
                 header.append(line.rstrip("\n"))
             elif fields[:1] == ["save"]:
                 method, events, span, first, gaps = fields[1], int(fields[3]), *fields[4:]
-                s = saves.setdefault(method, {"events": [], "spans": [], "gaps": [], "firsts": []})
+                s = saves.setdefault(method, {"events": [], "spans": [], "gaps": [], "firsts": [], "longest": []})
                 s["events"].append(events)
                 if span != "-":
                     s["spans"].append(int(span))
                 if first != "-":
                     s["firsts"].append(int(first))
                 if gaps != "-":
-                    s["gaps"].extend(int(g) for g in gaps.split(","))
+                    g = [int(x) for x in gaps.split(",")]
+                    s["gaps"].extend(g)
+                    s["longest"].append(max(g))
             elif fields[:1] == ["tick"]:
                 ticks.append(int(fields[1]))
             elif fields[:1] == ["missing"]:
@@ -67,7 +80,7 @@ def merge(runs):
     pooled = {}
     for _, saves, *_ in runs:
         for method, s in saves.items():
-            p = pooled.setdefault(method, {"events": [], "spans": [], "gaps": [], "firsts": []})
+            p = pooled.setdefault(method, {"events": [], "spans": [], "gaps": [], "firsts": [], "longest": []})
             for key in p:
                 p[key].extend(s[key])
     return pooled
@@ -79,10 +92,19 @@ def table(saves, ticks, missing, rebuilds):
     firsts = [x for s in saves.values() for x in s["firsts"]]
     if firsts:
         print("first event after an in-place write, us: median, IQR, max:", ", ".join(stats(firsts, NS_PER_US, 1)))
+    longest = [x for s in saves.values() for x in s["longest"]]
+    if longest:
+        print(
+            f"longest gap of one save over {len(longest)} saves, ms: median, p95, max:",
+            ", ".join(stats(longest, NS_PER_MS, 2, iqr=False, p95=True)),
+        )
     if ticks:
-        print(f"poll tick over {len(ticks)} ticks, ms: median, IQR, max:", ", ".join(stats(ticks, NS_PER_MS, 3)))
+        print(f"poll tick over {len(ticks)} ticks, ms: median, IQR, p95, max:", ", ".join(stats(ticks, NS_PER_MS, 3, p95=True)))
     if rebuilds:
-        print(f"full rebuild over {len(rebuilds)} rebuilds, ms: median, IQR, max:", ", ".join(stats(rebuilds, NS_PER_MS, 3)))
+        print(
+            f"full rebuild over {len(rebuilds)} rebuilds, ms: median, IQR, p95, max:",
+            ", ".join(stats(rebuilds, NS_PER_MS, 3, p95=True)),
+        )
 
 
 def save_table(saves, missing):
