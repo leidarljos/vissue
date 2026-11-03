@@ -256,6 +256,56 @@ fn a_touch_that_changes_no_bytes_is_not_broadcast() {
     }
 }
 
+/// New bytes that parse to the same issues are not broadcast as changed.
+///
+/// The watcher compares parsed issues, not bytes. A preamble line no issue
+/// reads changes the file and leaves every issue, line numbers included,
+/// as it was. The beacon edit after it plays the part it does in
+/// `a_touch_that_changes_no_bytes_is_not_broadcast`.
+#[test]
+fn an_edit_that_parses_the_same_is_not_broadcast() {
+    let h = Harness::new();
+    let mut reader = h.connect();
+
+    let atlas = h.root.join("Software/atlas/issues.org");
+    let text = fs::read_to_string(&atlas).unwrap();
+    let edited = text.replacen("Issue tracking file", "Issue file", 1);
+    assert_ne!(edited, text);
+    fs::write(&atlas, edited).unwrap();
+    let beacon = h.root.join("Software/beacon/issues.org");
+    let text = fs::read_to_string(&beacon).unwrap();
+    fs::write(
+        &beacon,
+        text.replacen("Document the retry policy", "Document the retry budget", 1),
+    )
+    .unwrap();
+
+    match reader.wait_notification(Duration::from_secs(60)) {
+        Ok(Notification::VaultChanged(body)) => assert_eq!(body.projects, ["beacon"]),
+        other => panic!("expected vault/changed, got {other:?}"),
+    }
+}
+
+/// Issues that only moved down the file are broadcast as changed.
+///
+/// Each issue carries the lines it spans, and clients are sent them, so a
+/// blank line above the first heading is a change even though no issue's
+/// text is.
+#[test]
+fn an_edit_that_only_moves_lines_is_broadcast() {
+    let h = Harness::new();
+    let mut reader = h.connect();
+
+    let atlas = h.root.join("Software/atlas/issues.org");
+    let text = fs::read_to_string(&atlas).unwrap();
+    fs::write(&atlas, text.replacen("\n\n* ", "\n\n\n* ", 1)).unwrap();
+
+    match reader.wait_notification(Duration::from_secs(60)) {
+        Ok(Notification::VaultChanged(body)) => assert_eq!(body.projects, ["atlas"]),
+        other => panic!("expected vault/changed, got {other:?}"),
+    }
+}
+
 #[test]
 fn issue_open_notifies_selected() {
     let h = Harness::new();

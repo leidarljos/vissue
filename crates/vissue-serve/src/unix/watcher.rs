@@ -16,7 +16,24 @@ use vissue_core::store::list_projects;
 use super::catalog::{load_project_recs, project_from_path};
 use super::owner::OwnerState;
 
+/// Quiet time after the last signal before one rebuild takes them all.
+///
+/// It must outlast the longest gap between the events of one save, or that
+/// save is read twice. The longest gap measured on Linux was 8.2 ms, from a
+/// `git checkout`; vissue's own writes, vim and emacs stayed under 5 ms
+/// (`scripts/bench/watch_timing.md`). 200 ms is 24 times that, for slower
+/// disks and for macOS, which was not measured. It is also the delay every
+/// change waits before clients hear of it, and with `GEN_POLL_MS` and a
+/// rebuild it keeps that under the one second a user waits without losing
+/// their train of thought (Nielsen, Usability Engineering, 1993, ch. 5).
 const COALESCE_MS: u64 = 200;
+/// Interval of the generation and mtime poll, the path for changes the
+/// file watcher misses.
+///
+/// A tick over 173 projects took 1.1 ms (3.4 ms at worst), so an idle owner
+/// spends under 0.5% of a core on it. A change only the poll sees waits up
+/// to this, `COALESCE_MS` and a rebuild of about 30 ms on that tracker
+/// (`scripts/bench/read_verbs.md`): 480 ms, inside the one second above.
 const GEN_POLL_MS: u64 = 250;
 
 struct Pending {
@@ -179,7 +196,10 @@ fn collect_mtimes(layout: &Layout) -> HashMap<String, Option<SystemTime>> {
 /// An event is not proof of a change: macOS can deliver writes made just
 /// before the watch began, and a touch moves only the mtime. So a project
 /// whose recs the catalog already holds is left out, and a reload that
-/// changes nothing broadcasts nothing. That comparison needs the catalog to
+/// changes nothing broadcasts nothing. The comparison is on parsed issues,
+/// not bytes: new bytes that parse the same are no change, and issues that
+/// only moved lines are one, since each carries its line span. That
+/// comparison needs the catalog to
 /// be what this loop last broadcast (`published`): a write through the
 /// server refreshes it without a broadcast, and the rebuild its events cause
 /// here is how other clients hear of that write.
