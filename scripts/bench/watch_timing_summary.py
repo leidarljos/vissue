@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Summarise runs of the watch_timing example into the tables in watch_timing.md.
+"""Summarise runs of the watch_timing example and of the rebuild timing into the tables in watch_timing.md.
 
-Each run file has the example's raw lines: one `save` line per save and one `tick` line per poll tick, in ns, after any `#` header lines, which are printed as they are.
+Each run file has raw lines in ns after any `#` header lines, which are printed as they are.
+A watch_timing run has one `save` line per save and one `tick` line per poll tick, and a rebuild timing run one `rebuild` line per full rebuild.
 This prints, for each run and then pooled over every save of every run, per method: the most events one save raised, and the median, interquartile range (IQR) and max of the span of a save and of the gaps inside one.
-It then prints the same for the delay to an in-place write's first event and for the poll tick.
+It then prints the same for the delay to an in-place write's first event, for the poll tick and for the full rebuild.
 
 Quartiles are the type-7 estimator (Hyndman and Fan, 1996), the default of R and numpy: linear interpolation between the two samples around rank (n-1)p.
 Times are kept as exact decimals of whole nanoseconds and rounded half up, so a value ending in 5 rounds the same way wherever it falls.
@@ -37,7 +38,7 @@ def stats(values, unit, places):
 
 
 def parse(path):
-    header, saves, ticks, missing = [], {}, [], []
+    header, saves, ticks, missing, rebuilds = [], {}, [], [], []
     with open(path) as f:
         for line in f:
             fields = line.split()
@@ -57,12 +58,14 @@ def parse(path):
                 ticks.append(int(fields[1]))
             elif fields[:1] == ["missing"]:
                 missing.append(fields[1])
-    return header, saves, ticks, missing
+            elif fields[:1] == ["rebuild"]:
+                rebuilds.append(int(fields[1]))
+    return header, saves, ticks, missing, rebuilds
 
 
 def merge(runs):
     pooled = {}
-    for _, saves, _, _ in runs:
+    for _, saves, *_ in runs:
         for method, s in saves.items():
             p = pooled.setdefault(method, {"events": [], "spans": [], "gaps": [], "firsts": []})
             for key in p:
@@ -70,7 +73,19 @@ def merge(runs):
     return pooled
 
 
-def table(saves, ticks, missing):
+def table(saves, ticks, missing, rebuilds):
+    if saves or missing:
+        save_table(saves, missing)
+    firsts = [x for s in saves.values() for x in s["firsts"]]
+    if firsts:
+        print("first event after an in-place write, us: median, IQR, max:", ", ".join(stats(firsts, NS_PER_US, 1)))
+    if ticks:
+        print(f"poll tick over {len(ticks)} ticks, ms: median, IQR, max:", ", ".join(stats(ticks, NS_PER_MS, 3)))
+    if rebuilds:
+        print(f"full rebuild over {len(rebuilds)} rebuilds, ms: median, IQR, max:", ", ".join(stats(rebuilds, NS_PER_MS, 3)))
+
+
+def save_table(saves, missing):
     print("| method | saves | events | span median | span IQR | span max | gap median | gap IQR | gap max |")
     print("|---|--:|--:|--:|--:|--:|--:|--:|--:|")
     by_gap = sorted(saves, key=lambda m: -max(saves[m]["gaps"], default=0))
@@ -81,22 +96,22 @@ def table(saves, ticks, missing):
         print(f"| {method} | {len(s['events'])} | {max(s['events'])} | " + " | ".join(span + gap) + " |")
     for method in sorted(set(missing)):
         print(f"| {method} | not installed |")
-    firsts = [x for s in saves.values() for x in s["firsts"]]
-    if firsts:
-        print("first event after an in-place write, us: median, IQR, max:", ", ".join(stats(firsts, NS_PER_US, 1)))
-    if ticks:
-        print(f"poll tick over {len(ticks)} ticks, ms: median, IQR, max:", ", ".join(stats(ticks, NS_PER_MS, 3)))
 
 
 def main(paths):
     runs = [parse(p) for p in paths]
-    for path, (header, saves, ticks, missing) in zip(paths, runs):
+    for path, (header, saves, ticks, missing, rebuilds) in zip(paths, runs):
         print(f"## {path}")
         print("\n".join(header))
-        table(saves, ticks, missing)
+        table(saves, ticks, missing, rebuilds)
         print()
     print(f"## pooled over {len(runs)} runs")
-    table(merge(runs), [t for _, _, ticks, _ in runs for t in ticks], [m for *_, missing in runs for m in missing])
+    table(
+        merge(runs),
+        [t for _, _, ticks, _, _ in runs for t in ticks],
+        [m for _, _, _, missing, _ in runs for m in missing],
+        [r for *_, rebuilds in runs for r in rebuilds],
+    )
 
 
 if __name__ == "__main__":

@@ -272,4 +272,28 @@ mod tests {
         assert_eq!(ids, ["atlas-cccc", "beacon-dddd"]);
         assert_eq!(cat.issues.len(), 2);
     }
+
+    // Full rebuilds timed per run.
+    // Enough that the slowest rebuild is a tail, not one sample, and few enough that a run takes seconds, not minutes.
+    const REBUILDS: usize = 100;
+
+    /// Times the watcher's full rebuild of the tracker `VISSUE_REBUILD_TRACKER` names, with the projects prefix `VISSUE_REBUILD_PREFIX`, and prints one `rebuild NS` line per rebuild.
+    /// Each rebuild parses every project, compares the result with the catalog and takes it, as the watcher's rebuild does when a project changed.
+    #[test]
+    #[ignore = "a timing run, not a check; scripts/bench/rebuild_timing.sh runs it"]
+    fn full_rebuild_timing() {
+        let root = std::env::var("VISSUE_REBUILD_TRACKER")
+            .expect("VISSUE_REBUILD_TRACKER names the tracker to rebuild");
+        let prefix =
+            std::env::var("VISSUE_REBUILD_PREFIX").unwrap_or_else(|_| String::from("Issues"));
+        let layout = Layout::new(root, prefix);
+        let mut cat = Catalog::load(&layout).unwrap();
+        for _ in 0..REBUILDS {
+            let start = std::time::Instant::now();
+            let recs = load_recs(&layout).unwrap();
+            let dirty = cat.changed_projects(&layout, &recs);
+            cat.apply_full(&layout, recs, dirty, None);
+            println!("rebuild {}", start.elapsed().as_nanos());
+        }
+    }
 }
