@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, PoisonError};
 
 use crate::error::Result;
 use crate::model::{IssueHeading, LogEntry, parse_log_line};
@@ -141,6 +142,9 @@ fn write_proof(dir: &Path, name: &str, text: &str) -> Result<()> {
 
 /// Fold the ledger for the project whose `issues.org` is `path`.
 ///
+/// A record whose op this vissue does not know stays in its file as
+/// written and is not applied; stderr names the op once per process.
+///
 /// # Errors
 ///
 /// Returns an error if a ledger file cannot be read or a record does not parse.
@@ -236,8 +240,9 @@ pub fn commit(doc: &IssueDoc) -> Result<()> {
 ///
 /// Each side is folded to its heading and the headings merge field by field
 /// as a board does (see [`crate::merge`]). The result is ours as written plus
-/// the records that turn ours into the merged heading, so the file stays
-/// append-only and ours is a prefix of it.
+/// the records that turn ours into the merged heading, then each record of
+/// theirs with an op this vissue does not know and ours lacks, as written.
+/// The file stays append-only and ours is a prefix of it.
 ///
 /// # Errors
 ///
@@ -245,7 +250,7 @@ pub fn commit(doc: &IssueDoc) -> Result<()> {
 /// (the same id added on both sides), or a result that does not fold back to
 /// the merged heading.
 pub fn merge_file(base: &str, ours: &str, theirs: &str) -> Result<crate::merge::Merged> {
-    let fold = |label: &str, text: &str| -> Result<IssueHeading> {
+    let fold = |label: &str, text: &str| -> Result<(IssueHeading, Vec<String>)> {
         let (left, log) = split_log(text);
         let doc = IssueDoc::parse("ledger", PathBuf::from("issues.org"), left)
             .map_err(|e| anyhow!("merge: the {label} side does not parse: {e}"))?;
@@ -254,21 +259,24 @@ pub fn merge_file(base: &str, ours: &str, theirs: &str) -> Result<crate::merge::
             .into_iter()
             .next()
             .ok_or_else(|| anyhow!("merge: the {label} side has no heading"))?;
-        if apply_records(&mut heading, log, &doc.preamble)
-            .map_err(|e| anyhow!("merge: the {label} side does not fold: {e}"))?
-        {
+        let (removed, opaque) = apply_records(&mut heading, log, &doc.preamble)
+            .map_err(|e| anyhow!("merge: the {label} side does not fold: {e}"))?;
+        if removed {
             return Err(anyhow!("merge: the {label} side removed the issue").into());
         }
-        Ok(heading)
+        Ok((
+            heading,
+            opaque.iter().map(|kept| kept.record.to_string()).collect(),
+        ))
     };
     if base.trim().is_empty() {
         return Err(
             anyhow!("merge: no common base; the same issue file was added on both sides").into(),
         );
     }
-    let o = fold("base", base)?;
-    let a = fold("ours", ours)?;
-    let b = fold("theirs", theirs)?;
+    let (o, _) = fold("base", base)?;
+    let (a, mut held) = fold("ours", ours)?;
+    let (b, carried) = fold("theirs", theirs)?;
     if o.id != a.id || o.id != b.id {
         return Err(anyhow!("merge: the three sides name different issues").into());
     }
@@ -283,10 +291,20 @@ pub fn merge_file(base: &str, ours: &str, theirs: &str) -> Result<crate::merge::
     }
     let mut buf = Vec::new();
     push_diff(&mut buf, &a, &merged);
+    for record in carried {
+        if let Some(at) = held.iter().position(|kept| *kept == record) {
+            held.swap_remove(at);
+            continue;
+        }
+        buf.extend_from_slice(record.as_bytes());
+        if !record.ends_with('\n') {
+            buf.push(b'\n');
+        }
+    }
     text.push_str(
         std::str::from_utf8(&buf).map_err(|e| anyhow!("merge: record is not text: {e}"))?,
     );
-    let back = fold("merged", &text)?;
+    let (back, _) = fold("merged", &text)?;
     if back.render() != merged.render() {
         return Err(
             anyhow!("merge: the merged file does not fold back to the merged issue").into(),
@@ -733,13 +751,29 @@ fn read_file(issues_org: &Path, file: &Path) -> Result<Loaded> {
     // `#+VISSUE_LINES:` records the old board span. The heading's own
     // line numbers are where it sits in this file, which is what `show`
     // prints next to the path.
-    let tombstoned = apply_records(&mut heading, log, &doc.preamble)?;
+    let (tombstoned, opaque) = apply_records(&mut heading, log, &doc.preamble)?;
+    for kept in &opaque {
+        warn_opaque(kept.op, file);
+    }
     Ok(Loaded {
         file: file.to_path_buf(),
         source,
         heading,
         tombstoned,
     })
+}
+
+/// Name an op this vissue does not know, once per process. A sitting folds
+/// the same files on every read, and one line is enough to say it.
+fn warn_opaque(op: &str, file: &Path) {
+    static WARNED: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+    let mut warned = WARNED.lock().unwrap_or_else(PoisonError::into_inner);
+    if warned.insert(op.to_string()) {
+        eprintln!(
+            "[warn] unknown ledger op {op} in {}: kept as written, not applied",
+            file.display()
+        );
+    }
 }
 
 fn split_log(source: &str) -> (&str, &str) {
@@ -795,10 +829,25 @@ fn apply_legacy_logbook(heading: &mut IssueHeading, log: &str, start: usize) -> 
     Ok(start + consumed)
 }
 
-fn apply_records(heading: &mut IssueHeading, log: &str, preamble: &str) -> Result<bool> {
+/// A record whose op this vissue does not know, as written. A later vissue
+/// may know it, so it is kept on disk and through a merge, and not folded.
+#[derive(Debug)]
+struct Opaque<'a> {
+    op: &'a str,
+    record: &'a str,
+}
+
+/// Fold `log` into `heading`. Returns whether the issue ends tombstoned and
+/// the records this vissue could not fold.
+fn apply_records<'a>(
+    heading: &mut IssueHeading,
+    log: &'a str,
+    preamble: &str,
+) -> Result<(bool, Vec<Opaque<'a>>)> {
     let bytes = log.as_bytes();
     let mut index = 0usize;
     let mut tombstoned = false;
+    let mut opaque = Vec::new();
     while index < bytes.len() {
         while index < bytes.len() && (bytes[index] == b'\n' || bytes[index] == b'\r') {
             index += 1;
@@ -830,6 +879,7 @@ fn apply_records(heading: &mut IssueHeading, log: &str, preamble: &str) -> Resul
         let Some(relative_end) = bytes[index..].iter().position(|byte| *byte == b'\n') else {
             break;
         };
+        let record_start = index;
         let header_end = index + relative_end;
         let header = std::str::from_utf8(&bytes[index..header_end])
             .map_err(|err| anyhow!("ledger record header: {err}"))?;
@@ -851,19 +901,24 @@ fn apply_records(heading: &mut IssueHeading, log: &str, preamble: &str) -> Resul
         if index < bytes.len() && bytes[index] == b'\n' {
             index += 1;
         }
-        let op = op.to_string();
-        apply_one(heading, &op, payload, preamble, &mut tombstoned)?;
+        if !apply_one(heading, op, payload, preamble, &mut tombstoned)? {
+            opaque.push(Opaque {
+                op,
+                record: &log[record_start..index],
+            });
+        }
     }
-    Ok(tombstoned)
+    Ok((tombstoned, opaque))
 }
 
+/// Apply one record. `false` when this vissue does not know `op`.
 fn apply_one(
     heading: &mut IssueHeading,
     op: &str,
     payload: &str,
     preamble: &str,
     tombstoned: &mut bool,
-) -> Result<()> {
+) -> Result<bool> {
     match op {
         "tombstone" => *tombstoned = true,
         "replace" => {
@@ -925,9 +980,9 @@ fn apply_one(
                 .map(parse_log_line)
                 .collect();
         }
-        other => return Err(anyhow!("unknown ledger op {other}").into()),
+        _ => return Ok(false),
     }
-    Ok(())
+    Ok(true)
 }
 
 fn heading_from_rendered(preamble: &str, rendered: &str) -> Result<IssueHeading> {
@@ -1032,17 +1087,10 @@ fn append_record(path: &Path, bytes: &[u8]) -> Result<()> {
         .append(true)
         .open(path)
         .with_context(|| format!("open {}", path.display()))?;
-    let wrote = file
-        .write(bytes)
+    // One write(2) moves at most 2,147,479,552 bytes on Linux, so a longer
+    // record takes several. The issues lock keeps other appenders out.
+    file.write_all(bytes)
         .with_context(|| format!("append {}", path.display()))?;
-    if wrote != bytes.len() {
-        return Err(anyhow!(
-            "short append to {}: wrote {wrote} of {} bytes",
-            path.display(),
-            bytes.len()
-        )
-        .into());
-    }
     file.sync_data()
         .with_context(|| format!("sync {}", path.display()))?;
     Ok(())
@@ -1057,17 +1105,8 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<()> {
         .create_new(true)
         .open(path)
         .with_context(|| format!("create {}", path.display()))?;
-    let wrote = file
-        .write(bytes)
+    file.write_all(bytes)
         .with_context(|| format!("write {}", path.display()))?;
-    if wrote != bytes.len() {
-        return Err(anyhow!(
-            "short write to {}: wrote {wrote} of {} bytes",
-            path.display(),
-            bytes.len()
-        )
-        .into());
-    }
     file.sync_all()
         .with_context(|| format!("sync {}", path.display()))?;
     Ok(())
@@ -1456,7 +1495,7 @@ Body two.
         push_op(&mut log, "state", "DONE");
 
         let log = String::from_utf8(log).unwrap();
-        assert!(!apply_records(&mut heading, &log, "").unwrap());
+        assert!(!apply_records(&mut heading, &log, "").unwrap().0);
         assert_eq!(heading.state, "DONE");
         let notes: Vec<_> = heading
             .logbook
@@ -1476,6 +1515,96 @@ Body two.
         let error =
             apply_records(&mut heading, "<<<<<<< conflict\n%% state 4\nDONE\n", "").unwrap_err();
         assert!(error.to_string().contains("git conflict marker"));
+    }
+
+    /// A record from a later vissue, with an op this one does not know.
+    const FUTURE: &str = "%% deeds-add 9\ndeed-file\n";
+
+    #[test]
+    fn an_op_from_a_later_vissue_is_kept_and_the_file_round_trips() {
+        let (_dir, layout) = layout_with_fixture();
+        let board = layout.project_issues_path("sample");
+        migrate(&layout, false).unwrap();
+        let store = issues_dir(&board).join(file_name("sample-aaaa"));
+        let mut later = FUTURE.as_bytes().to_vec();
+        push_op(&mut later, "state", "DONE");
+        append_record(&store, &later).unwrap();
+        let written = fs::read(&store).unwrap();
+
+        let shown = report::show(&layout, "sample-aaaa").unwrap();
+        assert!(shown.contains("State:    DONE"), "{shown}");
+        let other = report::show(&layout, "sample-bbbb").unwrap();
+        assert!(other.contains("State:    STARTED"), "{other}");
+
+        IssueDoc::parse_file("sample", &board)
+            .unwrap()
+            .write()
+            .unwrap();
+        assert_eq!(fs::read(&store).unwrap(), written);
+
+        ops::note(&layout, "sample-aaaa", "after the later op").unwrap();
+        let grown = fs::read(&store).unwrap();
+        assert!(grown.starts_with(&written));
+        let shown = report::show(&layout, "sample-aaaa").unwrap();
+        assert!(shown.contains("after the later op"), "{shown}");
+    }
+
+    #[test]
+    fn a_merge_keeps_their_record_with_an_op_this_vissue_does_not_know() {
+        let (_dir, layout) = layout_with_fixture();
+        let board = layout.project_issues_path("sample");
+        migrate(&layout, false).unwrap();
+        let base = fs::read_to_string(issues_dir(&board).join(file_name("sample-aaaa"))).unwrap();
+        let mut ours = base.clone().into_bytes();
+        push_op(&mut ours, "state", "STARTED");
+        let ours = String::from_utf8(ours).unwrap();
+        let theirs = format!("{base}{FUTURE}");
+
+        let merged = merge_file(&base, &ours, &theirs).unwrap();
+        assert_eq!(merged.conflicts, 0);
+        assert_eq!(merged.text, format!("{ours}{FUTURE}"));
+        let again = merge_file(&base, &merged.text, &theirs).unwrap();
+        assert_eq!(again.text, merged.text);
+    }
+
+    /// The most one write(2) moves on Linux, `MAX_RW_COUNT`: `INT_MAX`
+    /// rounded down to a 4 KiB page. Asked for 2,147,487,744 bytes, one
+    /// write on 6.12 wrote this many.
+    const ONE_WRITE: usize = 2_147_479_552;
+
+    #[test]
+    #[ignore = "writes and folds a record over 2 GiB; run with --ignored"]
+    fn a_replace_longer_than_one_write_stores_and_reads_back() {
+        let (_dir, layout) = layout_with_fixture();
+        let board = layout.project_issues_path("sample");
+        migrate(&layout, false).unwrap();
+        let mut doc = IssueDoc::parse_file("sample", &board).unwrap();
+        let mut long = doc.headings.remove(0);
+        doc.after.remove(0);
+        doc.write().unwrap();
+
+        // Long lines keep the parse to a few million lines; the length
+        // that matters is the record's.
+        let line = ["a long note"; 80].join(" ");
+        let lines = ONE_WRITE / line.len() + 1;
+        let id = long.id.clone();
+        long.body = format!("{line}\n").repeat(lines);
+        let mut doc = IssueDoc::parse_file("sample", &board).unwrap();
+        doc.headings.insert(0, long);
+        doc.after.insert(0, String::new());
+        doc.write().unwrap();
+        drop(doc);
+
+        let store = issues_dir(&board).join(file_name(&id));
+        assert!(fs::metadata(&store).unwrap().len() > ONE_WRITE as u64);
+        let back = IssueDoc::parse_file("sample", &board).unwrap();
+        let read = back
+            .headings
+            .iter()
+            .find(|heading| heading.id == id)
+            .unwrap();
+        assert_eq!(read.body.lines().count(), lines);
+        assert!(read.body.lines().all(|got| got == line));
     }
 
     fn insert_log_line(path: &Path, line: &str) {
