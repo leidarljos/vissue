@@ -2,7 +2,7 @@
 
 The basis for `COALESCE_MS` and `GEN_POLL_MS` in `crates/vissue-serve/src/unix/watcher.rs`.
 
-Every number below was taken on an Intel Xeon (family 6, model 207: Emerald Rapids) at 2.4 GHz.
+Every number below outside the macOS section was taken on an Intel Xeon (family 6, model 207: Emerald Rapids) at 2.4 GHz.
 It has 8 cores at 1 thread each.
 It ran Linux 6.12 on ext4, rustc 1.97.1 and `cargo build --release`, on CPU only.
 The editors were vim 9.1 and Emacs 29.3, with git 2.43.0.
@@ -58,15 +58,47 @@ At 200 ms one save is still one rebuild while its longest gap stays under 200 ms
 
 ## macOS
 
-macOS was not measured.
 On macOS `notify` 8.2.1 creates its FSEvents stream with a latency of 0 s and `kFSEventStreamCreateFlagNoDefer`.
 Apple documents the flag ([kFSEventStreamCreateFlagNoDefer](https://developer.apple.com/documentation/coreservices/kfseventstreamcreateflagnodefer)).
 With that flag, FSEvents sends an event at once when it follows more than the latency of quiet.
 So FSEvents adds no documented delay of its own.
-But Apple states no bound on how far apart it sends the events of one save.
-The macOS margin is therefore unverified.
-The macOS CI job runs the example after its tests and prints the same table.
-A run there can fill this in.
+But Apple states no bound on how far apart it sends the events of one save, so this section measures it.
+
+Every measured number in this section comes from the six runs in `scripts/bench/data/watch_timing/macos/`.
+The macOS job of [Test run 41598252561](https://github.com/leidarljos/vissue/actions/runs/41598252561) recorded them at commit e4a7f74.
+That runner is an Apple M1 (Virtual) with 3 cores, running macOS 26.6.2 on arm64 with APFS.
+It used rustc 1.97.1 and `cargo build --release`, on CPU only.
+The editors were vim 9.1 and Emacs 31.1, with git 2.56.0.
+Each file keeps the header its run printed.
+The job records them with `scripts/bench/watch_timing.sh`, against the same 173-project tracker as the poll tick below.
+This prints each run's table and the pooled one:
+
+```sh
+python3 scripts/bench/watch_timing_summary.py scripts/bench/data/watch_timing/macos/run-*.txt
+```
+
+The table pools the 40 saves per method of each of the six runs, 240 in all, in ms.
+Its median and interquartile range (IQR) are therefore of one distribution, unlike the spread in the table above.
+
+| method         | saves | events | span median | span IQR | span max | gap median | gap IQR | gap max |
+|----------------|------:|-------:|------------:|---------:|---------:|-----------:|--------:|--------:|
+| `vissue-note`  |   240 |     15 |        0.03 |     0.01 |   128.20 |       0.00 |    0.00 |  109.69 |
+| vim            |   240 |     26 |        0.01 |     0.01 |    54.59 |       0.00 |    0.00 |   51.82 |
+| emacs          |   240 |      7 |        0.01 |     0.01 |    16.83 |       0.00 |    0.00 |   16.82 |
+| write + rename |   240 |      9 |        0.02 |     0.01 |    14.36 |       0.00 |    0.00 |   14.35 |
+| git checkout   |   240 |      8 |        0.00 |     0.00 |    12.37 |       0.00 |    0.00 |   12.35 |
+| in-place write |   240 |      3 |        0.02 |     0.00 |     0.04 |       0.01 |    0.01 |    0.04 |
+
+The span median is at most 0.03 ms for every method, so FSEvents mostly sends the events of one save together.
+The largest gap was 109.69 ms, in a `vissue-note` save of run 1.
+Run 1 also had the largest vim gap, 51.82 ms.
+No gap in any other run was above 18.73 ms.
+From an in-place write returning to its first event took 14345.6 µs median, with an IQR of 5504.9 µs and 19205.4 µs at worst.
+That delay comes before the first event, so it adds to the time a change takes to reach clients, not to the gaps the window has to cover.
+Over 6000 ticks, 1000 per run, a poll tick took 7.533 ms median, with an IQR of 2.540 ms and 50.190 ms at worst.
+
+The window of 200 ms is 1.82 times the largest gap measured here.
+That margin is under 2, so a save with a gap twice as long as the largest here would be rebuilt twice.
 
 ## One poll tick
 
