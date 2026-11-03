@@ -152,6 +152,8 @@ jobs:
       # These steps record six release runs through FSEvents with the script the Linux runs there came from, print each run's table and the pooled one, and keep the raw runs as an artifact.
       # Emacs is installed so every method has a row; if the install fails, the run headers and tables say Emacs is missing.
       # Timings move with the runner's load, so the steps report and never fail the job.
+      # The three steps took about 33 min of macOS runner time in Test run 41598252561, so they run only on pushes to main.
+      # Pull request and develop runs skip them on purpose.
       - name: Emacs for the watcher timing
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         continue-on-error: true
