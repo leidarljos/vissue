@@ -18,22 +18,21 @@ use super::owner::OwnerState;
 
 /// Quiet time after the last signal before one rebuild takes them all.
 ///
-/// It must outlast the longest gap between the events of one save, or that
-/// save is read twice. The longest gap measured on Linux was 8.2 ms, from a
-/// `git checkout`; vissue's own writes, vim and emacs stayed under 5 ms
-/// (`scripts/bench/watch_timing.md`). 200 ms is 24 times that, for slower
-/// disks and for macOS, which was not measured. It is also the delay every
-/// change waits before clients hear of it, and with `GEN_POLL_MS` and a
-/// rebuild it keeps that under the one second a user waits without losing
-/// their train of thought (Nielsen, Usability Engineering, 1993, ch. 5).
+/// It must outlast the longest gap between the events of one save, or that save is read twice.
+/// The longest gap was 11.94 ms over six runs of 40 saves per method on Linux, from a `git checkout`.
+/// vissue's own writes, vim and emacs stayed under 5 ms (`scripts/bench/watch_timing.md`).
+/// It is also the delay every change waits before clients hear of it.
+/// With `GEN_POLL_MS` and a rebuild it has to stay under one second, which caps it at 720 ms.
+/// One second is how long a user waits without losing their train of thought (Nielsen, Usability Engineering, 1993, ch. 5).
+/// 200 ms is a choice in that range.
+/// At 200 ms a save stays one rebuild while its longest gap is under 16 times the longest measured.
+/// macOS is unmeasured: notify asks FSEvents for no added latency, and Apple states no bound on delivery gaps.
 const COALESCE_MS: u64 = 200;
-/// Interval of the generation and mtime poll, the path for changes the
-/// file watcher misses.
+/// Interval of the generation and mtime poll, the path for changes the file watcher misses.
 ///
-/// A tick over 173 projects took 1.1 ms (3.4 ms at worst), so an idle owner
-/// spends under 0.5% of a core on it. A change only the poll sees waits up
-/// to this, `COALESCE_MS` and a rebuild of about 30 ms on that tracker
-/// (`scripts/bench/read_verbs.md`): 480 ms, inside the one second above.
+/// A tick over 173 projects took 1.05 ms median (7.6 ms at worst), so an idle owner spends 0.42% of a core on it.
+/// A change only the poll sees waits up to this, `COALESCE_MS` and a rebuild of about 30 ms on that tracker (`scripts/bench/read_verbs.md`).
+/// That is 480 ms, inside the one second above.
 const GEN_POLL_MS: u64 = 250;
 
 struct Pending {
