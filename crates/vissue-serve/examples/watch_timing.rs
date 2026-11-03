@@ -1,19 +1,21 @@
 //! Time what the owner's watcher sees, to set its two intervals.
 //!
 //! Watches a copy of the fixture vault the way `vissue serve` does, saves
-//! `atlas/issues.org` by each method in turn, and prints per method the
-//! most events one save raised, and the quartiles and maximum of the span
-//! from first to last event and of the gaps between two events of one save.
-//! The coalescing window has to be longer than the largest gap, or one save
-//! is rebuilt twice. For the in-place write it also prints the delay from
-//! the write returning to its first event.
+//! `atlas/issues.org` by each method in turn, and prints one line per save:
 //!
-//! Given a tracker directory and its projects prefix it also times one poll
-//! tick there: the project listing, a stat per project, and the generation read.
+//!     save METHOD ROUND EVENTS SPAN_NS FIRST_NS GAPS_NS
+//!
+//! `SPAN_NS` runs from the first event to the last.
+//! `GAPS_NS` lists every gap between two events of the save, comma-separated.
+//! `FIRST_NS` is the delay from an in-place write returning to its first event.
+//! A field that does not apply is `-`.
+//! The coalescing window has to be longer than the largest gap, or one save is rebuilt twice.
+//!
+//! Besides the saves, given a tracker directory and its projects prefix it also times poll ticks there, the project listing, a stat per project and the generation read, and prints one `tick NS` line per tick.
 //!
 //!     cargo run --release -p vissue-serve --example watch_timing [TRACKER PREFIX]
 //!
-//! Results and the machines they came from are in
+//! `scripts/bench/watch_timing_summary.py` turns the lines into the tables in
 //! `scripts/bench/watch_timing.md`.
 
 #[cfg(unix)]
@@ -72,11 +74,6 @@ mod timing {
             .watch(&layout.projects_dir(), RecursiveMode::Recursive)
             .unwrap();
 
-        println!("columns are p25 p50 p75 max");
-        println!(
-            "method        events  {:<31}  {:<31}  first_event_us",
-            "span_ms", "gap_ms"
-        );
         let methods: [(&str, &dyn Fn(usize)); 6] = [
             ("write", &|i| fs::write(&file, body(&file, i)).unwrap()),
             ("rename", &|i| {
@@ -115,39 +112,15 @@ mod timing {
         ];
         for (name, save) in methods {
             if name != "git-checkout" && !available(name) {
-                println!("{name:<13} not installed");
+                println!("missing {name}");
                 continue;
             }
-            let mut counts = Vec::new();
-            let mut spans = Vec::new();
-            let mut gaps = Vec::new();
-            let mut firsts = Vec::new();
             for i in 0..TRIALS {
                 drain(&rx);
                 save(i);
                 let done = Instant::now();
-                let seen = collect(&rx);
-                let Some(&first) = seen.first() else {
-                    continue;
-                };
-                counts.push(seen.len());
-                spans.push(seen.last().unwrap().duration_since(first));
-                gaps.extend(seen.windows(2).map(|w| w[1].duration_since(w[0])));
-                if name == "write" {
-                    firsts.push(first.saturating_duration_since(done));
-                }
+                println!("{}", save_line(name, i, done, &collect(&rx)));
             }
-            println!(
-                "{name:<13} {:>6}  {}  {}  {}",
-                counts.iter().max().unwrap_or(&0),
-                quartiles(&mut spans, 1e3, 2),
-                quartiles(&mut gaps, 1e3, 2),
-                if firsts.is_empty() {
-                    String::from("-")
-                } else {
-                    quartiles(&mut firsts, 1e6, 0)
-                },
-            );
         }
 
         let mut args = std::env::args().skip(1);
@@ -156,44 +129,43 @@ mod timing {
         }
     }
 
-    /// p25, p50, p75 and max of `samples`, scaled from seconds by `unit`.
-    ///
-    /// Each quartile is the sample at rank `(n - 1) * k / 4`, so it is always
-    /// a time that was measured, not one interpolated between two.
-    fn quartiles(samples: &mut [Duration], unit: f64, places: usize) -> String {
-        samples.sort();
-        let at = |k: usize| {
-            samples
-                .get(samples.len().saturating_sub(1) * k / 4)
-                .map_or(0.0, |d| d.as_secs_f64() * unit)
+    /// One `save` line for the events `seen` after a save that returned at `done`.
+    fn save_line(name: &str, round: usize, done: Instant, seen: &[Instant]) -> String {
+        let ns = |d: Duration| d.as_nanos().to_string();
+        let (span, first) = match (seen.first(), seen.last()) {
+            (Some(&first), Some(&last)) => (
+                ns(last.duration_since(first)),
+                if name == "write" {
+                    ns(first.saturating_duration_since(done))
+                } else {
+                    String::from("-")
+                },
+            ),
+            _ => (String::from("-"), String::from("-")),
         };
-        format!(
-            "{:>7.places$} {:>7.places$} {:>7.places$} {:>7.places$}",
-            at(1),
-            at(2),
-            at(3),
-            at(4)
-        )
+        let gaps: Vec<String> = seen
+            .windows(2)
+            .map(|w| ns(w[1].duration_since(w[0])))
+            .collect();
+        let gaps = if gaps.is_empty() {
+            String::from("-")
+        } else {
+            gaps.join(",")
+        };
+        format!("save {name} {round} {} {span} {first} {gaps}", seen.len())
     }
 
-    /// Quartiles and slowest of 1000 poll ticks over `layout`.
+    /// One `tick` line for each of 1000 poll ticks over `layout`.
     fn tick_cost(layout: &Layout) {
-        let mut times: Vec<Duration> = (0..1000)
-            .map(|_| {
-                let start = Instant::now();
-                let _ = events::generation(layout);
-                for project in list_projects(layout).unwrap() {
-                    let _ = fs::metadata(layout.project_issues_path(&project))
-                        .and_then(|m| m.modified());
-                }
-                start.elapsed()
-            })
-            .collect();
-        println!(
-            "poll tick over {} projects, ms: {}",
-            list_projects(layout).unwrap().len(),
-            quartiles(&mut times, 1e3, 3),
-        );
+        for _ in 0..1000 {
+            let start = Instant::now();
+            let _ = events::generation(layout);
+            for project in list_projects(layout).unwrap() {
+                let _ =
+                    fs::metadata(layout.project_issues_path(&project)).and_then(|m| m.modified());
+            }
+            println!("tick {}", start.elapsed().as_nanos());
+        }
     }
 
     /// Arrival times of the events the watcher counts, until it goes quiet.
