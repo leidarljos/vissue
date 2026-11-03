@@ -901,6 +901,28 @@ fn merge_driver(
         // committing them conflicts on every concurrent write.
         let ignore = top.join(".gitignore");
         add_lines(&ignore, &[".vault-events.*", "*.lock"])?;
+        // An ignore line does not untrack a file git already holds, and a
+        // tracker committed before this ran holds them all. Only the names
+        // vissue writes are given, since `*.lock` would take a Cargo.lock too.
+        let untracked = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&top)
+            .args([
+                "rm",
+                "--cached",
+                "--ignore-unmatch",
+                "--",
+                ":(glob)**/.vault-events.*",
+                ":(glob)**/issues.org.lock",
+                ":(glob)**/issues/*.org.lock",
+            ])
+            .status()
+            .is_ok_and(|s| s.success());
+        if !untracked {
+            eprintln!(
+                "merge-driver: warning: the event log and locks may still be tracked; run git rm --cached on them before committing"
+            );
+        }
         println!(
             "merge-driver: registered as {driver}; {} names issues.org and issues/*.org, {} keeps the event log and locks out of git; commit both so every clone merges the same way",
             attrs.display(),

@@ -96,6 +96,15 @@ fn the_driver_installs_once_and_merges_two_branches_by_heading() {
     assert!(String::from_utf8_lossy(&driver.stdout).contains("merge-driver %O %A %B %P"));
     git(root, &["add", ".gitattributes"]);
     git(root, &["commit", "-q", "-m", "merge issues.org by heading"]);
+    // The repository was committed before the install, event log and locks
+    // with it. Left tracked, both branches append to the log and the merge
+    // is clean only when the two lines match to the second.
+    let tracked = git(root, &["ls-files"]);
+    let tracked = String::from_utf8_lossy(&tracked.stdout);
+    assert!(
+        !tracked.contains(".vault-events") && !tracked.contains(".lock"),
+        "{tracked}"
+    );
 
     git(root, &["checkout", "-q", "-b", "side"]);
     let note = vissue_in(root, &["note", &first, "noted on the side branch"]);
