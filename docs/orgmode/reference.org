@@ -96,7 +96,7 @@ Usage: =vissue create [OPTIONS] <TITLE>=
 
 | Flag | Meaning |
 |------+---------|
-| =-p=, =--project= =<PROJECT>= | Project name. =-p= wins, then the current file's project, then the git repo (remote name, or else the top-level directory), then the prefix default |
+| =-p=, =--project= =<PROJECT>= | Project name. The order is =-p=, then a config route (the project directory you are in, =.project-ctx.toml= when it names a project or a route, or a route for this repository), then the repository name when it matches a project. Otherwise the projects are listed and nothing is created. The project used is printed |
 | =--priority= =<PRIORITY>= | Priority cookie: A high, B mid, C low |
 | =-t=, =--type= =<ISSUE_TYPE>= | Type tag such as feature, bug, or task |
 | =--deadline= =<DEADLINE>= | Org deadline like =<2026-05-15 Fri>= or =[2026-05-15]= |
@@ -120,7 +120,7 @@ Usage: =vissue q [OPTIONS] <TITLE>=
 
 | Flag | Meaning |
 |------+---------|
-| =-p=, =--project= =<PROJECT>= | Project name. =-p= wins, then the current file's project, then the git repo (remote name, or else the top-level directory), then the prefix default |
+| =-p=, =--project= =<PROJECT>= | Project name. The order is =-p=, then a config route (the project directory you are in, =.project-ctx.toml= when it names a project or a route, or a route for this repository), then the repository name when it matches a project. Otherwise the projects are listed and nothing is created. The project used is printed |
 | =-t=, =--type= =<ISSUE_TYPE>= | Issue type, recorded as a tag: task, bug, epic, or any word |
 | =--parent= =<PARENT>= | Parent id, which must already exist |
 
