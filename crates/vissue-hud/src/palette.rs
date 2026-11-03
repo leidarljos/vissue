@@ -2137,7 +2137,10 @@ impl Palette {
             if let Some(note) = &entry.note {
                 self.selectables.bind(format!("note-{i}"), note);
             }
-            if let Some(raw) = &entry.raw {
+            if let Some(raw) = &entry.raw
+                && entry.to_state.is_none()
+                && entry.note.is_none()
+            {
                 self.selectables.bind(format!("clock-{i}"), clock_text(raw));
             }
         }
@@ -3684,6 +3687,26 @@ mod tests {
             "{:?}",
             detail.logbook
         );
+    }
+
+    #[test]
+    fn an_org_state_line_shows_as_a_state_change_only() {
+        let (_dir, layout) = writable();
+        let path = layout.project_issues_path("atlas");
+        let padded = "- State \"DONE\"       from \"STARTED\"    [2026-01-14 Wed 09:12]";
+        let text = std::fs::read_to_string(&path).unwrap();
+        std::fs::write(
+            &path,
+            text.replacen(":LOGBOOK:\n", &format!(":LOGBOOK:\n{padded}\n"), 1),
+        )
+        .unwrap();
+        let mut palette = open_atlas(layout, "snap");
+        palette.select_id("atlas-1a2b");
+        palette.set_detail_tab(DetailTab::Notes);
+        let first = &palette.detail().expect("detail").logbook[0];
+        assert_eq!(first.to_state.as_deref(), Some("DONE"), "{first:?}");
+        assert!(palette.selectable("clock-0").is_none());
+        assert!(palette.selectable("clock-2").is_some());
     }
 
     #[test]

@@ -1,10 +1,11 @@
-//! Parse, render, parse over the shapes vissue has put on disk.
+//! Parse, render, parse over the shapes vissue, Org and a hand edit put on disk.
 //!
 //! A rewrite of a tracker comes back byte for byte and reads the same, and a
 //! note on an issue is the only line it adds: a stamp nobody changed is never
 //! rewritten. vissue's drawer and heading writers have not changed shape since
 //! 0.6.0 and its logbook writer since 0.3.0, so the fixture vault and the
-//! house form cover every release.
+//! house form cover every release. The lines Org writes and the keys a hand
+//! edit spells its own way sit in the same tables.
 
 #![allow(missing_docs)]
 
@@ -40,6 +41,13 @@ const STAMPS: &[&str] = &[
     // The same stamps after vissue 0.21 or older folded them into notes.
     "- Note: \"Claimed by inky-n9o\" [2026-10-18 Sun 07:00]",
     "- Note: \"Finished by saddle@main\" [2026-10-18 Sun 07:10]",
+    // Org: a state change padded by `org-log-note-headings`, one opening a
+    // note on the lines under it, and a note of its own.
+    "- State \"DONE\"       from \"STARTED\"    [2026-01-14 Wed 09:12]",
+    "- State \"STARTED\"    from \"TODO\"       [2026-01-13 Tue 09:12] \\\\\n  Picked up after review.",
+    "- Note taken on [2026-01-12 Mon 09:12] \\\\\n  Asked upstream.",
+    // A hand edit: a note left empty.
+    "- Note: \"\" [2026-01-12 Mon 09:12]",
 ];
 
 /// Where vissue starts a drawer value: one column past `:CLAIMED_BY:`, the
@@ -153,6 +161,17 @@ const PROPERTIES: &[&[(&str, &str)]] = &[
         ("DEEDS", "deed-patch-config-key"),
         ("Effort", "1:30"),
     ],
+    // A hand edit or an older tool: the spellings `normalize` folds, one of
+    // them beside the key it folds into, and an org-edna `:BLOCKER:` that is
+    // only ids.
+    &[
+        ("BLOCKED_BY", "gen-0001"),
+        ("BLOCKEDBY", "gen-0002"),
+        ("DISCOVERED", "gen-0003"),
+        ("SUPERSEDED_BY", "gen-0004"),
+        ("BLOCKER", "gen-0005 gen-0006"),
+        ("EFFORT", "0:45"),
+    ],
 ];
 const LOGBOOKS: &[Option<usize>] = &[None, Some(1), Some(STAMPS.len())];
 const EXTRA_DRAWERS: &[&str] = &["", ":VOTES:\n[2026-01-01 Thu] inky: ship\n:END:\n"];
@@ -160,6 +179,7 @@ const BODIES: &[&str] = &[
     "",
     "Scope: one row per parsed record, counts only.",
     "Done-when: a malformed header names the line.\n - a list item\n * a bullet a write indented\n** A child heading written by hand",
+    "The heading Org shows for this:\n#+BEGIN_SRC org\n* TODO an example heading\n#+END_SRC",
 ];
 
 /// The n-th combination of a run of choices, one mixed-radix digit each.
@@ -311,4 +331,27 @@ fn an_old_claimed_by_stamp_survives_a_claim_a_create_and_a_note() {
         Some("- Claimed by inky-n9o [2026-10-11 Sun 05:00]")
     );
     assert_eq!(held.logbook[2].note.as_deref(), Some("Claimed by inky"));
+}
+
+/// A headline inside a block is text to Org and to the parser, so a body a
+/// verb writes keeps it as given and escapes only the one that would end the
+/// issue.
+#[test]
+fn a_created_body_keeps_a_headline_inside_a_block() {
+    let dir = tempfile::tempdir().unwrap();
+    let layout = Layout::new(dir.path(), DEFAULT_PREFIX);
+    let body = "#+BEGIN_SRC org\n* TODO inside the block\n#+END_SRC\n* after the block";
+    let opts = CreateOpts {
+        body: Some(body),
+        ..CreateOpts::default()
+    };
+    ops::create(&layout, "demo", "carries an example", opts).unwrap();
+    let path = layout.project_issues_path("demo");
+    let text = fs::read_to_string(&path).unwrap();
+    assert!(
+        text.contains("#+BEGIN_SRC org\n* TODO inside the block\n#+END_SRC\n * after the block\n"),
+        "{text}"
+    );
+    let doc = IssueDoc::parse_file("demo", &path).unwrap();
+    assert_eq!(doc.headings.len(), 1, "{text}");
 }

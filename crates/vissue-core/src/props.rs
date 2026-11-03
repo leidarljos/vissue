@@ -2,7 +2,9 @@
 //!
 //! vissue does not mint a parallel namespace. It writes the key the other
 //! tool reads, and it reads the aliases a hand-edited tracker already has.
-//! [`canonicalize`] is what a rewrite and `normalize` run.
+//! [`canonicalize`] is what `normalize` runs. Any other rewrite writes an
+//! alias back under the name it was read with, except a drawer `:TAGS:`,
+//! which Org reserves and the parser reads as `:VISSUE_TAGS:`.
 
 use std::collections::BTreeMap;
 
@@ -69,7 +71,7 @@ pub const CANONICAL_ORDER: &[&str] = &[
     EFFORT,
 ];
 
-/// `(legacy, canonical)` pairs a rewrite folds.
+/// `(legacy, canonical)` pairs `normalize` folds.
 pub const ALIASES: &[(&str, &str)] = &[
     ("BLOCKEDBY", BLOCKED_BY),
     ("TAGS", TAGS),
@@ -177,6 +179,13 @@ fn merge_id_valued(properties: &mut BTreeMap<String, String>, dest: &str, extra:
 /// Canonicalize keys, then move legal type/tags onto the heading.
 pub fn settle(org_tags: &mut Vec<String>, properties: &mut BTreeMap<String, String>) -> usize {
     let moved = canonicalize(properties);
+    classify(org_tags, properties);
+    moved
+}
+
+/// Move a legal type and legal tags onto the heading, leaving every other key
+/// as it was read.
+pub fn classify(org_tags: &mut Vec<String>, properties: &mut BTreeMap<String, String>) {
     if let Some(kind) = get(properties, TYPE).map(str::to_string)
         && kind.chars().all(is_org_tag_char)
         && !kind.is_empty()
@@ -185,7 +194,6 @@ pub fn settle(org_tags: &mut Vec<String>, properties: &mut BTreeMap<String, Stri
         org_tags.push(kind);
     }
     settle_tags(org_tags, properties);
-    moved
 }
 
 /// Blocker ids from `:BLOCKED_BY:`, aliases, and org-edna `ids(...)`.

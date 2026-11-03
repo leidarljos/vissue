@@ -1940,7 +1940,7 @@ fn check_headings(project: &str, doc: &IssueDoc, f: &mut Findings) {
         ));
     }
     if blocker_as_ids > 0 {
-        f.warn(format_args!("{project}: {blocker_as_ids} heading(s) use :BLOCKER: as a bare id list; a rewrite folds them into :BLOCKED_BY:"));
+        f.warn(format_args!("{project}: {blocker_as_ids} heading(s) use :BLOCKER: as a bare id list; vissue normalize folds them into :BLOCKED_BY:"));
     }
     if computed_specials > 0 {
         f.warn(format_args!("{project}: {computed_specials} heading(s) set a computed Org special (TODO/ITEM/TAGS/...) in the drawer; Org ignores it"));

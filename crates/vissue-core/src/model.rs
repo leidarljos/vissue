@@ -82,7 +82,10 @@ pub struct LogEntry {
     ///
     /// An org `CLOCK:` row, or any other line that is not a state change or a
     /// note. Readers that want notes look at [`Self::note`]; this is the line
-    /// itself, so a rewrite cannot recast it as one.
+    /// itself, so a rewrite cannot recast it as one. A state change or a note
+    /// laid out other than the way [`Self::render`] lays it out, such as Org's
+    /// padded `- State "DONE"       from "STARTED"    [...]`, keeps its line
+    /// here beside the fields that say what it records.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw: Option<String>,
 }
@@ -111,14 +114,17 @@ impl LogEntry {
         if let Some(raw) = &self.raw {
             return raw.clone();
         }
-        if let (Some(to), Some(from)) = (&self.to_state, &self.from_state) {
-            format!("- State \"{}\" from \"{}\" {}", to, from, self.timestamp)
-        } else if let Some(to) = &self.to_state {
-            format!("- State \"{}\" {}", to, self.timestamp)
-        } else if let Some(note) = &self.note {
-            format!("- Note: \"{}\" {}", note, self.timestamp)
-        } else {
-            format!("- {}", self.timestamp)
+        self.field_pieces().concat()
+    }
+
+    /// The line the fields render to, in the pieces it is joined from.
+    fn field_pieces(&self) -> [&str; 6] {
+        let at = self.timestamp.as_str();
+        match (&self.to_state, &self.from_state, &self.note) {
+            (Some(to), Some(from), _) => ["- State \"", to, "\" from \"", from, "\" ", at],
+            (Some(to), None, _) => ["- State \"", to, "\" ", at, "", ""],
+            (None, _, Some(note)) => ["- Note: \"", note, "\" ", at, "", ""],
+            (None, _, None) => ["- ", at, "", "", "", ""],
         }
     }
 
@@ -141,6 +147,24 @@ impl LogEntry {
             note: None,
             raw: Some(line.trim_end_matches(['\r', '\n']).to_string()),
         }
+    }
+
+    /// Keep `line` when rendering the fields would write something else.
+    ///
+    /// Compared piece by piece, because every state and note line in a
+    /// tracker passes through here on each read.
+    fn keeping_line(mut self, line: &str) -> Self {
+        let line = line.trim_end_matches(['\r', '\n']);
+        let mut rest = line;
+        let renders_as_read = self
+            .field_pieces()
+            .iter()
+            .all(|piece| rest.strip_prefix(piece).map(|after| rest = after).is_some())
+            && rest.is_empty();
+        if !renders_as_read {
+            self.raw = Some(line.to_string());
+        }
+        self
     }
 }
 
@@ -175,6 +199,7 @@ pub(crate) fn parse_log_line(s: &str) -> LogEntry {
             note: None,
             raw: None,
         }
+        .keeping_line(s)
     } else if let Some(rest) = prefix.strip_prefix("Note:") {
         let note = rest.trim().trim_matches('"').to_string();
         LogEntry {
@@ -184,6 +209,7 @@ pub(crate) fn parse_log_line(s: &str) -> LogEntry {
             note: if note.is_empty() { None } else { Some(note) },
             raw: None,
         }
+        .keeping_line(s)
     } else {
         // Not a state change and not a note. The bytes go back out as read:
         // folding the text into a note rewrites a line such as
@@ -372,7 +398,7 @@ impl IssueHeading {
     pub fn render(&self) -> String {
         let mut org_tags = self.org_tags.clone();
         let mut properties = self.properties.clone();
-        crate::props::settle(&mut org_tags, &mut properties);
+        crate::props::classify(&mut org_tags, &mut properties);
         let mut out = render_heading_line(
             &self.state,
             self.priority,
@@ -507,6 +533,9 @@ pub fn align_tags(stem: &str, org_tags: &[String]) -> String {
 /// child of it, which is structure the body is meant to be able to carry and
 /// which [`crate::mirror`] demotes when it nests issues further down.
 ///
+/// A line inside a block or a Babel results payload is text to Org and to the
+/// parser, so it is left as written.
+///
 /// One leading space is enough, and reads the same to a person. Applying it
 /// again changes nothing, so a file written, read, and written again is
 /// stable.
@@ -514,12 +543,13 @@ fn escape_body_headlines(body: &str) -> String {
     if !body.lines().any(ends_the_issue) {
         return body.to_string();
     }
+    let mut scan = crate::org::OrgScan::new();
     let mut out = String::with_capacity(body.len() + 8);
     for (i, line) in body.split('\n').enumerate() {
         if i > 0 {
             out.push('\n');
         }
-        if ends_the_issue(line) {
+        if !scan.observe(line) && ends_the_issue(line) {
             out.push(' ');
         }
         out.push_str(line);

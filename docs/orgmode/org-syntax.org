@@ -238,7 +238,7 @@ Settable: a heading may put these in the drawer and Org honours them.
 
 | Name | Package | What it is |
 |------+---------+------------|
-| =BLOCKER= =TRIGGER= | GNU ELPA *org-edna* (maintained). org-depend in org-contrib is the older copy. | Condition language: =ids(a b)=, =prev-sibling=, =headings("...")=. =ready= takes ids out of =ids(...)= or a bare id list. A rewrite moves a bare id list to =:BLOCKED_BY:= so it does not collide with edna. An edna form stays. |
+| =BLOCKER= =TRIGGER= | GNU ELPA *org-edna* (maintained). org-depend in org-contrib is the older copy. | Condition language: =ids(a b)=, =prev-sibling=, =headings("...")=. =ready= takes ids out of =ids(...)= or a bare id list. =vissue normalize= moves a bare id list to =:BLOCKED_BY:= so it does not collide with edna. An edna form stays. |
 | =ORG_GTD= =TRIGGER= =CATEGORY= | org-gtd (MELPA) | GTD bucket and area of focus. Preserved. |
 | =CREATED= =EXPIRY= | org-expiry (org-contrib) | =CREATED= is already the vissue stamp. |
 | =NOTER_DOCUMENT= =NOTER_PAGE= | org-noter (MELPA). Interleave used =INTERLEAVE_PDF= / =INTERLEAVE_PAGE_NOTE=. | PDF path and page. Preserved. A noter note is a child heading, so it stays in the parent issue's body. |
@@ -249,8 +249,8 @@ Settable: a heading may put these in the drawer and Org honours them.
 | =BRAIN_*= | org-brain | A different parent/child graph. |
 | =STYLE= | org-habit (Org core) | =habit= |
 
-=:BLOCKED_BY:= remains the vissue graph. =:BLOCKEDBY:= is a typo and
-is rewritten. =:OWNER:= is not a claim; =:CLAIMED_BY:= is.
+=:BLOCKED_BY:= remains the vissue graph. =:BLOCKEDBY:= is a typo that
+=vissue normalize= rewrites. =:OWNER:= is not a claim; =:CLAIMED_BY:= is.
 
 ** vissue-owned (same drawer, no extra prefix)
 
