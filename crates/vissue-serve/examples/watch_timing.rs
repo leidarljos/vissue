@@ -2,10 +2,11 @@
 //!
 //! Watches a copy of the fixture vault the way `vissue serve` does, saves
 //! `atlas/issues.org` by each method in turn, and prints per method the
-//! number of events, the span from first to last, and the largest gap
-//! between two events of one save. The coalescing window has to be longer
-//! than that gap, or one save is rebuilt twice. For the in-place write it
-//! also prints the delay from the write returning to its first event.
+//! most events one save raised, and the quartiles and maximum of the span
+//! from first to last event and of the gaps between two events of one save.
+//! The coalescing window has to be longer than the largest gap, or one save
+//! is rebuilt twice. For the in-place write it also prints the delay from
+//! the write returning to its first event.
 //!
 //! Given a tracker directory and its projects prefix it also times one poll
 //! tick there: the project listing, a stat per project, and the generation read.
@@ -71,7 +72,11 @@ mod timing {
             .watch(&layout.projects_dir(), RecursiveMode::Recursive)
             .unwrap();
 
-        println!("method        events  span_ms(max)  gap_ms(p50 max)  first_event_us(p50 max)");
+        println!("columns are p25 p50 p75 max");
+        println!(
+            "method        events  {:<31}  {:<31}  first_event_us",
+            "span_ms", "gap_ms"
+        );
         let methods: [(&str, &dyn Fn(usize)); 6] = [
             ("write", &|i| fs::write(&file, body(&file, i)).unwrap()),
             ("rename", &|i| {
@@ -132,25 +137,15 @@ mod timing {
                     firsts.push(first.saturating_duration_since(done));
                 }
             }
-            gaps.sort();
-            spans.sort();
-            firsts.sort();
-            let ms = |d: Option<&Duration>| d.map_or(0.0, |d| d.as_secs_f64() * 1e3);
-            let us = |d: Option<&Duration>| d.map_or(0.0, |d| d.as_secs_f64() * 1e6);
             println!(
-                "{name:<13} {:>6}  {:>12.1}  {:>7.2} {:>7.2}  {}",
+                "{name:<13} {:>6}  {}  {}  {}",
                 counts.iter().max().unwrap_or(&0),
-                ms(spans.last()),
-                ms(gaps.get(gaps.len() / 2)),
-                ms(gaps.last()),
+                quartiles(&mut spans, 1e3, 2),
+                quartiles(&mut gaps, 1e3, 2),
                 if firsts.is_empty() {
                     String::from("-")
                 } else {
-                    format!(
-                        "{:>9.0} {:>7.0}",
-                        us(firsts.get(firsts.len() / 2)),
-                        us(firsts.last())
-                    )
+                    quartiles(&mut firsts, 1e6, 0)
                 },
             );
         }
@@ -161,7 +156,27 @@ mod timing {
         }
     }
 
-    /// Median and slowest of 1000 poll ticks over `layout`.
+    /// p25, p50, p75 and max of `samples`, scaled from seconds by `unit`.
+    ///
+    /// Each quartile is the sample at rank `(n - 1) * k / 4`, so it is always
+    /// a time that was measured, not one interpolated between two.
+    fn quartiles(samples: &mut [Duration], unit: f64, places: usize) -> String {
+        samples.sort();
+        let at = |k: usize| {
+            samples
+                .get(samples.len().saturating_sub(1) * k / 4)
+                .map_or(0.0, |d| d.as_secs_f64() * unit)
+        };
+        format!(
+            "{:>7.places$} {:>7.places$} {:>7.places$} {:>7.places$}",
+            at(1),
+            at(2),
+            at(3),
+            at(4)
+        )
+    }
+
+    /// Quartiles and slowest of 1000 poll ticks over `layout`.
     fn tick_cost(layout: &Layout) {
         let mut times: Vec<Duration> = (0..1000)
             .map(|_| {
@@ -174,12 +189,10 @@ mod timing {
                 start.elapsed()
             })
             .collect();
-        times.sort();
         println!(
-            "poll tick over {} projects: p50 {:.3} ms, max {:.3} ms",
+            "poll tick over {} projects, ms: {}",
             list_projects(layout).unwrap().len(),
-            times[times.len() / 2].as_secs_f64() * 1e3,
-            times[times.len() - 1].as_secs_f64() * 1e3,
+            quartiles(&mut times, 1e3, 3),
         );
     }
 
