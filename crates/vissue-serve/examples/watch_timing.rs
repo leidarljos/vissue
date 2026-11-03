@@ -1,7 +1,7 @@
 //! Time what the owner's watcher sees, to set its two intervals.
 //!
 //! Watches a copy of the fixture vault the way `vissue serve` does, saves
-//! `atlas/issues.org` by each method in turn, and prints one line per save:
+//! `atlas/issues.org` once by each method per round, and prints one line per save:
 //!
 //!     save METHOD ROUND EVENTS SPAN_NS FIRST_NS GAPS_NS
 //!
@@ -13,7 +13,9 @@
 //!
 //! Besides the saves, given a tracker directory and its projects prefix it also times poll ticks there, the project listing, a stat per project and the generation read, and prints one `tick NS` line per tick.
 //!
-//!     cargo run --release -p vissue-serve --example watch_timing [TRACKER PREFIX]
+//!     cargo run --release -p vissue-serve --example watch_timing [--run N] [TRACKER PREFIX]
+//!
+//! `--run N` starts each round N - 1 methods along the list, so each method's place in the round moves from run to run.
 //!
 //! `scripts/bench/watch_timing_summary.py` turns the lines into the tables in
 //! `scripts/bench/watch_timing.md`.
@@ -39,8 +41,8 @@ mod timing {
     use vissue_core::events;
     use vissue_core::store::list_projects;
 
-    // Enough trials that the largest gap is a tail, not one sample, and
-    // few enough that the editors' start-up time keeps a run short.
+    // Rounds per run.
+    // Enough that the largest gap is a tail, not one sample, and few enough that the editors' start-up time keeps a run short.
     const TRIALS: usize = 40;
     // A save is over once the watcher has been quiet this long. It is five
     // times the 200 ms window under test, so a gap that would split a
@@ -59,6 +61,12 @@ mod timing {
         git(&root, &["commit", "-qm", "a"]);
         let layout = Layout::new(&root, "Software");
         let file = root.join("Software/atlas/issues.org");
+        // git-checkout switches to this commit.
+        // It is made before the watch starts, so no save counts its writes.
+        fs::write(&file, body(&file, 0)).unwrap();
+        git(&root, &["checkout", "-qb", "b"]);
+        git(&root, &["commit", "-qam", "b"]);
+        git(&root, &["checkout", "-q", "base"]);
 
         let (tx, rx) = mpsc::channel();
         let mut watcher = RecommendedWatcher::new(
@@ -100,22 +108,36 @@ mod timing {
                         "(progn (goto-char (point-max)) (insert \"trial {i}\\n\") (save-buffer))"
                     )))
             }),
+            // `-f`, since the other methods leave the file edited between two checkouts.
+            // A plain checkout would refuse to overwrite it.
             ("git-checkout", &|i| {
-                if i == 0 {
-                    fs::write(&file, body(&file, 0)).unwrap();
-                    git(&root, &["checkout", "-qb", "b"]);
-                    git(&root, &["commit", "-qam", "b"]);
-                }
-                let branch = if i % 2 == 0 { "base" } else { "b" };
-                git(&root, &["checkout", "-q", branch]);
+                let branch = if i % 2 == 0 { "b" } else { "base" };
+                git(&root, &["checkout", "-qf", branch]);
             }),
         ];
-        for (name, save) in methods {
-            if name != "git-checkout" && !available(name) {
-                println!("missing {name}");
-                continue;
+        let mut args: Vec<String> = std::env::args().skip(1).collect();
+        let run = match args.first().map(String::as_str) {
+            Some("--run") => {
+                let run = args[1].parse::<usize>().unwrap();
+                args.drain(..2);
+                run
             }
-            for i in 0..TRIALS {
+            _ => 1,
+        };
+        let mut active = Vec::new();
+        for (name, save) in methods {
+            if name == "git-checkout" || available(name) {
+                active.push((name, save));
+            } else {
+                println!("missing {name}");
+            }
+        }
+        // One save per method per round, so a drift in the machine's load over a run reaches every method alike.
+        // Run n starts each round n - 1 methods along, so each method's place in the round moves from run to run.
+        let shift = run.saturating_sub(1) % active.len();
+        active.rotate_left(shift);
+        for i in 0..TRIALS {
+            for (name, save) in &active {
                 drain(&rx);
                 save(i);
                 let done = Instant::now();
@@ -123,7 +145,7 @@ mod timing {
             }
         }
 
-        let mut args = std::env::args().skip(1);
+        let mut args = args.into_iter();
         if let (Some(tracker), Some(prefix)) = (args.next(), args.next()) {
             tick_cost(&Layout::new(PathBuf::from(tracker), &prefix));
         }
