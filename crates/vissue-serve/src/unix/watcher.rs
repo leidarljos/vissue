@@ -19,18 +19,16 @@ use super::owner::OwnerState;
 /// Quiet time after the last signal before one rebuild takes them all.
 ///
 /// It must outlast the longest gap between the events of one save, or that save is read twice.
-/// The longest gap was 11.94 ms over six runs of 40 saves per method on Linux, from a `git checkout`.
-/// vissue's own writes, vim and emacs stayed under 5 ms (`scripts/bench/watch_timing.md`).
+/// Over six runs of 40 saves per method, the longest gap was 3.75 ms on Linux and 109.69 ms on the macOS runner, both from `vissue-note` (`scripts/bench/watch_timing.md`).
 /// It is also the delay every change waits before clients hear of it.
 /// With `GEN_POLL_MS` and a rebuild it has to stay under one second, which caps it at 720 ms.
 /// One second is how long a user waits without losing their train of thought (Nielsen, Usability Engineering, 1993, ch. 5).
-/// 200 ms is a choice in that range.
-/// At 200 ms a save stays one rebuild while its longest gap is under 16 times the longest measured.
-/// macOS is unmeasured: notify asks FSEvents for no added latency, and Apple states no bound on delivery gaps.
+/// The macOS gap puts its floor at 110 ms, and 200 ms is a choice between 110 and 720 ms.
+/// That is 53.33 times the longest gap on Linux, but only 1.82 times the longest on macOS.
 const COALESCE_MS: u64 = 200;
 /// Interval of the generation and mtime poll, the path for changes the file watcher misses.
 ///
-/// A tick over 173 projects took 1.05 ms median (7.6 ms at worst), so an idle owner spends 0.42% of a core on it.
+/// A tick over 173 projects took 1.149 ms median on Linux and 7.533 ms on the macOS runner, so an idle owner spends 0.46% and 3.01% of a core on it.
 /// A change only the poll sees waits up to this, `COALESCE_MS` and a rebuild of about 30 ms on that tracker (`scripts/bench/read_verbs.md`).
 /// That is 480 ms, inside the one second above.
 const GEN_POLL_MS: u64 = 250;
