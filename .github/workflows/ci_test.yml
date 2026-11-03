@@ -145,19 +145,35 @@ jobs:
       # run that compiles vissue-serve's owner, getpeereid, and the HUD's
       # AppKit backend. ubuntu-latest never builds those. The runner image
       # already has the frameworks iced links; libxkbcommon is Linux-only,
-      # so this job installs no packages.
+      # so the tests install no packages.
       - name: Workspace tests
         run: cargo test --locked --workspace --no-fail-fast
-      # The watcher's COALESCE_MS was set from Linux timings
-      # (scripts/bench/watch_timing.md). This prints the same table through
-      # FSEvents, so the macOS margin can be read off a run. Timings move with
-      # the runner's load, so the step reports and never fails the job. It
-      # reuses the test build's debug profile rather than a second, release
-      # build. Only the vissue-note row runs vissue code between events, so
-      # only that row reads slower than a release build would.
-      - name: Watcher timing through FSEvents
+      # The watcher's COALESCE_MS has to outlast the longest gap inside one save (scripts/bench/watch_timing.md).
+      # These steps record six release runs through FSEvents with the script the Linux runs there came from, print each run's table and the pooled one, and keep the raw runs as an artifact.
+      # Emacs is installed so every method has a row; if the install fails, the run headers and tables say Emacs is missing.
+      # Timings move with the runner's load, so the steps report and never fail the job.
+      - name: Emacs for the watcher timing
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         continue-on-error: true
-        run: cargo run --locked -p vissue-serve --example watch_timing
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        run: brew install emacs
+      - name: Watcher timing through FSEvents
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          bash scripts/bench/watch_timing.sh "$RUNNER_TEMP/watch_timing"
+          python3 scripts/bench/watch_timing_summary.py "$RUNNER_TEMP"/watch_timing/run-*.txt
+      - name: Keep the macOS timing runs
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: watch-timing-macos
+          path: ${{ runner.temp }}/watch_timing
+          if-no-files-found: warn
 
   coverage:
     name: coverage report
