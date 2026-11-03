@@ -48,6 +48,11 @@ pub async fn run(state: Arc<OwnerState>) -> Result<()> {
 
     let mut last_gen = events::generation(&state.layout);
     let mut last_mtimes = collect_mtimes(&state.layout);
+    let mut published = state
+        .catalog
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .revision;
     let mut pending: Option<Pending> = None;
     let mut poll = tokio::time::interval(Duration::from_millis(GEN_POLL_MS));
     poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -108,7 +113,7 @@ pub async fn run(state: Arc<OwnerState>) -> Result<()> {
             }
             _ = sleep_optional(wait) => {
                 if let Some(job) = pending.take() {
-                    rebuild(&state, job.dirty, job.full).await;
+                    rebuild(&state, job.dirty, job.full, &mut published).await;
                     last_gen = events::generation(&state.layout);
                     last_mtimes = collect_mtimes(&state.layout);
                 }
@@ -169,7 +174,16 @@ fn collect_mtimes(layout: &Layout) -> HashMap<String, Option<SystemTime>> {
     out
 }
 
-async fn rebuild(state: &OwnerState, dirty: HashSet<String>, full: bool) {
+/// Reload what `dirty` and `full` name and broadcast what changed.
+///
+/// An event is not proof of a change: macOS can deliver writes made just
+/// before the watch began, and a touch moves only the mtime. So a project
+/// whose recs the catalog already holds is left out, and a reload that
+/// changes nothing broadcasts nothing. That comparison needs the catalog to
+/// be what this loop last broadcast (`published`): a write through the
+/// server refreshes it without a broadcast, and the rebuild its events cause
+/// here is how other clients hear of that write.
+async fn rebuild(state: &OwnerState, dirty: HashSet<String>, full: bool, published: &mut u64) {
     let Ok(permit) = state.reload_sem.acquire().await else {
         return;
     };
@@ -202,8 +216,18 @@ async fn rebuild(state: &OwnerState, dirty: HashSet<String>, full: bool) {
     };
     let note = {
         let mut cat = state.catalog.write().unwrap_or_else(|p| p.into_inner());
+        let settled =
+            cat.revision == *published && cat.generation == events::generation(&state.layout);
         match reload {
             Reload::Full { recs, dirty } => {
+                let dirty = if settled {
+                    cat.changed_projects(&state.layout, &recs)
+                } else {
+                    dirty
+                };
+                if settled && dirty.is_empty() {
+                    return;
+                }
                 let ids = if dirty.is_empty() {
                     None
                 } else {
@@ -217,9 +241,20 @@ async fn rebuild(state: &OwnerState, dirty: HashSet<String>, full: bool) {
                 cat.apply_full(&state.layout, recs, dirty, ids);
             }
             Reload::Partial(parts) => {
+                let parts: Vec<_> = parts
+                    .into_iter()
+                    .filter(|(project, fresh)| {
+                        let listed = state.layout.project_issues_path(project).exists();
+                        !settled || !cat.holds(project, listed, fresh)
+                    })
+                    .collect();
+                if parts.is_empty() {
+                    return;
+                }
                 cat.replace_projects(&state.layout, parts);
             }
         }
+        *published = cat.revision;
         Notification::VaultChanged(VaultChanged {
             generation: cat.generation,
             revision: cat.revision,

@@ -98,6 +98,40 @@ impl Catalog {
         self.dirty_ids = Some(dirty_ids);
         self.reindex();
     }
+
+    /// Whether the catalog lists `project` exactly when `listed`, and holds
+    /// `fresh` as its recs in the same order.
+    pub fn holds<'a>(
+        &self,
+        project: &str,
+        listed: bool,
+        fresh: impl IntoIterator<Item = &'a IssueRec>,
+    ) -> bool {
+        self.projects.iter().any(|p| p == project) == listed
+            && self
+                .issues
+                .iter()
+                .filter(|rec| rec.project == project)
+                .eq(fresh)
+    }
+
+    /// Projects that taking `recs`, a load of every project, would change.
+    pub fn changed_projects(&self, layout: &Layout, recs: &[IssueRec]) -> Vec<String> {
+        let listed = list_projects(layout).unwrap_or_default();
+        let mut changed: Vec<String> = self
+            .projects
+            .iter()
+            .chain(&listed)
+            .filter(|project| {
+                let fresh = recs.iter().filter(|rec| &rec.project == *project);
+                !self.holds(project, listed.contains(*project), fresh)
+            })
+            .cloned()
+            .collect();
+        changed.sort();
+        changed.dedup();
+        changed
+    }
 }
 
 /// Parse one project's `issues.org` into recs. Missing file is an empty list.

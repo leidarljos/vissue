@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use crate::model::IssueHeading;
 
 /// One parsed heading plus the file it was read from.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IssueRec {
     /// Project directory name the heading lives under.
     pub project: String,

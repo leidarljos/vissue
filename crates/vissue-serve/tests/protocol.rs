@@ -6,7 +6,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use serde_json::{Value, json};
 use vissue_control::client::Client;
@@ -218,6 +218,42 @@ fn second_client_receives_vault_changed_after_note() {
 
 fn note_method(_body: &vissue_control::rpc::VaultChanged) -> &'static str {
     NOTIFY_VAULT_CHANGED
+}
+
+/// A file touched without a change is not broadcast as changed.
+///
+/// An event can name a file whose bytes the catalog already holds: macOS
+/// can deliver writes made just before the owner started, and a `touch` or a
+/// checkout of the same bytes moves only the mtime. The edit to beacon after
+/// the touch is what the reader waits for. The two land in one rebuild or
+/// atlas's lands first, so either way the first broadcast shows whether
+/// atlas was counted.
+#[test]
+fn a_touch_that_changes_no_bytes_is_not_broadcast() {
+    let h = Harness::new();
+    let mut reader = h.connect();
+
+    // The epoch differs from the copy's mtime at every timestamp resolution,
+    // so the mtime poll sees the touch as well as the file watcher.
+    fs::File::options()
+        .write(true)
+        .open(h.root.join("Software/atlas/issues.org"))
+        .unwrap()
+        .set_modified(SystemTime::UNIX_EPOCH)
+        .unwrap();
+    let edited = h.root.join("Software/beacon/issues.org");
+    let text = fs::read_to_string(&edited).unwrap();
+    fs::write(
+        &edited,
+        text.replacen("Document the retry policy", "Document the retry budget", 1),
+    )
+    .unwrap();
+
+    // A deadline, not a wait: the call returns on the first notification.
+    match reader.wait_notification(Duration::from_secs(60)) {
+        Ok(Notification::VaultChanged(body)) => assert_eq!(body.projects, ["beacon"]),
+        other => panic!("expected vault/changed, got {other:?}"),
+    }
 }
 
 #[test]
