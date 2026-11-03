@@ -22,8 +22,8 @@ use crate::store::{
 /// up for `.project-ctx.toml` and read `[project].name`. None available is an
 /// error, so nothing is ever guessed silently.
 ///
-/// `create` and `q` use [`resolve_create_project`], which continues to the
-/// git repository and then the prefix.
+/// `create` and `q` use [`resolve_create_project`], which continues to a
+/// config route and then a repository name that already matches a project.
 ///
 /// # Errors
 ///
@@ -48,22 +48,19 @@ fn resolve_project_at(layout: &Layout, explicit: Option<&str>, cwd: &Path) -> Re
     })
 }
 
-/// Project for `create` and `q`.
+/// Project for `create` and `q` when no user route table is loaded.
 ///
-/// The order is the explicit name, the current file's project, the git
-/// repository, then the layout prefix. The file's project is the directory
-/// under `<root>/<prefix>/` the caller stands in, or `[project].name` in a
-/// `.project-ctx.toml` walked up from there. Inside a git repository that
-/// walk stops at the repository's top-level directory, so a context file
-/// above the checkout is not the current file. The repository is the
-/// `origin` remote's name, or the top-level directory when the repository
-/// has no remote. The prefix is `Software` unless the layout names another.
+/// The order is [`crate::router::Router::choose_project`]: the flag, a
+/// config route, then the repository name when it matches a project, and
+/// otherwise an error listing projects. A loaded route table belongs to
+/// [`crate::router::Router::choose_project`], which is what the command
+/// line calls.
 ///
 /// # Errors
 ///
 /// Returns an error if the explicit project name is empty, the current
-/// directory cannot be read, or the chosen name matches more than one
-/// project directory.
+/// directory cannot be read, the chosen name matches more than one project
+/// directory, or no step names a project.
 pub fn resolve_create_project(layout: &Layout, explicit: Option<&str>) -> Result<String> {
     let cwd = std::env::current_dir()?;
     resolve_create_project_at(layout, explicit, &cwd)
@@ -74,17 +71,7 @@ fn resolve_create_project_at(
     explicit: Option<&str>,
     cwd: &Path,
 ) -> Result<String> {
-    if let Some(name) = explicit_name(explicit)? {
-        return resolve_existing_project_case(layout, name);
-    }
-    let top = repo_toplevel(cwd);
-    if let Some(name) = file_project(layout, cwd, top.as_deref())? {
-        return Ok(name);
-    }
-    if let Some(name) = top.as_deref().and_then(repository_name) {
-        return resolve_existing_project_case(layout, &name);
-    }
-    resolve_existing_project_case(layout, layout.prefix())
+    crate::router::Router::unrouted(layout.clone()).choose_project_at(explicit, cwd)
 }
 
 fn explicit_name(explicit: Option<&str>) -> Result<Option<&str>> {
@@ -100,7 +87,7 @@ fn explicit_name(explicit: Option<&str>) -> Result<Option<&str>> {
 /// A directory under the prefix wins, then `.project-ctx.toml`.
 /// `ctx_stop`, when set, is the last directory the walk checks.
 fn file_project(layout: &Layout, cwd: &Path, ctx_stop: Option<&Path>) -> Result<Option<String>> {
-    if let Some(name) = project_from_tracker_path(&layout.projects_dir(), cwd) {
+    if let Some(name) = crate::config::project_from_tracker_path(&layout.projects_dir(), cwd) {
         return Ok(Some(resolve_existing_project_case(layout, &name)?));
     }
     let found = match ctx_stop {
@@ -111,123 +98,6 @@ fn file_project(layout: &Layout, cwd: &Path, ctx_stop: Option<&Path>) -> Result<
         Some(name) => Ok(Some(resolve_existing_project_case(layout, &name)?)),
         None => Ok(None),
     }
-}
-
-/// Top-level directory of the git repository that contains `cwd`.
-///
-/// Nothing when `git` is missing or `cwd` is not inside a repository.
-fn repo_toplevel(cwd: &Path) -> Option<PathBuf> {
-    git_line(cwd, &["rev-parse", "--show-toplevel"]).map(PathBuf::from)
-}
-
-/// The project name of the repository rooted at `top`.
-///
-/// The `origin` remote's repository name when that remote exists, otherwise
-/// the top-level directory's name.
-fn repository_name(top: &Path) -> Option<String> {
-    remote_repo_name(top).or_else(|| directory_name(top))
-}
-
-fn remote_repo_name(top: &Path) -> Option<String> {
-    if let Some(url) = git_line(top, &["remote", "get-url", "origin"]) {
-        return repo_name_from_git_url(&url);
-    }
-    let remotes = git_line(top, &["remote"])?;
-    let name = remotes
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())?;
-    let url = git_line(top, &["remote", "get-url", name])?;
-    repo_name_from_git_url(&url)
-}
-
-/// Repository name at the end of a remote URL.
-///
-/// `https://github.com/acme/parser.git`, `git@github.com:acme/parser.git`
-/// and `ssh://git@github.com/acme/parser.git` all name `parser`.
-fn repo_name_from_git_url(url: &str) -> Option<String> {
-    let url = url.trim().trim_end_matches('/');
-    if url.is_empty() {
-        return None;
-    }
-    let path = if url.contains("://") {
-        url
-    } else if let Some((_, after)) = url.rsplit_once(':') {
-        after
-    } else {
-        url
-    };
-    let tail = match path.rsplit_once('/') {
-        Some((_, tail)) => tail,
-        None => path,
-    };
-    accept_name(tail.strip_suffix(".git").unwrap_or(tail))
-}
-
-fn directory_name(path: &Path) -> Option<String> {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .and_then(accept_name)
-}
-
-fn accept_name(name: &str) -> Option<String> {
-    if name.is_empty()
-        || name == "."
-        || name == ".."
-        || name.contains(['/', '\\'])
-        || name.chars().any(char::is_control)
-    {
-        None
-    } else {
-        Some(name.to_string())
-    }
-}
-
-/// One trimmed stdout of `git`, or nothing when git is missing or the
-/// command fails. `GIT_DIR` is ignored so the repository is the one at
-/// `cwd`, which is the checkout the caller is standing in.
-fn git_line(cwd: &Path, args: &[&str]) -> Option<String> {
-    let out = std::process::Command::new("git")
-        .arg("-C")
-        .arg(cwd)
-        .args(args)
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let text = String::from_utf8(out.stdout).ok()?;
-    let text = text.trim();
-    if text.is_empty() {
-        None
-    } else {
-        Some(text.to_string())
-    }
-}
-
-/// The project directory `cwd` stands in, when it is under `projects_dir`.
-/// Both paths are compared as given and canonicalized, so a symlinked vault
-/// still matches.
-fn project_from_tracker_path(projects_dir: &Path, cwd: &Path) -> Option<String> {
-    let first_under = |base: &Path, here: &Path| {
-        here.strip_prefix(base)
-            .ok()
-            .and_then(|rest| rest.components().next())
-            .and_then(|c| match c {
-                std::path::Component::Normal(name) => name.to_str().map(str::to_string),
-                _ => None,
-            })
-    };
-    first_under(projects_dir, cwd).or_else(|| {
-        let base = projects_dir.canonicalize().ok()?;
-        let here = cwd.canonicalize().ok()?;
-        first_under(&base, &here)
-    })
 }
 
 /// Optional fields on a new issue.
@@ -4625,23 +4495,26 @@ mod tests {
     fn a_cwd_under_the_prefix_names_its_project() {
         let projects = Path::new("/vault/Software");
         assert_eq!(
-            project_from_tracker_path(projects, Path::new("/vault/Software/ljos")),
+            crate::config::project_from_tracker_path(projects, Path::new("/vault/Software/ljos")),
             Some("ljos".to_string())
         );
         assert_eq!(
-            project_from_tracker_path(projects, Path::new("/vault/Software/ljos/notes/deep")),
+            crate::config::project_from_tracker_path(
+                projects,
+                Path::new("/vault/Software/ljos/notes/deep")
+            ),
             Some("ljos".to_string())
         );
         assert_eq!(
-            project_from_tracker_path(projects, Path::new("/vault/Software")),
+            crate::config::project_from_tracker_path(projects, Path::new("/vault/Software")),
             None
         );
         assert_eq!(
-            project_from_tracker_path(projects, Path::new("/vault")),
+            crate::config::project_from_tracker_path(projects, Path::new("/vault")),
             None
         );
         assert_eq!(
-            project_from_tracker_path(projects, Path::new("/elsewhere/ljos")),
+            crate::config::project_from_tracker_path(projects, Path::new("/elsewhere/ljos")),
             None
         );
     }
@@ -4672,40 +4545,39 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_remote_url_names_its_repository() {
-        for (url, name) in [
-            ("https://github.com/acme/parser.git", "parser"),
-            ("https://github.com/acme/parser/", "parser"),
-            ("git@github.com:acme/parser.git", "parser"),
-            ("ssh://git@github.com/acme/parser.git", "parser"),
-            ("file:///srv/git/parser.git", "parser"),
-            ("/srv/git/parser.git", "parser"),
-        ] {
-            assert_eq!(repo_name_from_git_url(url).as_deref(), Some(name), "{url}");
-        }
-        assert!(repo_name_from_git_url("").is_none());
-        assert!(repo_name_from_git_url("https://github.com/acme/.git").is_none());
-        assert!(repo_name_from_git_url(".").is_none());
+    fn touch_project(layout: &Layout, name: &str) {
+        let path = layout.project_issues_path(name);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, "").unwrap();
     }
 
-    /// `-p`, then the file, then the repository, then the prefix.
-    ///
-    /// A checkout directory is not the repository: `origin` is. The file the
-    /// caller stands in still comes first, and `fold` does not take the
-    /// repository step.
+    /// `-p`, then a config route, then the repository when it matches a
+    /// project. Nothing after the flag creates a project directory, and the
+    /// prefix is not a last resort. `fold` still stops at the context file.
     #[test]
-    fn create_project_follows_flag_then_file_then_repo_then_prefix() {
+    fn create_project_follows_flag_then_config_route_then_a_matching_repo() {
         let tracker = tempfile::tempdir().unwrap();
         let layout = fresh_layout(tracker.path());
         let work = tempfile::tempdir().unwrap();
         let repo = work.path().join("parser");
         fs::create_dir_all(&repo).unwrap();
         git(&repo, &["init", "-q"]);
+        let missing = resolve_create_project_at(&layout, None, &repo).unwrap_err();
+        assert!(
+            missing.to_string().contains("projects:"),
+            "a repository that matches no project lists them: {missing}"
+        );
+        assert!(
+            !layout.project_issues_path("parser").exists(),
+            "the repository name did not create a project"
+        );
+        assert!(!layout.project_issues_path(layout.prefix()).exists());
+
+        touch_project(&layout, "parser");
         assert_eq!(
             resolve_create_project_at(&layout, None, &repo).unwrap(),
             "parser",
-            "a repository with no remote is its top-level directory"
+            "a repository with no remote is its top-level directory, once that project exists"
         );
 
         let checkout = work.path().join("checkout");
@@ -4722,7 +4594,7 @@ mod tests {
         assert_eq!(
             resolve_create_project_at(&layout, None, &checkout).unwrap(),
             "parser",
-            "the remote name is the repository, ahead of the checkout directory"
+            "the remote name matches the project, ahead of the checkout directory"
         );
         assert_eq!(
             resolve_create_project_at(&layout, Some("atlas"), &checkout).unwrap(),
@@ -4740,17 +4612,24 @@ mod tests {
             "fold still asks for a project inside a repository: {refused}"
         );
 
+        let nested = checkout.join("src");
+        fs::create_dir_all(&nested).unwrap();
         fs::write(
             checkout.join(".project-ctx.toml"),
             "[project]\nname = \"fromfile\"\n",
         )
         .unwrap();
-        let nested = checkout.join("src");
-        fs::create_dir_all(&nested).unwrap();
+        assert_eq!(
+            resolve_create_project_at(&layout, None, &nested).unwrap(),
+            "parser",
+            "a context name that is not a project does not create one"
+        );
+        assert!(!layout.project_issues_path("fromfile").exists());
+        touch_project(&layout, "fromfile");
         assert_eq!(
             resolve_create_project_at(&layout, None, &nested).unwrap(),
             "fromfile",
-            "the context file is the current file's project, ahead of the repository"
+            "a context file that names a project is the config route, ahead of the repository"
         );
 
         let inside = layout.projects_dir().join("kept");
@@ -4773,27 +4652,29 @@ mod tests {
         assert_eq!(
             resolve_create_project_at(&layout, None, &inside).unwrap(),
             "kept",
-            "the directory under the prefix is the current file, ahead of the context file and the repository"
+            "the directory under the prefix is the config route, ahead of the context file and the repository"
         );
 
         let plain = work.path().join("plain");
         fs::create_dir_all(plain.join(".git")).unwrap();
-        assert_eq!(
-            resolve_create_project_at(&layout, None, &plain).unwrap(),
-            layout.prefix(),
-            "no file and no repository leaves the prefix"
+        let err = resolve_create_project_at(&layout, None, &plain)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("projects:"),
+            "no config route and no repository lists the projects: {err}"
         );
+        assert!(!layout.project_issues_path(layout.prefix()).exists());
     }
 
-    /// A workspace `.project-ctx.toml` sits above the clone. `create` files
-    /// in the repository. A directory that is not a repository still reads
-    /// that file, and so does resolution that stops at the context file.
+    /// A workspace `.project-ctx.toml` sits above the clone. `create` does
+    /// not read it. A context name that is not a project does not create a
+    /// directory. `fold` still reads the file, including one above the clone.
     #[test]
-    fn a_context_file_above_the_repo_leaves_the_repository_name() {
+    fn a_context_file_above_the_repo_is_not_the_create_project() {
         let tracker = tempfile::tempdir().unwrap();
         let layout = fresh_layout(tracker.path());
-        fs::create_dir_all(layout.projects_dir().join("Parser")).unwrap();
-        fs::write(layout.project_issues_path("Parser"), "").unwrap();
+        touch_project(&layout, "Parser");
 
         let work = tempfile::tempdir().unwrap();
         fs::write(
@@ -4819,6 +4700,7 @@ mod tests {
             resolve_create_project_at(&layout, None, &nested).unwrap(),
             "Parser"
         );
+        assert!(!layout.project_issues_path("Software").exists());
         assert_eq!(
             resolve_project_at(&layout, None, &nested).unwrap(),
             "Software"
@@ -4831,16 +4713,26 @@ mod tests {
         .unwrap();
         assert_eq!(
             resolve_create_project_at(&layout, None, &nested).unwrap(),
+            "Parser",
+            "fromfile is not a project, so the repository match stands"
+        );
+        assert!(!layout.project_issues_path("fromfile").exists());
+        assert_eq!(
+            resolve_project_at(&layout, None, &nested).unwrap(),
             "fromfile"
         );
 
         let folder = work.path().join("plain-folder");
         fs::create_dir_all(&folder).unwrap();
         git(&folder, &["init", "-q"]);
-        assert_eq!(
-            resolve_create_project_at(&layout, None, &folder).unwrap(),
-            "plain-folder"
+        let err = resolve_create_project_at(&layout, None, &folder)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("projects:"),
+            "an unmatched repository lists projects: {err}"
         );
+        assert!(!layout.project_issues_path("plain-folder").exists());
         assert_eq!(
             resolve_project_at(&layout, None, &folder).unwrap(),
             "Software"
@@ -4853,10 +4745,14 @@ mod tests {
             "[project]\nname = \"atlas\"\n",
         )
         .unwrap();
-        assert_eq!(
-            resolve_create_project_at(&layout, None, &notes).unwrap(),
-            "atlas"
+        let err = resolve_create_project_at(&layout, None, &notes)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("projects:"),
+            "a context name that is not a project is not created: {err}"
         );
+        assert!(!layout.project_issues_path("atlas").exists());
         assert_eq!(resolve_project_at(&layout, None, &notes).unwrap(), "atlas");
     }
 }

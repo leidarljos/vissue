@@ -54,13 +54,19 @@ Names fold case against what is already there, so =--project Atlas= reaches
 an existing =atlas=. A name matching two existing projects by case alone is
 refused rather than guessed at.
 
-=create= and =q= with no project flag take the current file's project, then
-the git repository (the =origin= remote's name, or the top-level directory),
-then the prefix default. Inside a repository the context walk stops at the
-top-level directory, and the repository name follows. =-p= still wins when
-it is given. =fold= does not
-guess a repository: with no flag and no =.project-ctx.toml= it reports an
-error.
+=create= and =q= with no project flag take a config route, then the git
+repository's name when it matches a project, and otherwise list the
+projects and file nothing. A config route is the project directory under
+the prefix that contains the working directory, then =[project].name= in a
+=.project-ctx.toml= when that name is already a project or a route (inside
+a repository the walk stops at the top-level directory), then a route whose
+key is the repository name. The repository name is the =origin= remote's
+name, or the top-level directory when the repository has no remote. They
+print the project they used. =-p= still wins when it is given, and naming a
+project that does not exist still creates it. A name that was not passed
+that way and is not a config route does not create a project directory.
+=fold= does not guess a repository: with no flag and no =.project-ctx.toml=
+it reports an error.
 
 * States and priorities
 

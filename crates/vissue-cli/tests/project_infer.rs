@@ -1,4 +1,7 @@
-//! `create` and `q` with no `-p` take the project from the repository.
+//! `create` and `q` choose a project in a fixed order.
+//!
+//! The order is the flag, a config route, then the repository name when it
+//! matches a project. Otherwise the projects are listed and nothing is filed.
 
 #![allow(missing_docs)]
 
@@ -13,6 +16,22 @@ fn vissue_at(dir: &Path, root: &Path, args: &[&str]) -> Output {
         .env_remove("ISSUE_ROOT")
         .env_remove("VISSUE_PREFIX")
         .env_remove("VISSUE_CONFIG")
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .current_dir(dir)
+        .args(["--root", root.to_str().unwrap()])
+        .args(args)
+        .output()
+        .expect("run vissue")
+}
+
+fn vissue_routed(dir: &Path, root: &Path, config: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_vissue"))
+        .env_remove("VISSUE_NO_ROUTE")
+        .env_remove("VISSUE_ROOT")
+        .env_remove("ISSUE_ROOT")
+        .env_remove("VISSUE_PREFIX")
+        .env("VISSUE_CONFIG", config)
         .env_remove("GIT_DIR")
         .env_remove("GIT_WORK_TREE")
         .current_dir(dir)
@@ -66,93 +85,83 @@ fn tracker() -> tempfile::TempDir {
     dir
 }
 
-/// A create inside a repository was filed under the prefix. The repository
-/// name is the project, for `create` and for `q`.
-#[test]
-fn create_and_q_inside_a_repo_file_under_that_repo() {
-    let tracker = tracker();
-    let work = tempfile::tempdir().unwrap();
-    let repo = work.path().join("parser");
-    fs::create_dir_all(&repo).unwrap();
-    git(&repo, &["init", "-q"]);
-
+fn seed(tracker: &Path, project: &str) {
     let created = vissue_at(
-        &repo,
-        tracker.path(),
-        &["create", "--quiet", "from the repo"],
+        tracker,
+        tracker,
+        &["create", "-p", project, "--quiet", "seed"],
     );
     assert!(created.status.success(), "{}", text(&created));
-    let id = id_of(&created);
-    assert!(id.starts_with("parser-"), "{id}");
-    let filed = tracker.path().join("Software/parser/issues.org");
-    let board = fs::read_to_string(&filed).unwrap();
-    assert!(board.contains("from the repo"), "{board}");
     assert!(
-        !tracker.path().join("Software/Software/issues.org").exists(),
-        "the issue was filed under the prefix"
+        project_line(&created).contains(&format!("project: {project}")),
+        "{}",
+        text(&created)
     );
-
-    let quick = vissue_at(&repo, tracker.path(), &["q", "quick one"]);
-    assert!(quick.status.success(), "{}", text(&quick));
-    assert!(id_of(&quick).starts_with("parser-"), "{}", text(&quick));
 }
 
-/// The checkout directory can be named anything. `origin` is the repository.
-#[test]
-fn a_remote_name_beats_the_checkout_directory() {
-    let tracker = tracker();
-    let work = tempfile::tempdir().unwrap();
-    let repo = work.path().join("checkout");
-    fs::create_dir_all(&repo).unwrap();
-    git(&repo, &["init", "-q"]);
-    git(
-        &repo,
-        &[
-            "remote",
-            "add",
-            "origin",
-            "https://github.com/acme/parser.git",
-        ],
-    );
-
-    let created = vissue_at(&repo, tracker.path(), &["create", "--quiet", "via origin"]);
-    assert!(created.status.success(), "{}", text(&created));
-    assert!(id_of(&created).starts_with("parser-"), "{}", text(&created));
-    assert!(tracker.path().join("Software/parser/issues.org").is_file());
-    assert!(!tracker.path().join("Software/checkout/issues.org").exists());
-
-    let quick = vissue_at(&repo, tracker.path(), &["q", "also via origin"]);
-    assert!(quick.status.success(), "{}", text(&quick));
-    assert!(id_of(&quick).starts_with("parser-"), "{}", text(&quick));
+fn project_line(out: &Output) -> String {
+    format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    )
 }
 
-/// `-p` is first. A repository name does not override it.
+fn assert_no_prefix_project(root: &Path) {
+    assert!(
+        !root.join("Software/Software").exists(),
+        "a project directory was created for the prefix"
+    );
+}
+
+/// `-p` is first. A repository name does not override it, and the project
+/// used is printed. Quiet stdout stays the id.
 #[test]
-fn an_explicit_project_beats_the_repo() {
+fn a_flag_names_the_project_and_is_printed() {
     let tracker = tracker();
     let work = tempfile::tempdir().unwrap();
     let repo = work.path().join("parser");
     fs::create_dir_all(&repo).unwrap();
     git(&repo, &["init", "-q"]);
 
-    let created = vissue_at(
+    for cmd in [
+        &["create", "-p", "atlas", "--quiet", "named"][..],
+        &["q", "-p", "atlas", "named again"][..],
+    ] {
+        let created = vissue_at(&repo, tracker.path(), cmd);
+        assert!(created.status.success(), "{}", text(&created));
+        assert!(id_of(&created).starts_with("atlas-"), "{}", text(&created));
+        assert!(
+            String::from_utf8_lossy(&created.stderr).contains("project: atlas"),
+            "{}",
+            text(&created)
+        );
+        assert!(
+            !id_of(&created).contains("project:"),
+            "quiet stdout gained a second line: {}",
+            id_of(&created)
+        );
+    }
+    assert!(!tracker.path().join("Software/parser").exists());
+    assert_no_prefix_project(tracker.path());
+
+    let loud = vissue_at(
         &repo,
         tracker.path(),
-        &["create", "-p", "atlas", "--quiet", "named"],
+        &["create", "-p", "atlas", "said aloud"],
     );
-    assert!(created.status.success(), "{}", text(&created));
-    assert!(id_of(&created).starts_with("atlas-"), "{}", text(&created));
-    assert!(!tracker.path().join("Software/parser/issues.org").exists());
-
-    let quick = vissue_at(&repo, tracker.path(), &["q", "-p", "atlas", "named again"]);
-    assert!(quick.status.success(), "{}", text(&quick));
-    assert!(id_of(&quick).starts_with("atlas-"), "{}", text(&quick));
+    assert!(loud.status.success(), "{}", text(&loud));
+    assert!(
+        String::from_utf8_lossy(&loud.stdout).starts_with("project: atlas\n"),
+        "{}",
+        text(&loud)
+    );
 }
 
-/// Standing inside `<root>/<prefix>/<name>/` is the current file's project,
-/// ahead of the repository that contains the tracker.
+/// Standing inside `<root>/<prefix>/<name>/` is the config route, ahead of
+/// the repository that contains the tracker.
 #[test]
-fn the_current_file_beats_the_repo() {
+fn standing_in_a_project_directory_is_the_config_route() {
     let tracker = tracker();
     let root = tracker.path();
     let inside = root.join("Software/kept");
@@ -173,110 +182,88 @@ fn the_current_file_beats_the_repo() {
     )
     .unwrap();
 
-    let created = vissue_at(&inside, root, &["create", "--quiet", "where I stand"]);
-    assert!(created.status.success(), "{}", text(&created));
-    assert!(id_of(&created).starts_with("kept-"), "{}", text(&created));
+    for cmd in [
+        &["create", "--quiet", "where I stand"][..],
+        &["q", "where I stand again"][..],
+    ] {
+        let created = vissue_at(&inside, root, cmd);
+        assert!(created.status.success(), "{}", text(&created));
+        assert!(id_of(&created).starts_with("kept-"), "{}", text(&created));
+        assert!(
+            String::from_utf8_lossy(&created.stderr).contains("project: kept"),
+            "{}",
+            text(&created)
+        );
+    }
     assert!(root.join("Software/kept/issues.org").is_file());
-    assert!(!root.join("Software/parser/issues.org").exists());
-    assert!(!root.join("Software/fromfile/issues.org").exists());
+    assert!(!root.join("Software/parser").exists());
+    assert!(!root.join("Software/fromfile").exists());
+    assert_no_prefix_project(root);
 }
 
-/// A `.project-ctx.toml` above the clone names Software. `create` and `q`
-/// file in the repository: the remote name, or the top-level directory
-/// when the repository has no remote.
+/// A context file that names an existing project is the config route, ahead
+/// of the repository. One that names nothing does not create a directory.
 #[test]
-fn create_inside_a_repo_ignores_a_context_file_above_it() {
+fn a_context_file_is_a_config_route_only_when_it_names_a_project() {
     let tracker = tracker();
-    let workspace = tempfile::tempdir().unwrap();
-    fs::write(
-        workspace.path().join(".project-ctx.toml"),
-        "[project]\nname = \"Software\"\n",
-    )
-    .unwrap();
-    let repo = workspace.path().join("checkout");
+    seed(tracker.path(), "fromfile");
+    seed(tracker.path(), "parser");
+    let work = tempfile::tempdir().unwrap();
+    let repo = work.path().join("parser");
     let nested = repo.join("src");
     fs::create_dir_all(&nested).unwrap();
     git(&repo, &["init", "-q"]);
-    git(
-        &repo,
-        &[
-            "remote",
-            "add",
-            "origin",
-            "https://github.com/acme/parser.git",
-        ],
-    );
+    fs::write(
+        repo.join(".project-ctx.toml"),
+        "[project]\nname = \"fromfile\"\n",
+    )
+    .unwrap();
 
+    for cmd in [
+        &["create", "--quiet", "from the context file"][..],
+        &["q", "again from the file"][..],
+    ] {
+        let created = vissue_at(&nested, tracker.path(), cmd);
+        assert!(created.status.success(), "{}", text(&created));
+        assert!(
+            id_of(&created).starts_with("fromfile-"),
+            "{}",
+            text(&created)
+        );
+        assert!(
+            String::from_utf8_lossy(&created.stderr).contains("project: fromfile"),
+            "{}",
+            text(&created)
+        );
+    }
+
+    fs::write(
+        repo.join(".project-ctx.toml"),
+        "[project]\nname = \"missing\"\n",
+    )
+    .unwrap();
     let created = vissue_at(
         &nested,
         tracker.path(),
-        &["create", "--quiet", "from the clone"],
+        &["create", "--quiet", "not that name"],
     );
     assert!(created.status.success(), "{}", text(&created));
-    let id = id_of(&created);
-    assert!(id.starts_with("parser-"), "{id}");
-    assert!(tracker.path().join("Software/parser/issues.org").is_file());
-    assert!(!tracker.path().join("Software/Software/issues.org").exists());
-
-    let quick = vissue_at(&nested, tracker.path(), &["q", "quick from the clone"]);
-    assert!(quick.status.success(), "{}", text(&quick));
-    assert!(id_of(&quick).starts_with("parser-"), "{}", text(&quick));
-
-    let folder = workspace.path().join("plain-folder");
-    fs::create_dir_all(&folder).unwrap();
-    git(&folder, &["init", "-q"]);
-    let plain = vissue_at(&folder, tracker.path(), &["q", "from the folder"]);
-    assert!(plain.status.success(), "{}", text(&plain));
+    assert!(id_of(&created).starts_with("parser-"), "{}", text(&created));
     assert!(
-        id_of(&plain).starts_with("plain-folder-"),
+        String::from_utf8_lossy(&created.stderr).contains("project: parser"),
         "{}",
-        text(&plain)
+        text(&created)
     );
-    assert!(!tracker.path().join("Software/Software/issues.org").exists());
+    assert!(!tracker.path().join("Software/missing").exists());
+    assert_no_prefix_project(tracker.path());
 }
 
-/// The remote's name matches an existing project directory by case.
+/// Outside a repository, a context file that names an existing project is
+/// the config route. A name that is not a project creates nothing.
 #[test]
-fn a_repo_name_matches_an_existing_project_by_case() {
+fn a_context_file_outside_a_repo_names_an_existing_project() {
     let tracker = tracker();
-    let workspace = tempfile::tempdir().unwrap();
-    fs::write(
-        workspace.path().join(".project-ctx.toml"),
-        "[project]\nname = \"Software\"\n",
-    )
-    .unwrap();
-    let repo = workspace.path().join("checkout");
-    fs::create_dir_all(&repo).unwrap();
-    git(&repo, &["init", "-q"]);
-    git(
-        &repo,
-        &[
-            "remote",
-            "add",
-            "origin",
-            "https://github.com/acme/parser.git",
-        ],
-    );
-
-    let seeded = vissue_at(
-        &repo,
-        tracker.path(),
-        &["create", "-p", "Parser", "--quiet", "seed"],
-    );
-    assert!(seeded.status.success(), "{}", text(&seeded));
-    assert!(id_of(&seeded).starts_with("Parser-"), "{}", text(&seeded));
-
-    let created = vissue_at(&repo, tracker.path(), &["q", "folded case"]);
-    assert!(created.status.success(), "{}", text(&created));
-    assert!(id_of(&created).starts_with("Parser-"), "{}", text(&created));
-    assert!(!tracker.path().join("Software/parser/issues.org").exists());
-    assert!(!tracker.path().join("Software/Software/issues.org").exists());
-}
-
-/// Outside a repository, a parent context file still names the project.
-#[test]
-fn a_context_file_names_the_project_outside_a_repo() {
-    let tracker = tracker();
+    seed(tracker.path(), "atlas");
     let workspace = tempfile::tempdir().unwrap();
     fs::write(
         workspace.path().join(".project-ctx.toml"),
@@ -289,57 +276,235 @@ fn a_context_file_names_the_project_outside_a_repo() {
     let created = vissue_at(&notes, tracker.path(), &["create", "--quiet", "no repo"]);
     assert!(created.status.success(), "{}", text(&created));
     assert!(id_of(&created).starts_with("atlas-"), "{}", text(&created));
-    assert!(!tracker.path().join("Software/Software/issues.org").exists());
+    assert!(
+        String::from_utf8_lossy(&created.stderr).contains("project: atlas"),
+        "{}",
+        text(&created)
+    );
+    assert_no_prefix_project(tracker.path());
+
+    fs::write(
+        workspace.path().join(".project-ctx.toml"),
+        "[project]\nname = \"missing\"\n",
+    )
+    .unwrap();
+    let missed = vissue_at(&notes, tracker.path(), &["q", "no such project"]);
+    assert!(!missed.status.success(), "{}", text(&missed));
+    assert!(text(&missed).contains("projects:"), "{}", text(&missed));
+    assert!(text(&missed).contains("atlas"), "{}", text(&missed));
+    assert!(!tracker.path().join("Software/missing").exists());
 }
 
-/// A context file is also the current file's project, ahead of the repository.
+/// A route whose key is the repository name is the config route. The issue
+/// is written on the routed layout, and the default layout gains no directory.
 #[test]
-fn a_context_file_beats_the_repo() {
-    let tracker = tracker();
+fn a_user_config_route_for_the_repository_is_the_config_route() {
+    let tmp = tempfile::tempdir().unwrap();
+    let vault = tmp.path().join("vault");
+    let work = tmp.path().join("work");
+    fs::create_dir_all(vault.join("Software")).unwrap();
+    fs::create_dir_all(work.join("Issues")).unwrap();
+    let cfg = tmp.path().join("config.toml");
+    fs::write(
+        &cfg,
+        format!(
+            "[layouts.work]\nroot = \"{}\"\nprefix = \"Issues\"\n\n[routes]\nparser = \"work\"\n",
+            work.display()
+        ),
+    )
+    .unwrap();
+    let repo = tmp.path().join("checkout");
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q"]);
+    git(
+        &repo,
+        &[
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/acme/parser.git",
+        ],
+    );
+
+    for cmd in [
+        &["create", "--quiet", "routed"][..],
+        &["q", "routed again"][..],
+    ] {
+        let created = vissue_routed(&repo, &vault, &cfg, cmd);
+        assert!(created.status.success(), "{}", text(&created));
+        assert!(id_of(&created).starts_with("parser-"), "{}", text(&created));
+        assert!(
+            String::from_utf8_lossy(&created.stderr).contains("project: parser"),
+            "{}",
+            text(&created)
+        );
+    }
+    assert!(work.join("Issues/parser/issues.org").is_file());
+    // The twin-id lock may create the empty directory on the default layout.
+    // The issue itself is not filed there.
+    assert!(!vault.join("Software/parser/issues.org").exists());
+    assert!(!vault.join("Software/Software").exists());
+}
+
+/// The repository name is the project when that project already exists, for
+/// `create` and for `q`. It is not used to create the directory.
+#[test]
+fn the_repository_name_is_used_when_it_matches_a_project() {
+    let root = tracker();
+    seed(root.path(), "parser");
     let work = tempfile::tempdir().unwrap();
     let repo = work.path().join("parser");
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q"]);
+
+    for cmd in [
+        &["create", "--quiet", "from the repo"][..],
+        &["q", "quick one"][..],
+    ] {
+        let created = vissue_at(&repo, root.path(), cmd);
+        assert!(created.status.success(), "{}", text(&created));
+        assert!(id_of(&created).starts_with("parser-"), "{}", text(&created));
+        assert!(
+            String::from_utf8_lossy(&created.stderr).contains("project: parser"),
+            "{}",
+            text(&created)
+        );
+    }
+    assert_no_prefix_project(root.path());
+
+    let fresh = tracker();
+    let other = work.path().join("brandnew");
+    fs::create_dir_all(&other).unwrap();
+    git(&other, &["init", "-q"]);
+    seed(fresh.path(), "atlas");
+    let missed = vissue_at(&other, fresh.path(), &["create", "--quiet", "no match"]);
+    assert!(!missed.status.success(), "{}", text(&missed));
+    let err = text(&missed);
+    assert!(err.contains("projects:"), "{err}");
+    assert!(err.contains("atlas"), "{err}");
+    assert!(err.contains("brandnew"), "{err}");
+    assert!(!fresh.path().join("Software/brandnew").exists());
+    assert_no_prefix_project(fresh.path());
+}
+
+/// The checkout directory can be named anything. `origin` is the repository,
+/// and it matches an existing project by case.
+#[test]
+fn a_remote_name_matches_an_existing_project_by_case() {
+    let tracker = tracker();
+    seed(tracker.path(), "Parser");
+    let work = tempfile::tempdir().unwrap();
+    let repo = work.path().join("checkout");
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q"]);
+    git(
+        &repo,
+        &[
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/acme/parser.git",
+        ],
+    );
+
+    for cmd in [
+        &["create", "--quiet", "via origin"][..],
+        &["q", "also via origin"][..],
+    ] {
+        let created = vissue_at(&repo, tracker.path(), cmd);
+        assert!(created.status.success(), "{}", text(&created));
+        assert!(id_of(&created).starts_with("Parser-"), "{}", text(&created));
+        assert!(
+            String::from_utf8_lossy(&created.stderr).contains("project: Parser"),
+            "{}",
+            text(&created)
+        );
+    }
+    assert!(!tracker.path().join("Software/parser").exists());
+    assert!(!tracker.path().join("Software/checkout").exists());
+    assert_no_prefix_project(tracker.path());
+}
+
+/// A `.project-ctx.toml` above the clone names Software. That file is not a
+/// config route. The repository is used when it matches, and the prefix is
+/// not created when it does not.
+#[test]
+fn a_context_file_above_a_repo_does_not_select_the_prefix() {
+    let root = tracker();
+    seed(root.path(), "parser");
+    let workspace = tempfile::tempdir().unwrap();
+    fs::write(
+        workspace.path().join(".project-ctx.toml"),
+        "[project]\nname = \"Software\"\n",
+    )
+    .unwrap();
+    let repo = workspace.path().join("checkout");
     let nested = repo.join("src");
     fs::create_dir_all(&nested).unwrap();
     git(&repo, &["init", "-q"]);
-    fs::write(
-        repo.join(".project-ctx.toml"),
-        "[project]\nname = \"fromfile\"\n",
-    )
-    .unwrap();
-
-    let created = vissue_at(&nested, tracker.path(), &["q", "from the context file"]);
-    assert!(created.status.success(), "{}", text(&created));
-    assert!(
-        id_of(&created).starts_with("fromfile-"),
-        "{}",
-        text(&created)
+    git(
+        &repo,
+        &[
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/acme/parser.git",
+        ],
     );
-    assert!(!tracker.path().join("Software/parser/issues.org").exists());
+
+    for cmd in [
+        &["create", "--quiet", "from the clone"][..],
+        &["q", "quick from the clone"][..],
+    ] {
+        let created = vissue_at(&nested, root.path(), cmd);
+        assert!(created.status.success(), "{}", text(&created));
+        assert!(id_of(&created).starts_with("parser-"), "{}", text(&created));
+        assert!(
+            String::from_utf8_lossy(&created.stderr).contains("project: parser"),
+            "{}",
+            text(&created)
+        );
+    }
+    assert_no_prefix_project(root.path());
+
+    let bare = tracker();
+    seed(bare.path(), "atlas");
+    let folder = workspace.path().join("plain-folder");
+    fs::create_dir_all(&folder).unwrap();
+    git(&folder, &["init", "-q"]);
+    let missed = vissue_at(&folder, bare.path(), &["q", "from the folder"]);
+    assert!(!missed.status.success(), "{}", text(&missed));
+    let err = text(&missed);
+    assert!(err.contains("projects:"), "{err}");
+    assert!(err.contains("atlas"), "{err}");
+    assert!(!bare.path().join("Software/plain-folder").exists());
+    assert!(!bare.path().join("Software/Software").exists());
 }
 
-/// No file and no repository leaves the prefix, which defaults to Software.
+/// No flag, no config route, and no repository lists the projects and
+/// creates nothing, including the prefix.
 #[test]
-fn the_prefix_is_the_last_resort() {
+fn no_config_route_and_no_repository_lists_projects() {
     let tracker = tracker();
+    seed(tracker.path(), "atlas");
+    seed(tracker.path(), "beacon");
     let work = tempfile::tempdir().unwrap();
     let plain = work.path().join("plain");
-    // An empty `.git` is not a repository, and discovery stops there, so a
-    // parent checkout cannot supply a name.
     fs::create_dir_all(plain.join(".git")).unwrap();
 
-    let created = vissue_at(&plain, tracker.path(), &["create", "--quiet", "nowhere"]);
-    assert!(created.status.success(), "{}", text(&created));
-    assert!(
-        id_of(&created).starts_with("Software-"),
-        "{}",
-        text(&created)
-    );
-    assert!(
-        tracker
-            .path()
-            .join("Software/Software/issues.org")
-            .is_file()
-    );
+    for cmd in [
+        &["create", "--quiet", "nowhere"][..],
+        &["q", "nowhere either"][..],
+    ] {
+        let created = vissue_at(&plain, tracker.path(), cmd);
+        assert!(!created.status.success(), "{}", text(&created));
+        let err = text(&created);
+        assert!(err.contains("projects:"), "{err}");
+        assert!(err.contains("atlas"), "{err}");
+        assert!(err.contains("beacon"), "{err}");
+        assert!(!err.contains("project:"), "{err}");
+    }
+    assert_no_prefix_project(tracker.path());
 }
 
 /// `fold` still stops after the context file.
@@ -359,10 +524,11 @@ fn fold_inside_a_repo_still_asks_for_a_project() {
         text(&folded)
     );
     assert!(!tracker.path().join("Software/parser").exists());
+    assert_no_prefix_project(tracker.path());
 }
 
 #[test]
-fn help_states_the_fallback_order() {
+fn help_states_the_order() {
     for cmd in ["create", "q"] {
         let out = Command::new(env!("CARGO_BIN_EXE_vissue"))
             .args([cmd, "--help"])
@@ -370,10 +536,15 @@ fn help_states_the_fallback_order() {
             .unwrap();
         assert!(out.status.success(), "{cmd}");
         let help = String::from_utf8(out.stdout).unwrap();
-        assert!(help.contains("current file"), "{cmd}:\n{help}");
-        assert!(help.contains("remote name"), "{cmd}:\n{help}");
-        assert!(help.contains("top-level directory"), "{cmd}:\n{help}");
-        assert!(help.contains("prefix default"), "{cmd}:\n{help}");
+        assert!(help.contains("config route"), "{cmd}:\n{help}");
+        assert!(help.contains(".project-ctx.toml"), "{cmd}:\n{help}");
+        assert!(help.contains("matches a project"), "{cmd}:\n{help}");
+        assert!(help.contains("projects are listed"), "{cmd}:\n{help}");
+        assert!(help.contains("printed"), "{cmd}:\n{help}");
+        assert!(
+            !help.contains("prefix default"),
+            "{cmd} help still falls back to the prefix:\n{help}"
+        );
     }
     let fold = Command::new(env!("CARGO_BIN_EXE_vissue"))
         .args(["fold", "--help"])
@@ -382,7 +553,7 @@ fn help_states_the_fallback_order() {
     let help = String::from_utf8(fold.stdout).unwrap();
     assert!(help.contains(".project-ctx.toml"), "{help}");
     assert!(
-        !help.contains("top-level directory"),
-        "fold help grew the create fallback:\n{help}"
+        !help.contains("matches a project"),
+        "fold help grew the create order:\n{help}"
     );
 }

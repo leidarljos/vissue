@@ -560,6 +560,179 @@ fn current_host() -> String {
     "unknown".to_string()
 }
 
+/// The project directory `cwd` stands in, when it is under `projects_dir`.
+///
+/// Both paths are compared as given and canonicalized, so a symlinked vault
+/// still matches. The directory is the project the seat is already in, which
+/// is why `create` can file there before an `issues.org` exists.
+pub(crate) fn project_from_tracker_path(projects_dir: &Path, cwd: &Path) -> Option<String> {
+    let first_under = |base: &Path, here: &Path| {
+        here.strip_prefix(base)
+            .ok()
+            .and_then(|rest| rest.components().next())
+            .and_then(|c| match c {
+                std::path::Component::Normal(name) => name.to_str().map(str::to_string),
+                _ => None,
+            })
+    };
+    first_under(projects_dir, cwd).or_else(|| {
+        let base = projects_dir.canonicalize().ok()?;
+        let here = cwd.canonicalize().ok()?;
+        first_under(&base, &here)
+    })
+}
+
+/// `[project].name` for this directory.
+///
+/// With `repo_top` set, the walk checks that directory and stops, so a
+/// context file above the checkout is not this directory's project. Without
+/// it, the walk continues to the filesystem root. A blank name is absent.
+pub(crate) fn context_project(cwd: &Path, repo_top: Option<&Path>) -> Option<String> {
+    let name = match repo_top {
+        Some(stop) => crate::store::detect_project_from_ctx_until(cwd, stop)?,
+        None => crate::store::detect_project_from_ctx(cwd)?,
+    };
+    let name = name.trim();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+
+/// The project directory `name` already is, ignoring case.
+///
+/// An exact `issues.org` wins. Otherwise one case-insensitive match is the
+/// directory's own spelling, so a later write does not create a second
+/// project that differs only by case. No match is `None`: the caller must
+/// not invent the directory. Two matches are an error, because either file
+/// could be the one the seat meant.
+///
+/// # Errors
+///
+/// Returns an error when more than one project matches `name` ignoring case,
+/// or the projects directory cannot be read.
+pub(crate) fn matching_project(layout: &Layout, name: &str) -> Result<Option<String>> {
+    if name.is_empty() {
+        return Ok(None);
+    }
+    if layout.project_issues_path(name).exists() {
+        return Ok(Some(name.to_string()));
+    }
+    let want = name.to_lowercase();
+    let matches: Vec<String> = crate::store::list_projects(layout)?
+        .into_iter()
+        .filter(|candidate| candidate.to_lowercase() == want)
+        .collect();
+    match matches.as_slice() {
+        [] => Ok(None),
+        [one] => Ok(Some(one.clone())),
+        many => Err(anyhow::anyhow!(
+            "project {name:?} is ambiguous; case-insensitive matches: {}",
+            many.join(", ")
+        )
+        .into()),
+    }
+}
+
+/// Top-level directory of the git repository that contains `cwd`.
+///
+/// Nothing when `git` is missing or `cwd` is not inside a repository.
+pub(crate) fn repo_toplevel(cwd: &Path) -> Option<PathBuf> {
+    git_line(cwd, &["rev-parse", "--show-toplevel"]).map(PathBuf::from)
+}
+
+/// The project name of the repository rooted at `top`.
+///
+/// The `origin` remote's repository name when that remote exists, otherwise
+/// the top-level directory's name. A checkout can be named anything; the
+/// remote is the repository the seat cloned.
+pub(crate) fn repository_name(top: &Path) -> Option<String> {
+    remote_repo_name(top).or_else(|| directory_name(top))
+}
+
+fn remote_repo_name(top: &Path) -> Option<String> {
+    if let Some(url) = git_line(top, &["remote", "get-url", "origin"]) {
+        return repo_name_from_git_url(&url);
+    }
+    let remotes = git_line(top, &["remote"])?;
+    let name = remotes
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())?;
+    let url = git_line(top, &["remote", "get-url", name])?;
+    repo_name_from_git_url(&url)
+}
+
+/// Repository name at the end of a remote URL.
+///
+/// `https://github.com/acme/parser.git`, `git@github.com:acme/parser.git`
+/// and `ssh://git@github.com/acme/parser.git` all name `parser`.
+pub(crate) fn repo_name_from_git_url(url: &str) -> Option<String> {
+    let url = url.trim().trim_end_matches('/');
+    if url.is_empty() {
+        return None;
+    }
+    let path = if url.contains("://") {
+        url
+    } else if let Some((_, after)) = url.rsplit_once(':') {
+        after
+    } else {
+        url
+    };
+    let tail = match path.rsplit_once('/') {
+        Some((_, tail)) => tail,
+        None => path,
+    };
+    accept_name(tail.strip_suffix(".git").unwrap_or(tail))
+}
+
+fn directory_name(path: &Path) -> Option<String> {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .and_then(accept_name)
+}
+
+fn accept_name(name: &str) -> Option<String> {
+    if name.is_empty()
+        || name == "."
+        || name == ".."
+        || name.contains(['/', '\\'])
+        || name.chars().any(char::is_control)
+    {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+
+/// One trimmed stdout of `git`, or nothing when git is missing or the
+/// command fails. `GIT_DIR` is ignored so the repository is the one at
+/// `cwd`, which is the checkout the caller is standing in.
+fn git_line(cwd: &Path, args: &[&str]) -> Option<String> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(cwd)
+        .args(args)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(out.stdout).ok()?;
+    let text = text.trim();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text.to_string())
+    }
+}
+
 #[cfg(test)]
 #[allow(deprecated_safe_2024)]
 mod tests {
@@ -1012,5 +1185,44 @@ mod tests {
             expand_home(Path::new("~/vault"), None),
             PathBuf::from("~/vault")
         );
+    }
+
+    #[test]
+    fn a_remote_url_names_its_repository() {
+        for (url, name) in [
+            ("https://github.com/acme/parser.git", "parser"),
+            ("https://github.com/acme/parser/", "parser"),
+            ("git@github.com:acme/parser.git", "parser"),
+            ("ssh://git@github.com/acme/parser.git", "parser"),
+            ("file:///srv/git/parser.git", "parser"),
+            ("/srv/git/parser.git", "parser"),
+        ] {
+            assert_eq!(repo_name_from_git_url(url).as_deref(), Some(name), "{url}");
+        }
+        assert!(repo_name_from_git_url("").is_none());
+        assert!(repo_name_from_git_url("https://github.com/acme/.git").is_none());
+        assert!(repo_name_from_git_url(".").is_none());
+    }
+
+    /// Case folds onto the directory that exists. A name with no project is
+    /// not returned, because the caller would otherwise create one.
+    #[test]
+    fn a_name_matches_an_existing_project_or_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = Layout::new(dir.path(), DEFAULT_PREFIX);
+        let path = layout.project_issues_path("Parser");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "").unwrap();
+
+        assert_eq!(
+            matching_project(&layout, "parser").unwrap().as_deref(),
+            Some("Parser")
+        );
+        assert_eq!(
+            matching_project(&layout, "Parser").unwrap().as_deref(),
+            Some("Parser")
+        );
+        assert!(matching_project(&layout, "other").unwrap().is_none());
+        assert!(matching_project(&layout, "").unwrap().is_none());
     }
 }

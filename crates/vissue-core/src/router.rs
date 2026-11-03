@@ -417,6 +417,148 @@ impl Router {
             .filter(|(_, paths)| paths.len() > 1)
             .collect())
     }
+
+    /// The project `create` and `q` write into.
+    ///
+    /// The order, first match:
+    ///
+    /// 1. The flag (`explicit`), including a name that has no directory yet.
+    ///    Naming a project is how a tracker grows; that directory is asked
+    ///    for, not invented.
+    /// 2. A config route for `cwd`. That is the project directory under the
+    ///    default prefix the caller stands in, then `[project].name` in a
+    ///    `.project-ctx.toml` when the name is already a project or a route
+    ///    (inside a git repository the walk stops at the top-level
+    ///    directory), then a route whose key is the repository name. A route
+    ///    is configuration the seat wrote, so the first issue there creates
+    ///    the directory on the layout the route names.
+    /// 3. The repository name when it matches a project that already exists.
+    ///    The name is the `origin` remote's repository, or the top-level
+    ///    directory when the repository has no remote.
+    /// 4. An error listing the projects a seat can pass with `--project`.
+    ///
+    /// Steps 2 and 3 never create a project directory for a name that is not
+    /// already a project or a route. The prefix is not a project.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the flag is empty, a name matches two projects
+    /// by case, the projects directory cannot be read, or nothing in the
+    /// order names a project.
+    pub fn choose_project(&self, explicit: Option<&str>) -> Result<String> {
+        let cwd = std::env::current_dir().context("resolve current directory as a project")?;
+        self.choose_project_at(explicit, &cwd)
+    }
+
+    /// [`Self::choose_project`] for a caller that already knows `cwd`.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Self::choose_project`].
+    pub(crate) fn choose_project_at(&self, explicit: Option<&str>, cwd: &Path) -> Result<String> {
+        if let Some(name) = explicit {
+            if name.is_empty() {
+                return Err(anyhow!("--project given but empty").into());
+            }
+            return self.accept_flag(name);
+        }
+        let top = crate::config::repo_toplevel(cwd);
+        let repo = top.as_deref().and_then(crate::config::repository_name);
+        if let Some(name) = self.config_route(cwd, top.as_deref(), repo.as_deref())? {
+            return Ok(name);
+        }
+        if let Some(name) = repo.as_deref()
+            && let Some(matched) = crate::config::matching_project(self.default_layout(), name)?
+        {
+            return Ok(matched);
+        }
+        Err(self.unresolved_project(repo.as_deref()).into())
+    }
+
+    /// A flag names its project. A route key is returned as given so
+    /// [`Self::route`] still applies; any other name case-folds onto the
+    /// directory that already exists.
+    fn accept_flag(&self, name: &str) -> Result<String> {
+        if self.route_key(name).is_some() {
+            return Ok(name.to_string());
+        }
+        let pref = self.route(name);
+        store::resolve_existing_project_case(&pref.layout, &pref.dir)
+    }
+
+    /// Config route for `cwd`, if one names a project or a route.
+    fn config_route(
+        &self,
+        cwd: &Path,
+        repo_top: Option<&Path>,
+        repo_name: Option<&str>,
+    ) -> Result<Option<String>> {
+        if let Some(name) =
+            crate::config::project_from_tracker_path(&self.default.projects_dir(), cwd)
+        {
+            return Ok(Some(self.pass_directory_name(name)?));
+        }
+        if let Some(name) = crate::config::context_project(cwd, repo_top)
+            && let Some(chosen) = self.route_or_existing(&name)?
+        {
+            return Ok(Some(chosen));
+        }
+        if let Some(name) = repo_name
+            && let Some(key) = self.route_key(name)
+        {
+            return Ok(Some(key));
+        }
+        Ok(None)
+    }
+
+    /// The on-disk directory the seat is standing in. A route for that name
+    /// still wins when the issue is written, so the name is passed through.
+    fn pass_directory_name(&self, name: String) -> Result<String> {
+        if self.route_key(&name).is_some() {
+            return Ok(name);
+        }
+        store::resolve_existing_project_case(&self.default, &name)
+    }
+
+    /// A route key, or an existing project on the default layout.
+    fn route_or_existing(&self, name: &str) -> Result<Option<String>> {
+        if let Some(key) = self.route_key(name) {
+            return Ok(Some(key));
+        }
+        crate::config::matching_project(&self.default, name)
+    }
+
+    /// The stored route key for `name`, compared without regard to case.
+    fn route_key(&self, name: &str) -> Option<String> {
+        let key = name.to_lowercase();
+        self.routes.contains_key(&key).then_some(key)
+    }
+
+    /// What `create` prints when the order names nothing.
+    ///
+    /// The list is the same names `projects` prints, so the seat can pass
+    /// one of them with `--project`.
+    fn unresolved_project(&self, repo: Option<&str>) -> anyhow::Error {
+        let listed = match self.visible_projects() {
+            Ok(projects) => {
+                let names: Vec<String> = projects.into_iter().map(|project| project.key).collect();
+                if names.is_empty() {
+                    "(none)".to_string()
+                } else {
+                    names.join(", ")
+                }
+            }
+            Err(err) => format!("(unreadable: {err})"),
+        };
+        match repo {
+            Some(name) => anyhow!(
+                "no project chosen: repository {name} matches no project and no config route names one. projects: {listed}"
+            ),
+            None => anyhow!(
+                "no project chosen: no config route names one and no repository name matches a project. projects: {listed}"
+            ),
+        }
+    }
 }
 
 fn lookup_in(layout: &Layout, id: &str) -> Result<Option<RouteHit>> {
@@ -789,5 +931,75 @@ mod tests {
         assert_eq!(router.route("surf").layout.prefix(), "Software");
         crate::process_env::clear_override("VISSUE_NO_ROUTE");
         crate::process_env::clear_override("VISSUE_CONFIG");
+    }
+
+    fn git(dir: &Path, args: &[&str]) {
+        let out = std::process::Command::new("git")
+            .current_dir(dir)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .args([
+                "-c",
+                "user.email=dev@example.invalid",
+                "-c",
+                "user.name=dev",
+                "-c",
+                "init.defaultBranch=main",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .output()
+            .expect("run git");
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// A route whose key is the repository name is the config route, before
+    /// the repository is asked to match a directory on the default layout.
+    /// The default layout gains no project directory from that choice.
+    #[test]
+    fn a_route_for_the_repository_is_chosen_before_a_directory_is_created() {
+        let tmp = tempfile::tempdir().unwrap();
+        let vault = tmp.path().join("vault");
+        let work = tmp.path().join("work");
+        fs::create_dir_all(vault.join("Software")).unwrap();
+        fs::create_dir_all(&work).unwrap();
+        let repo = tmp.path().join("checkout");
+        fs::create_dir_all(&repo).unwrap();
+        git(&repo, &["init", "-q"]);
+        git(
+            &repo,
+            &[
+                "remote",
+                "add",
+                "origin",
+                "https://github.com/acme/parser.git",
+            ],
+        );
+        let cfg = write_cfg(
+            tmp.path(),
+            &format!(
+                "[layouts.work]\nroot = \"{}\"\nprefix = \"Issues\"\n\n[routes]\nparser = \"work\"\n",
+                work.display()
+            ),
+        );
+        let router = Router::from_file(Layout::new(&vault, "Software"), &cfg).unwrap();
+        assert_eq!(router.choose_project_at(None, &repo).unwrap(), "parser");
+        assert!(!vault.join("Software/parser").exists());
+        assert!(!vault.join("Software/Software").exists());
+
+        // An empty `.git` is not a repository, and discovery stops there.
+        let plain = tmp.path().join("plain");
+        fs::create_dir_all(plain.join(".git")).unwrap();
+        let listed = router.choose_project_at(None, &plain).unwrap_err();
+        assert!(
+            listed.to_string().contains("projects:"),
+            "no route and no repository lists projects: {listed}"
+        );
+        assert!(listed.to_string().contains("parser"), "{listed}");
     }
 }

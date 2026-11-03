@@ -86,9 +86,11 @@ enum Command {
     Create {
         /// One-line title
         title: String,
-        /// Project name. `-p` wins, then the current file's project, then the
-        /// git repo (remote name, or else the top-level directory), then the
-        /// prefix default.
+        /// Project name. The order is `-p`, then a config route (the project
+        /// directory you are in, `.project-ctx.toml` when it names a project
+        /// or a route, or a route for this repository), then the repository
+        /// name when it matches a project. Otherwise the projects are listed
+        /// and nothing is created. The project used is printed.
         #[arg(short = 'p', short_alias = 'P', long)]
         project: Option<String>,
         /// Priority cookie: A high, B mid, C low
@@ -126,9 +128,11 @@ enum Command {
     Q {
         /// One-line title
         title: String,
-        /// Project name. `-p` wins, then the current file's project, then the
-        /// git repo (remote name, or else the top-level directory), then the
-        /// prefix default.
+        /// Project name. The order is `-p`, then a config route (the project
+        /// directory you are in, `.project-ctx.toml` when it names a project
+        /// or a route, or a route for this repository), then the repository
+        /// name when it matches a project. Otherwise the projects are listed
+        /// and nothing is created. The project used is printed.
         #[arg(short = 'p', short_alias = 'P', long)]
         project: Option<String>,
         /// Issue type, recorded as a tag: task, bug, epic, or any word
@@ -1561,7 +1565,8 @@ fn run() -> Result<()> {
             body,
             body_file,
         } => {
-            let project = ops::resolve_create_project(&layout, project.as_deref())?;
+            layout.require_tracker_to_create()?;
+            let project = router.choose_project(project.as_deref())?;
             let body_text = match (body, body_file) {
                 (Some(b), _) => Some(b),
                 (None, Some(path)) => Some(read_body_file(&path)?),
@@ -1584,6 +1589,14 @@ fn run() -> Result<()> {
                     ..Default::default()
                 },
             )?;
+            // Quiet stdout stays the id, which callers parse. The project
+            // still has to be visible, so it goes to stderr there and leads
+            // the report otherwise.
+            if quiet {
+                eprintln!("project: {project}");
+            } else {
+                emitln!("project: {project}");
+            }
             emit!("{out}");
         }
         Command::Q {
@@ -1592,7 +1605,8 @@ fn run() -> Result<()> {
             issue_type,
             parent,
         } => {
-            let project = ops::resolve_create_project(&layout, project.as_deref())?;
+            layout.require_tracker_to_create()?;
+            let project = router.choose_project(project.as_deref())?;
             let out = create_routed(
                 &router,
                 &project,
@@ -1604,6 +1618,7 @@ fn run() -> Result<()> {
                     ..Default::default()
                 },
             )?;
+            eprintln!("project: {project}");
             emit!("{out}");
         }
         Command::List {
