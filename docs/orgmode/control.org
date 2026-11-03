@@ -284,6 +284,9 @@ revision: 42
 clients: 2
 #+end_src
 
+A pid file can outlive its owner after a crash. Its pid then prints as
+=pid: 12345 (dead)=, and =--json= sets =pid_dead=.
+
 =vissue tui= paints from the files first (=revision= 0). Unless
 =--offline=, it then attaches to a live socket or starts =serve -d= on
 the same root, prefix, and socket. A root or prefix mismatch stays on

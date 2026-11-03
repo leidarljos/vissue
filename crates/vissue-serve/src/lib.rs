@@ -59,6 +59,9 @@ pub struct Status {
     pub live: bool,
     /// Owner pid from the sidecar pid file, if present.
     pub pid: Option<u32>,
+    /// True when [`Self::pid`] names a process that is no longer running, as
+    /// the pid file a crashed owner leaves behind does.
+    pub pid_dead: bool,
     /// Control socket path.
     pub socket: PathBuf,
     /// Tracker root the owner reports, or the caller's layout when down.
@@ -141,6 +144,7 @@ mod tests {
         let status = Status {
             live: false,
             pid: None,
+            pid_dead: false,
             socket: PathBuf::from("/tmp/control.sock"),
             root: PathBuf::from("/tmp/tracker"),
             prefix: "Software".into(),

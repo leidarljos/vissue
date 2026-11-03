@@ -150,6 +150,7 @@ pub fn status(cfg: &ServeConfig) -> Status {
     let mut snap = Status {
         live,
         pid,
+        pid_dead: pid.is_some_and(|p| !pid_is_alive(p)),
         socket: cfg.socket.clone(),
         root: cfg.layout.root().to_path_buf(),
         prefix: cfg.layout.prefix().to_string(),
@@ -194,22 +195,27 @@ fn enrich_from_owner(snap: &mut Status) {
 }
 
 pub fn print_status(status: &Status, json: bool) -> Result<()> {
+    write_status(&mut io::stdout().lock(), status, json)
+}
+
+fn write_status(out: &mut impl Write, status: &Status, json: bool) -> Result<()> {
     if json {
         let rendered = serde_json::to_string_pretty(status).context("encode status")?;
-        println!("{rendered}");
+        writeln!(out, "{rendered}")?;
         return Ok(());
     }
-    println!("live: {}", status.live);
+    writeln!(out, "live: {}", status.live)?;
     match status.pid {
-        Some(pid) => println!("pid: {pid}"),
-        None => println!("pid:"),
+        Some(pid) if status.pid_dead => writeln!(out, "pid: {pid} (dead)")?,
+        Some(pid) => writeln!(out, "pid: {pid}")?,
+        None => writeln!(out, "pid:")?,
     }
-    println!("socket: {}", status.socket.display());
-    println!("root: {}", status.root.display());
-    println!("prefix: {}", status.prefix);
-    println!("generation: {}", status.generation);
-    println!("revision: {}", status.revision);
-    println!("clients: {}", status.clients);
+    writeln!(out, "socket: {}", status.socket.display())?;
+    writeln!(out, "root: {}", status.root.display())?;
+    writeln!(out, "prefix: {}", status.prefix)?;
+    writeln!(out, "generation: {}", status.generation)?;
+    writeln!(out, "revision: {}", status.revision)?;
+    writeln!(out, "clients: {}", status.clients)?;
     Ok(())
 }
 
@@ -468,6 +474,42 @@ mod tests {
         );
     }
 
+    /// After a crash the pid file still names the dead owner, and status says
+    /// it is dead rather than printing it as the owner.
+    #[test]
+    fn status_labels_a_crashed_owners_pid_dead() {
+        // Above every kernel's pid ceiling (Linux caps pid_max at 2^22, macOS
+        // at 99999), so no process can have it.
+        const DEAD: u32 = i32::MAX as u32;
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = cfg(dir.path());
+        prepare_socket_dir(&cfg.socket).unwrap();
+        drop(UnixListener::bind(&cfg.socket).unwrap());
+        write_pid_file(&cfg.socket, DEAD).unwrap();
+
+        let snap = status(&cfg);
+        let mut text = Vec::new();
+        write_status(&mut text, &snap, false).unwrap();
+        let text = String::from_utf8(text).unwrap();
+        assert!(text.lines().any(|l| l == "live: false"), "{text}");
+        assert!(
+            text.lines().any(|l| l == format!("pid: {DEAD} (dead)")),
+            "{text}"
+        );
+
+        let mut json = Vec::new();
+        write_status(&mut json, &snap, true).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&json).unwrap();
+        assert_eq!(value["pid"], DEAD);
+        assert_eq!(value["pid_dead"], true);
+
+        // The exit a status that is not live always had, and no error.
+        assert_eq!(
+            crate::invoke(Action::Status { json: false }, &cfg).unwrap(),
+            1
+        );
+    }
+
     #[test]
     fn stop_when_already_stopped_is_ok() {
         let dir = tempfile::tempdir().unwrap();
@@ -629,6 +671,10 @@ mod tests {
 
         let snap = status(&cfg);
         assert!(snap.live, "{snap:?}");
+        assert!(
+            !snap.pid_dead,
+            "a running owner's pid is labelled dead: {snap:?}"
+        );
         assert_eq!(snap.prefix, "Software");
         // A running owner starts at 1; SERVE_REVISION is the no-owner value.
         assert!(
@@ -792,6 +838,7 @@ time.sleep(60)
         let status = Status {
             live: false,
             pid: None,
+            pid_dead: false,
             socket: "/tmp/control.sock".into(),
             root: "/tmp/vault".into(),
             prefix: "Software".into(),

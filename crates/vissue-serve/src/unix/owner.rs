@@ -197,14 +197,18 @@ impl Owner {
         prepare_socket_dir(&socket)?;
         let lock = acquire_lock(&socket)?;
         takeover_or_fail(&socket)?;
-        let listener =
-            UnixListener::bind(&socket).with_context(|| format!("bind {}", socket.display()))?;
+        // Before the bind: a start reads the pid file as soon as the socket
+        // accepts, and must not find the pid a crashed owner left there. The
+        // lock and the takeover have already made the file ours to write.
+        let pid_path = write_pid_file(&socket, std::process::id())?;
+        let listener = UnixListener::bind(&socket)
+            .with_context(|| format!("bind {}", socket.display()))
+            .inspect_err(|_| remove_pid_file(&socket))?;
         chmod_path(&socket, 0o600)?;
-        write_pid_file(&socket, std::process::id())?;
         Ok(Self {
             listener,
             lock,
-            pid_path: socket_pid_path(&socket),
+            pid_path,
             socket,
             state: Arc::new(OwnerState::new(cfg.layout.clone())?),
         })
@@ -805,6 +809,58 @@ mod tests {
             .request("initialize", json!({"protocolVersion": 1, "agent": "hdr"}))
             .unwrap();
         assert_eq!(init["identity"], "hdr");
+    }
+
+    /// By the time the socket accepts, the pid file names the new owner.
+    ///
+    /// A start reads the pid file once the socket accepts. After a crash that
+    /// file holds the dead owner's pid until the new one rewrites it, so a
+    /// bind before the rewrite hands the start a dead pid, or an empty file.
+    #[test]
+    fn the_pid_file_names_the_owner_by_the_time_the_socket_accepts() {
+        // Stands in for the crashed owner; any pid but this process's would do.
+        const CRASHED: u32 = 99;
+        // With the bind first, a cycle read the crashed pid or an empty file
+        // in 82 to 85 % of 500 on an idle Intel Xeon with 8 cores, and about
+        // half with every core busy (at 4b78738). Twenty cycles then let the
+        // old order through about once in a million runs.
+        const CYCLES: usize = 20;
+
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("run/control.sock");
+        let cfg = ServeConfig {
+            layout: Layout::new(dir.path().join("vault"), "Software"),
+            socket: socket.clone(),
+            exe: None,
+        };
+        fs::create_dir_all(cfg.layout.projects_dir()).unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let _in_rt = rt.enter();
+        for _ in 0..CYCLES {
+            // What a SIGKILL leaves: a socket that refuses, its pid, a free lock.
+            prepare_socket_dir(&socket).unwrap();
+            drop(StdUnixListener::bind(&socket).unwrap());
+            write_pid_file(&socket, CRASHED).unwrap();
+
+            let watched = socket.clone();
+            let first_seen = std::thread::spawn(move || {
+                loop {
+                    if StdUnixStream::connect(&watched).is_ok() {
+                        return read_pid_file(&watched);
+                    }
+                }
+            });
+            let owner = Owner::bind(&cfg).unwrap();
+            assert_eq!(
+                first_seen.join().unwrap(),
+                Some(std::process::id()),
+                "the socket accepted before the pid file named its owner"
+            );
+            drop(owner);
+        }
     }
 
     #[test]
