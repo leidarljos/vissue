@@ -44,6 +44,9 @@ mod timing {
     // Rounds per run.
     // Enough that the largest gap is a tail, not one sample, and few enough that the editors' start-up time keeps a run short.
     const TRIALS: usize = 40;
+    // Poll ticks timed per run.
+    // Enough that the slowest tick is a tail, not one sample, and few enough that the ticks take seconds of a run, not minutes.
+    const TICKS: usize = 1000;
     // A save is over once the watcher has been quiet this long. It is five
     // times the 200 ms window under test, so a gap that would split a
     // rebuild in two is still counted inside the save.
@@ -190,9 +193,9 @@ mod timing {
         format!("save {name} {round} {} {span} {first} {gaps}", seen.len())
     }
 
-    /// One `tick` line for each of 1000 poll ticks over `layout`.
+    /// One `tick` line for each of `TICKS` poll ticks over `layout`.
     fn tick_cost(layout: &Layout) {
-        for _ in 0..1000 {
+        for _ in 0..TICKS {
             let start = Instant::now();
             let _ = events::generation(layout);
             for project in list_projects(layout).unwrap() {

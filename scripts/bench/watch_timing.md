@@ -95,7 +95,7 @@ Run 1 also had the largest vim gap, 51.82 ms.
 No gap in any other run was above 18.73 ms.
 From an in-place write returning to its first event took 14345.6 µs median, with an IQR of 5504.9 µs and 19205.4 µs at worst.
 That delay comes before the first event, so it adds to the time a change takes to reach clients, not to the gaps the window has to cover.
-Over 6000 ticks, 1000 per run, a poll tick took 7.533 ms median, with an IQR of 2.540 ms and 50.190 ms at worst.
+Over 6000 ticks, 1000 per run (`TICKS`), a poll tick took 7.533 ms median, with an IQR of 2.540 ms and 50.190 ms at worst.
 
 The window of 200 ms is 1.82 times the largest gap measured here.
 That margin is under 2, so a save with a gap twice as long as the largest here would be rebuilt twice.
@@ -103,7 +103,7 @@ That margin is under 2, so a save with a gap twice as long as the largest here w
 ## One poll tick
 
 A tick reads the generation, lists the projects and stats each project's file.
-Over 1000 ticks per run on the 173-project tracker it took 1.05 ms median, with a spread of 0.02 ms and 7.60 ms at worst.
+Over 1000 ticks per run (`TICKS` in the example) on the 173-project tracker it took 1.05 ms median, with a spread of 0.02 ms and 7.60 ms at worst.
 At one tick per 250 ms the median tick costs 0.42% of one core while idle.
 If every tick were as slow as the worst, the poll would cost 3.0%.
 The poll can be at most 1000 - 200 - 30 = 770 ms under the ceiling below, and 250 ms is a choice inside that.
