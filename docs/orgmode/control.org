@@ -41,9 +41,11 @@ The parent directory is mode =0700=. Override the serve log with
 =VISSUE_SERVE_LOG=, the HUD log with =VISSUE_HUD_LOG=, and the summon
 socket with =VISSUE_HUD_SUMMON_SOCKET=.
 
-Accept checks the peer uid (Linux =SO_PEERCRED=) and closes a foreign
-connection with no JSON-RPC reply. There is no TCP bind and no token
-in the file store.
+Accept reads the peer uid (Linux =SO_PEERCRED=). A uid that does not
+match this process is served, and stderr carries a =[warn]= line. An
+OS that cannot report a uid is unchanged: the directory is mode
+=0700= and the socket is mode =0600=. There is no TCP bind and no
+token in the file store.
 
 * Framing
 
@@ -122,7 +124,7 @@ Capabilities returned by =initialize= (v1):
 | =issue/ready=      | =issue/list= with =ready: true=                           |
 | =issue/get=        | One issue, =IssueDetail= plus =revision=                  |
 | =issue/show=       | Alias of =issue/get=                                      |
-| =issue/excerpt=    | Secret-screened body range                                |
+| =issue/excerpt=    | Body range; credential-shaped text is labeled, not hidden |
 | =issue/search=     | Substring over id, title, properties, tags, body          |
 | =issue/claims=     | Live claims; holder field is =holder=                     |
 | =issue/agenda=     | Deadlines and scheduled starts                            |
@@ -199,8 +201,10 @@ and no rows. List rows use =claimed_by=, not =holder=.
 =revision=.
 
 =issue/excerpt= returns ={id, file, line_start, line_end, text,
-suppressed}=. =suppressed= is true when the screen hides the range;
-=text= is then the suppression sentence that names the path.
+suppressed}= and, when the range looks like credential material,
+=warning=. =text= is the file range. =suppressed= stays false.
+=warning= is a =[warn]= line naming the marker, and it is omitted when
+there is nothing to label.
 
 =issue/claims= rows match =vissue claims --json=: =id=, =project=,
 =state=, =priority=, =holder=, =claimed_at=, =age_days=, =title=.

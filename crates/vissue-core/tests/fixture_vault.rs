@@ -926,9 +926,9 @@ fn the_org_export_refuses_an_id_it_cannot_find() {
     assert!(vissue_core::agent::org_text(&layout, "atlas-zzzz").is_err());
 }
 
-/// Credential-shaped text is refused here exactly as it is in a preview.
+/// Credential-shaped text is exported as the file holds it.
 #[test]
-fn the_org_export_keeps_the_secret_screen() {
+fn the_org_export_returns_credential_shaped_text() {
     let (_dir, layout) = writable_copy();
     let carrier = concat!("-----BEGIN OPENSSH ", "PRIVATE KEY-----");
     let id = vissue_core::ops::create(
@@ -945,10 +945,15 @@ fn the_org_export_keeps_the_secret_screen() {
     .trim()
     .to_string();
 
-    let err = vissue_core::agent::org_text(&layout, &id).unwrap_err();
-    let text = format!("{err:#}");
-    assert!(text.contains("secret material"), "{text}");
-    assert!(!text.contains(carrier), "the refusal repeated the material");
+    let org = vissue_core::agent::org_text(&layout, &id).unwrap();
+    assert!(org.starts_with("* TODO"), "{org}");
+    assert!(
+        org.contains(carrier),
+        "the export withheld the heading: {org}"
+    );
+    let excerpt = vissue_core::agent::body_excerpt(&layout, &id).unwrap();
+    assert!(excerpt.contains("[warn]"), "{excerpt}");
+    assert!(excerpt.contains(carrier), "{excerpt}");
 }
 
 /// `VISSUE_EVENTS` is process-global, so the two tests that depend on its value
@@ -1267,7 +1272,7 @@ fn excerpt_from_reads_the_on_disk_heading_range() {
 }
 
 #[test]
-fn excerpt_from_suppresses_a_credential_shaped_line() {
+fn excerpt_from_returns_a_credential_shaped_line() {
     let (_dir, layout) = writable_copy();
     let path = layout.project_issues_path("atlas");
     let text = fs::read_to_string(&path).unwrap().replace(
@@ -1282,16 +1287,17 @@ fn excerpt_from_suppresses_a_credential_shaped_line() {
         .find(|r| r.heading.id == "atlas-1a2b")
         .expect("parser issue");
     let excerpt = excerpt_from(rec).unwrap();
-    assert!(excerpt.suppressed, "{excerpt:?}");
+    assert!(!excerpt.suppressed, "{excerpt:?}");
     assert!(
-        excerpt.text.contains("excerpt suppressed"),
-        "{}",
+        excerpt.text.contains("9f8e7d6c5b4a3210ff"),
+        "the range was withheld: {}",
         excerpt.text
     );
+    let warning = excerpt.warning.expect("a credential is labeled");
+    assert!(warning.contains("[warn]"), "{warning}");
     assert!(
-        !excerpt.text.contains("9f8e7d6c5b4a3210ff"),
-        "secret leaked: {}",
-        excerpt.text
+        !warning.contains("9f8e7d6c5b4a3210ff"),
+        "the label repeated the material: {warning}"
     );
 }
 

@@ -354,7 +354,7 @@ pub enum Method {
     IssueAgenda,
     /// Alias of [`Self::IssueGet`].
     IssueShow,
-    /// Secret-screened body range.
+    /// Body range. Credential-shaped text is returned and labeled.
     IssueExcerpt,
     /// Children and blockers.
     IssueTree,
@@ -1379,7 +1379,7 @@ pub enum Request {
     IssueAgenda(AgendaParams),
     /// Alias of [`Self::IssueGet`].
     IssueShow(IdParams),
-    /// Secret-screened body range.
+    /// Body range. Credential-shaped text is returned and labeled.
     IssueExcerpt(IdParams),
     /// Children and blockers.
     IssueTree(TreeParams),
@@ -1651,7 +1651,7 @@ pub enum Response {
     IssueAgenda(Vec<AgendaRow>),
     /// Alias of [`Self::IssueGet`].
     IssueShow(IssueGetResult),
-    /// Secret-screened body range.
+    /// Body range. Credential-shaped text is returned and labeled.
     IssueExcerpt(Excerpt),
     /// Children and blockers.
     IssueTree(TreeResult),
@@ -2179,6 +2179,7 @@ mod tests {
                 line_end: 2,
                 text: "body".into(),
                 suppressed: false,
+                warning: None,
             })
             .to_value()
             .is_ok()

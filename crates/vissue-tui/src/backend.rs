@@ -133,7 +133,7 @@ pub trait BoardBackend: Send + Sync + std::fmt::Debug {
     ///
     /// Returns an error if the issue does not exist or cannot be fetched.
     fn get(&self, id: &str) -> Result<IssueDetail, Error>;
-    /// On-disk heading range, capped and screened for secrets.
+    /// On-disk heading range, capped. Credential-shaped text is labeled, not withheld.
     ///
     /// # Errors
     ///

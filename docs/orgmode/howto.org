@@ -67,8 +67,11 @@ longer issue loses its tail without saying so. The logbook travels with
 the export, carrying the notes written when the work was
 handed over.
 
-An issue whose text looks like credential material is refused rather
-than exported, the same way a preview of it is.
+An issue whose text looks like credential material is exported as the
+file holds it. =body-excerpt= and =recall --excerpts= do the same, and
+each writes a =[warn]= line naming the marker. The label is not a
+redaction: keep credentials out of issue bodies. =show --org= writes
+that line to stderr so the file it prints stays the heading.
 
 Plain =show= prints the metadata and then the body, and =show --json=
 carries both along with the logbook, so a caller that already fetched

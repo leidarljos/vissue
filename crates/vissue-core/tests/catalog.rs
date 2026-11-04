@@ -478,7 +478,7 @@ fn related_ranks_a_declared_edge_above_shared_words() {
 }
 
 #[test]
-fn an_excerpt_reads_the_file_range_and_suppresses_a_credential() {
+fn an_excerpt_reads_the_file_range_including_a_credential() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("issues.org");
     std::fs::write(
@@ -497,9 +497,20 @@ fn an_excerpt_reads_the_file_range_and_suppresses_a_credential() {
         "* TODO [#B] Leaky\n:PROPERTIES:\n:ID:         demo-aaaa\n:END:\n\napi_key = 9f8e7d6c5b4a3210ff\n",
     )
     .unwrap();
-    let suppressed = excerpt_from(&rec).unwrap();
-    assert!(suppressed.suppressed, "{}", suppressed.text);
-    assert!(!suppressed.text.contains("9f8e7d6c5b4a3210ff"));
+    let leaked = excerpt_from(&rec).unwrap();
+    assert!(!leaked.suppressed, "{}", leaked.text);
+    assert!(
+        leaked.text.contains("9f8e7d6c5b4a3210ff"),
+        "the range was withheld: {}",
+        leaked.text
+    );
+    let warning = leaked.warning.expect("a credential is labeled");
+    assert!(warning.starts_with("[warn]"), "{warning}");
+    assert!(warning.contains("secret material"), "{warning}");
+    assert!(
+        !warning.contains("9f8e7d6c5b4a3210ff"),
+        "the label repeated the material: {warning}"
+    );
 }
 
 #[test]

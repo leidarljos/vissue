@@ -798,6 +798,36 @@ mod tests {
         assert!(said.contains("deedar check"), "{said}");
     }
 
+    /// A heading that looks like credential material is still packed. The
+    /// warning is a stderr line; the file in the satchel is the heading.
+    #[test]
+    fn a_credential_shaped_issue_is_packed() {
+        let (_dir, layout) = tracker();
+        let carrier = concat!("-----BEGIN OPENSSH ", "PRIVATE KEY-----");
+        let id = made(
+            &layout,
+            "carries a key by mistake",
+            CreateOpts {
+                body: Some(carrier),
+                ..CreateOpts::default()
+            },
+        );
+        let out = tempfile::tempdir().expect("out");
+        pack(
+            &layout,
+            &Slice {
+                projects: Vec::new(),
+                issues: vec![id.clone()],
+            },
+            out.path(),
+        )
+        .expect("a credential-shaped issue was not packed");
+        let packed = std::fs::read_to_string(out.path().join(format!("data/issues/{id}.org")))
+            .expect("packed heading");
+        assert!(packed.contains(carrier), "{packed}");
+        assert!(packed.starts_with("* TODO"), "{packed}");
+    }
+
     /// A slice that names nothing is not a slice, and an issue that is not
     /// there is not packed silently.
     #[test]

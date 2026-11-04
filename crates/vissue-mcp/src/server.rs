@@ -668,7 +668,7 @@ impl VissueServer {
     }
 
     #[tool(
-        description = "The first lines of an issue's file range, screened for secrets.",
+        description = "The first lines of an issue's file range. Credential-shaped text is returned, and the text starts with a [warn] line naming the marker.",
         annotations(title = "Body excerpt", read_only_hint = true, open_world_hint = false)
     )]
     async fn vissue_body_excerpt(
@@ -682,7 +682,7 @@ impl VissueServer {
     }
 
     #[tool(
-        description = "One issue's org text in full, untruncated, screened for secrets. Use this when handing an issue to someone as the thing to work from; body_excerpt is a capped preview.",
+        description = "One issue's org text in full, untruncated. Credential-shaped text is returned as stored and a [warn] line is written to stderr. Use this when handing an issue to someone as the thing to work from; body_excerpt is a capped preview.",
         annotations(
             title = "Full Org text",
             read_only_hint = true,
@@ -1555,7 +1555,10 @@ impl ServerHandler for VissueServer {
             ResourceTemplate::new(format!("{SCHEME}://issue/{{id}}"), "issue".to_string());
         template.title = Some("One issue".to_string());
         template.description =
-            Some("The org text of one issue, by id, with secrets screened out.".to_string());
+            Some(
+                "The org text of one issue, by id. Credential-shaped text is included and a [warn] line is written to stderr."
+                    .to_string(),
+            );
         template.mime_type = Some(ORG.to_string());
         Ok(ListResourceTemplatesResult::with_all_items(vec![template])
             .with_ttl_ms(RESOURCE_TTL_MS)

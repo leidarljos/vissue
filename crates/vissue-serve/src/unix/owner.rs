@@ -16,7 +16,7 @@ use serde_json::Value;
 use tokio::net::UnixListener;
 use tokio::sync::Semaphore;
 use vissue_control::frame::{FrameError, Framing, read_message, write_message};
-use vissue_control::peercred::accept_socket;
+use vissue_control::peercred::peer_label;
 use vissue_control::rpc::{JsonRpcResponse, Notification, invalid_request, parse_error};
 use vissue_control::{beside_socket, socket_lock_path, socket_pid_path};
 
@@ -217,13 +217,8 @@ impl Owner {
     async fn accept_loop(&self) -> Result<()> {
         loop {
             let (stream, _) = self.listener.accept().await.context("accept")?;
-            if !accept_socket(&stream) {
-                if let Ok(uid) = vissue_control::peercred::peer_uid(&stream) {
-                    eprintln!("vissue serve: rejected peer uid={uid}");
-                } else {
-                    eprintln!("vissue serve: rejected peer");
-                }
-                continue;
+            if let Some(label) = peer_label(vissue_control::peercred::peer_uid(&stream)) {
+                eprintln!("{label}");
             }
             let std_stream = match stream.into_std() {
                 Ok(s) => s,

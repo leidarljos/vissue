@@ -104,7 +104,9 @@ pub fn claim(layout: &Layout, id: &str, force: bool) -> Result<String> {
     Ok(format!("{report}{detail}"))
 }
 
-/// The first lines of an issue's file range, capped and screened for secrets.
+/// The first lines of an issue's file range, capped.
+///
+/// Credential-shaped text is included. A `[warn]` line names the marker.
 ///
 /// # Errors
 ///
@@ -127,8 +129,9 @@ pub fn body_excerpt(layout: &Layout, id: &str) -> Result<String> {
 ///
 /// # Errors
 ///
-/// Returns an error if `id` is not in the corpus, the heading's file cannot
-/// be read, or the heading looks like secret material.
+/// Returns an error if `id` is not in the corpus, or the heading's file cannot
+/// be read. Credential-shaped text is returned as stored; a `[warn]` line
+/// is written to stderr.
 pub fn org_text(layout: &Layout, id: &str) -> Result<String> {
     let recs = load_recs(layout)?;
     let rec = recs
@@ -512,7 +515,7 @@ mod tests {
 
     #[test]
     fn the_secret_screen_reads_shapes_not_substrings() {
-        // Suppressed: the shapes a credential is actually written in.
+        // Labeled: the shapes a credential is actually written in.
         for carrier in [
             // Assembled rather than written out: a literal PEM header in a
             // source file is exactly what the private-key hook looks for.
@@ -528,7 +531,7 @@ mod tests {
                 "missed a credential: {carrier:?}"
             );
         }
-        // Not suppressed: ordinary prose. A substring screen flags every one
+        // Not labeled: ordinary prose. A substring screen flags every one
         // of these -- "making" holds "aki", "task-force" holds "sk-".
         for prose in [
             "Scope: read the header block before the first record.",
@@ -544,7 +547,7 @@ mod tests {
     }
 
     #[test]
-    fn body_excerpt_suppresses_apparent_secrets() {
+    fn body_excerpt_returns_apparent_secrets_and_labels_them() {
         let dir = tempfile::tempdir().unwrap();
         let layout = Layout::new(dir.path(), DEFAULT_PREFIX);
         fs::create_dir_all(layout.projects_dir()).unwrap();
@@ -560,7 +563,8 @@ mod tests {
         .unwrap();
         let doc = IssueDoc::parse_file("sample", &layout.project_issues_path("sample")).unwrap();
         let text = body_excerpt(&layout, &doc.headings[0].id).unwrap();
-        assert!(text.contains("excerpt suppressed"), "{text}");
-        assert!(!text.contains("whatever-it-was"), "{text}");
+        assert!(text.contains("[warn]"), "{text}");
+        assert!(text.contains("secret material"), "{text}");
+        assert!(text.contains("whatever-it-was"), "{text}");
     }
 }

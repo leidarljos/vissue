@@ -22,9 +22,9 @@ Security fixes apply to the latest `0.7.x` release and to `main`.
 - `vissue-mcp` grants an agent write access to every project under its root.
   Point it at a tracker root you are willing to let that agent edit, not at a
   home directory.
-- `body-excerpt` returns file content. It screens for a few obvious secret
-  markers, which is a guard against accident and not a redaction guarantee. Do
-  not put credentials in issue bodies.
+- `body-excerpt`, `show --org`, and `recall --excerpts` return file content.
+  Credential-shaped text is labeled with a `[warn]` line and still returned.
+  The label is not a redaction. Do not put credentials in issue bodies.
 - `mirror` output is meant to be shared. Whatever is in the selected projects
   ends up in the projection, so select projects rather than filtering by hand
   afterwards.

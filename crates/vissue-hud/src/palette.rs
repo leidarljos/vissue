@@ -2048,6 +2048,9 @@ impl Palette {
         };
         match self.backend.excerpt(id) {
             Ok(excerpt) => {
+                if let Some(label) = excerpt.warning.clone() {
+                    self.message = label;
+                }
                 self.detail_body = excerpt.text.clone();
                 self.excerpt = Some(excerpt);
                 match self.backend.get(id) {

@@ -2302,11 +2302,11 @@ fn recall_can_splice_in_what_the_inputs_concluded() {
     );
 }
 
-/// An input whose body looks like credential material is suppressed here for
-/// the same reason `body-excerpt` suppresses it. A working set is pasted into a
-/// model's context, which is the last place a key should be spliced.
+/// An input whose body looks like credential material is returned, with a
+/// `[warn]` line. A working set is pasted on as text, and withholding the
+/// range would hide the thing the next unit was handed.
 #[test]
-fn a_credential_shaped_input_is_suppressed_in_the_working_set() {
+fn a_credential_shaped_input_is_returned_in_the_working_set() {
     let dir = tempfile::tempdir().unwrap();
     fs::create_dir_all(dir.path().join("Software")).unwrap();
     let own = |args: &[&str]| -> std::process::Output {
@@ -2316,26 +2316,81 @@ fn a_credential_shaped_input_is_suppressed_in_the_working_set() {
     };
     let id = |args: &[&str]| -> String { stdout(&own(args)).trim().to_string() };
 
+    let carrier = "the runner needs access_token=abcd1234 to reach the registry";
     let leaky = id(&[
         "create",
         "-p",
         "ops",
         "--body",
-        "the runner needs access_token=abcd1234 to reach the registry",
+        carrier,
         "Wire up the runner",
         "-q",
     ]);
     let next = id(&["create", "-p", "ops", "Use the runner", "-q"]);
     own(&["update", &next, "--block", &leaky]);
 
-    let spliced = stdout(&own(&["recall", &next, "--excerpts"]));
+    let recalled = own(&["recall", &next, "--excerpts"]);
     assert!(
-        !spliced.contains("abcd1234"),
-        "a credential must not reach a working set: {spliced}"
+        recalled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&recalled.stderr)
+    );
+    let spliced = stdout(&recalled);
+    assert!(
+        spliced.contains("abcd1234"),
+        "the working set withheld the input: {spliced}"
     );
     assert!(
-        spliced.contains("excerpt suppressed"),
-        "and the reader has to know something was withheld: {spliced}"
+        spliced.contains("[warn]"),
+        "the reader was not told the range looks like credential material: {spliced}"
+    );
+
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout(&own(&["recall", &next, "--excerpts", "--json"])))
+            .expect("json");
+    let excerpt = json["inputs"][0]["excerpt"].as_str().unwrap_or_default();
+    assert!(excerpt.contains("abcd1234"), "{json}");
+    assert!(excerpt.contains("[warn]"), "{json}");
+
+    let preview = own(&["body-excerpt", &leaky]);
+    assert!(
+        preview.status.success(),
+        "{}",
+        String::from_utf8_lossy(&preview.stderr)
+    );
+    let preview_text = stdout(&preview);
+    assert!(preview_text.contains("abcd1234"), "{preview_text}");
+    assert!(preview_text.contains("[warn]"), "{preview_text}");
+
+    let as_json: serde_json::Value =
+        serde_json::from_str(&stdout(&own(&["body-excerpt", &leaky, "--json"]))).expect("json");
+    assert_eq!(as_json["suppressed"], false, "{as_json}");
+    assert!(
+        as_json["text"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("abcd1234"),
+        "{as_json}"
+    );
+    let warning = as_json["warning"].as_str().unwrap_or_default();
+    assert!(warning.starts_with("[warn]"), "{as_json}");
+    assert!(!warning.contains("abcd1234"), "{warning}");
+
+    let org = own(&["show", "--org", &leaky]);
+    assert!(
+        org.status.success(),
+        "{}",
+        String::from_utf8_lossy(&org.stderr)
+    );
+    let org_text = stdout(&org);
+    assert!(org_text.starts_with("* TODO"), "{org_text}");
+    assert!(org_text.contains("abcd1234"), "{org_text}");
+    let err = String::from_utf8_lossy(&org.stderr);
+    assert!(err.contains("[warn]"), "{err}");
+    assert!(err.contains("returned as stored"), "{err}");
+    assert!(
+        !err.contains("abcd1234"),
+        "the warning repeated the material: {err}"
     );
 }
 

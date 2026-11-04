@@ -1810,8 +1810,8 @@ concluded is in its body, since =append= writes the report there and the deed
 names the product rather than the reasoning. Off unless asked, because the
 common case wants the accessions and a working set carrying four screens of
 prose is one nobody reads. The excerpt goes through the same path
-=body-excerpt= uses, so it is capped and an input whose body looks like
-credential material is suppressed rather than spliced into a model's context.
+=body-excerpt= uses, so it is capped. An input whose body looks like
+credential material is included, with a =[warn]= line above it.
 
 Each input also carries the last note in its logbook. An input that closed
 without naming a product would otherwise hand the next unit its title and

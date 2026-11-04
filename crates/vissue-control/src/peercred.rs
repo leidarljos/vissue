@@ -27,18 +27,34 @@ pub fn peer_uid<F: AsFd>(sock: &F) -> io::Result<u32> {
     peer_uid_impl(sock)
 }
 
+/// Label when the peer uid does not match, or credentials cannot be read.
+///
+/// `Ok` of this process, and `ErrorKind::Unsupported`, are quiet. An OS that
+/// cannot report a uid still relies on directory mode 0700 and socket mode
+/// 0600. A mismatch or any other IO error is a warning, not a reason to
+/// drop the connection: [`accept_from_result`] stays open.
+#[must_use]
+pub fn peer_label(result: io::Result<u32>) -> Option<String> {
+    match result {
+        Ok(uid) if accept_peer(uid) => None,
+        Ok(uid) => Some(format!(
+            "[warn] peer uid={uid} is not this process; serving the connection"
+        )),
+        Err(err) if err.kind() == io::ErrorKind::Unsupported => None,
+        Err(err) => Some(format!(
+            "[warn] peer credentials unreadable ({err}); serving the connection"
+        )),
+    }
+}
+
 /// Whether an accepted socket may stay open.
 ///
-/// `Ok(uid)` uses [`accept_peer`]. `ErrorKind::Unsupported` means this OS
-/// cannot read peer credentials: return true so dir 0700 / sock 0600 are the
-/// check. Every other IO error and a uid mismatch fail closed.
+/// Always. A uid mismatch or an unreadable credential is [`peer_label`];
+/// the connection is still served. `Unsupported` has no label: dir 0700
+/// and sock 0600 are the check on that OS.
 #[must_use]
-pub fn accept_from_result(result: io::Result<u32>) -> bool {
-    match result {
-        Ok(uid) => accept_peer(uid),
-        Err(err) if err.kind() == io::ErrorKind::Unsupported => true,
-        Err(_) => false,
-    }
+pub fn accept_from_result(_result: io::Result<u32>) -> bool {
+    true
 }
 
 /// [`accept_from_result`] over [`peer_uid`].
@@ -94,18 +110,32 @@ mod tests {
     }
 
     #[test]
-    fn other_uid_is_rejected() {
+    fn other_uid_is_served_and_labeled() {
         let other = current_uid().wrapping_add(1);
         assert!(!accept_peer(other));
-        assert!(!accept_from_result(Ok(other)));
+        assert!(accept_from_result(Ok(other)));
+        let label = peer_label(Ok(other)).expect("a foreign uid is labeled");
+        assert!(label.starts_with("[warn]"), "{label}");
+        assert!(label.contains(&other.to_string()), "{label}");
+        assert!(label.contains("serving the connection"), "{label}");
+        assert!(peer_label(Ok(current_uid())).is_none());
     }
 
     #[test]
-    fn unsupported_peercred_falls_back_to_mode_bits() {
+    fn unsupported_peercred_stays_quiet_and_an_unreadable_one_is_labeled() {
         let err = io::Error::new(io::ErrorKind::Unsupported, "no SO_PEERCRED");
-        assert!(accept_from_result(Err(err)));
+        assert!(peer_label(Err(err)).is_none());
+        assert!(accept_from_result(Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "no SO_PEERCRED"
+        ))));
         let err = io::Error::other("getsockopt failed");
-        assert!(!accept_from_result(Err(err)));
+        let label = peer_label(Err(err)).expect("an unreadable credential is labeled");
+        assert!(label.starts_with("[warn]"), "{label}");
+        assert!(label.contains("serving the connection"), "{label}");
+        assert!(accept_from_result(Err(io::Error::other(
+            "getsockopt failed"
+        ))));
         assert!(accept_from_result(Ok(current_uid())));
     }
 

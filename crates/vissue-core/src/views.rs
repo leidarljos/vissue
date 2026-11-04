@@ -156,7 +156,7 @@ pub struct ClaimRow {
     pub title: String,
 }
 
-/// A capped, secret-screened slice of a heading's on-disk range.
+/// A capped slice of a heading's on-disk range.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Excerpt {
     /// Issue id.
@@ -167,10 +167,18 @@ pub struct Excerpt {
     pub line_start: usize,
     /// 1-based last line of the heading.
     pub line_end: usize,
-    /// Excerpt text, or a suppression notice when credential-shaped.
+    /// Excerpt text, the file range.
     pub text: String,
     /// Whether `text` is a suppression notice rather than the heading.
+    ///
+    /// The library leaves this false. Credential-shaped text stays in
+    /// `text` and is named by [`Self::warning`].
     pub suppressed: bool,
+    /// `[warn]` line when the range looks like credential material.
+    ///
+    /// Absent when there is nothing to label. `text` is the range either way.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 /// One search match: the heading plus a short snippet of the hit.
@@ -377,8 +385,8 @@ pub struct RecallInput {
     /// unless asked, because the common case wants the accessions and a working
     /// set that pastes four screens of prose is one nobody reads.
     ///
-    /// Screened and capped by the same path `body-excerpt` uses, so an input
-    /// whose body looks like credential material is suppressed here too.
+    /// Capped by the same path `body-excerpt` uses. Credential-shaped text is
+    /// included, with a `[warn]` line above it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub excerpt: Option<String>,
     /// The most recent note in that input's logbook, when it has one.

@@ -223,7 +223,7 @@ impl<'a> CatalogService<'a> {
         Ok(issue_detail(self.rec(id)?))
     }
 
-    /// On-disk heading range, capped and screened for secrets.
+    /// On-disk heading range, capped. Credential-shaped text is labeled, not withheld.
     ///
     /// # Errors
     ///
@@ -543,7 +543,10 @@ fn issue_detail(rec: &IssueRec) -> IssueDetail {
     }
 }
 
-/// On-disk heading range, capped and screened for secrets.
+/// On-disk heading range, capped.
+///
+/// Credential-shaped text is returned as stored. [`Excerpt::warning`] names
+/// the marker; it does not replace the range.
 ///
 /// # Errors
 ///
@@ -562,54 +565,65 @@ pub fn excerpt_from(rec: &IssueRec) -> Result<Excerpt> {
         text.truncate(BODY_EXCERPT_MAX_CHARS);
         text.push_str("\n...");
     }
-    let suppressed = match secret_marker(&text) {
-        Some(marker) => {
-            text = format!(
-                "(excerpt suppressed: {marker} looks like secret material; open {} directly)\n",
-                rec.path.display()
-            );
-            true
-        }
-        None => false,
-    };
+    let warning = secret_warning(&rec.heading.id, &text);
     Ok(Excerpt {
         id: rec.heading.id.clone(),
         file: rec.path.display().to_string(),
         line_start: rec.heading.line_start,
         line_end: rec.heading.line_end,
         text,
-        suppressed,
+        suppressed: false,
+        warning,
     })
 }
 
-/// The heading's on-disk text in full, screened for secrets.
+/// The heading's on-disk text in full.
 ///
 /// [`excerpt_from`] caps its output at the preview line cap, which is
 /// right for a preview and wrong for handing the issue to someone as a
 /// specification: an issue longer than the cap loses its tail silently. This
 /// returns the whole range, so what comes back is what the file holds.
 ///
-/// The secret screen stays: a heading that carries credential-shaped text is
-/// refused here exactly as it is in a preview.
+/// Credential-shaped text is returned as stored. A `[warn]` line is written
+/// to stderr, once per issue per process: a pack or a second read of the
+/// same heading does not need the line again, and the bytes written to a
+/// file stay the heading.
 ///
 /// # Errors
 ///
-/// Returns an error if the heading's file cannot be read, or the heading
-/// looks like secret material.
+/// Returns an error if the heading's file cannot be read.
 pub fn org_text_from(rec: &IssueRec) -> Result<String> {
     let content = fs::read_to_string(&rec.path)?;
     let lines: Vec<&str> = content.lines().collect();
     let from = rec.heading.line_start.saturating_sub(1).min(lines.len());
     let to = rec.heading.line_end.min(lines.len()).max(from);
     let text = lines[from..to].join("\n");
-    if let Some(marker) = secret_marker(&text) {
-        return Err(Error::Other(anyhow::anyhow!(
-            "{} looks like secret material; open {} directly",
-            marker,
-            rec.path.display()
-        )));
-    }
+    emit_secret_warning(&rec.heading.id, &text);
     Ok(text)
+}
+
+/// `[warn]` line when `text` looks like credential material.
+fn secret_warning(id: &str, text: &str) -> Option<String> {
+    secret_marker(text).map(|marker| {
+        format!("[warn] {id} looks like secret material ({marker}); returned as stored")
+    })
+}
+
+/// One stderr line per issue per process.
+///
+/// A pack walks every chosen heading, and a second `show --org` of the same
+/// id in one process is the same fact. The heading bytes are unchanged.
+fn emit_secret_warning(id: &str, text: &str) {
+    let Some(label) = secret_warning(id, text) else {
+        return;
+    };
+    use std::collections::BTreeSet;
+    use std::sync::{Mutex, PoisonError};
+    static WARNED: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+    let mut warned = WARNED.lock().unwrap_or_else(PoisonError::into_inner);
+    if warned.insert(id.to_string()) {
+        eprintln!("{label}");
+    }
 }
 
 /// Text shape of [`crate::agent::body_excerpt`].
@@ -619,7 +633,7 @@ pub(crate) fn format_body_excerpt(excerpt: &Excerpt) -> String {
     }
     let from = excerpt.line_start.saturating_sub(1);
     let to = excerpt.line_end.min(from + BODY_EXCERPT_MAX_LINES);
-    format!(
+    let body = format!(
         "id: {}\nfile: {}:{}-{}\n--- excerpt (lines {}-{}) ---\n{}\n",
         excerpt.id,
         excerpt.file,
@@ -628,15 +642,19 @@ pub(crate) fn format_body_excerpt(excerpt: &Excerpt) -> String {
         from + 1,
         to,
         excerpt.text
-    )
+    );
+    match &excerpt.warning {
+        Some(label) => format!("{label}\n{body}"),
+        None => body,
+    }
 }
 
 /// The marker that makes an excerpt look like it carries a credential.
 ///
-/// A guard against handing an agent a secret by accident, not a redaction
-/// guarantee: it screens the shapes credentials are usually written in, and
-/// SECURITY.md says plainly that the answer is to keep them out of issue
-/// bodies. Widening it is cheap; relying on it is not.
+/// The range is still returned. This names why a `[warn]` line was written.
+/// It screens the shapes credentials are usually written in, and SECURITY.md
+/// says plainly that the answer is to keep them out of issue bodies.
+/// Widening it is cheap; relying on it is not.
 pub(crate) fn secret_marker(excerpt: &str) -> Option<&'static str> {
     let lower = excerpt.to_lowercase();
     // PEM and OpenSSH private key blocks, whatever the algorithm.
@@ -1166,12 +1184,18 @@ fn recall_input(rec: &IssueRec, relation: &str, excerpts: bool) -> RecallInput {
         title: rec.heading.title.clone(),
         relation: relation.to_string(),
         deeds: rec.heading.deeds(),
-        // Through the excerpt path rather than the raw body, so the cap and the
-        // credential screening that `body-excerpt` applies are applied here too.
-        // A failure to read the file is not worth failing the whole working set
-        // over: the rest of the answer is still correct.
+        // Through the excerpt path rather than the raw body, so the cap that
+        // `body-excerpt` applies is applied here too. Credential-shaped text
+        // stays, with its warning line above it, because a working set is
+        // handed on as text. A failure to read the file is not worth failing
+        // the whole working set over: the rest of the answer is still correct.
         excerpt: excerpts
-            .then(|| excerpt_from(rec).ok().map(|e| e.text))
+            .then(|| {
+                excerpt_from(rec).ok().map(|e| match e.warning {
+                    Some(label) => format!("{label}\n{}", e.text),
+                    None => e.text,
+                })
+            })
             .flatten(),
         // Newest first, so the first note in the drawer is the last thing that
         // was said about the issue. The tracker's own claim-release line is not

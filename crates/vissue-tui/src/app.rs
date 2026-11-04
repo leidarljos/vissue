@@ -615,6 +615,9 @@ impl App {
             },
             DetailTab::Excerpt => match self.backend.excerpt(&id) {
                 Ok(excerpt) => {
+                    if let Some(label) = excerpt.warning.clone() {
+                        self.message = label;
+                    }
                     let mut text = excerpt.text;
                     if !text.ends_with('\n') {
                         text.push('\n');
