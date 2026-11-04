@@ -2,9 +2,10 @@ name: crates.io
 
 on:
   # release.yml calls this after the GitHub release exists.
-  # crates.io pins the JWT workflow filename. A tag call presents as
-  # release.yml; workflow_dispatch presents as this file. Both must be
-  # pinned on every crate.
+  # crates.io pins the JWT workflow filename.
+  # A tag call presents as release.yml.
+  # A workflow_dispatch presents as this file.
+  # Both filenames must be pinned on every crate.
   workflow_call:
     inputs:
       plan:
@@ -44,25 +45,26 @@ permissions:
 jobs:
   package:
     name: Verify crate packages
+    # Packaging every crate the way the registry will finishes inside half an hour.
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
 
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: HUD system libraries
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libxkbcommon-dev
 
-      # Builds each packaged tarball exactly as `cargo publish` would, so a
-      # crate that cannot be consumed from the registry fails here rather
-      # than after an irreversible upload. Every crate is packaged against
-      # its siblings' local paths, because the versions they depend on are
-      # not on the registry until this run puts them there.
+      # Builds each packaged tarball exactly as `cargo publish` would.
+      # A crate the registry cannot consume fails here, before any upload.
+      # Every crate is packaged against its siblings' local paths.
+      # Those versions are not on the registry until this run puts them there.
       - name: Package
         run: |
           set -euo pipefail
@@ -82,6 +84,8 @@ jobs:
   publish:
     name: Publish to crates.io
     needs: [package]
+    # Uploading the crates and waiting for the registry finishes inside an hour.
+    timeout-minutes: 60
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_call' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     environment:
@@ -91,15 +95,14 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
 
-      # The tag names the version, so a tag that disagrees with the manifest
-      # would publish something nobody asked for.
+      # The tag names the version, so a tag that disagrees with the manifest would publish something nobody asked for.
       - name: Validate the tag against the workspace version
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
@@ -108,20 +111,18 @@ jobs:
           test -n "$version"
           test "v$version" = "${GITHUB_REF_NAME}"
 
-      # Trusted publishing: exchange this job's OIDC identity for a token
-      # that lives only for the length of the run. crates.io accepts it
-      # because the registry side pins this repository, the JWT workflow
-      # filename (release.yml on a tag call, this file on dispatch), and
-      # the environment above; a mismatch fails here rather than reaching
-      # for a long-lived credential.
+      # Trusted publishing exchanges this job's OIDC identity for a token that lives only for the length of the run.
+      # crates.io accepts it because the registry pins this repository.
+      # The registry also pins the workflow filename and the environment.
+      # A tag call presents as release.yml and a dispatch presents as this file.
+      # A mismatch fails here rather than reaching for a long-lived credential.
       - name: Mint a trusted-publishing token
         id: auth
         uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
 
-      # Dependency order, computed from the manifests rather than written
-      # out here: a crate names its siblings by version, so the registry has
-      # to hold each one before the next resolves. The wait between uploads
-      # is that propagation and nothing else.
+      # Dependency order is computed from the manifests rather than written out here.
+      # A crate names its siblings by version, so the registry has to hold each one before the next resolves.
+      # The wait between uploads is that propagation and nothing else.
       - name: Publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
