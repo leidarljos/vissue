@@ -1,6 +1,6 @@
 {
   "name": "vissue",
-  "version": "0.23.1",
+  "version": "0.24.0",
   "description": "The issue tracker for the seat: Org files, a CLI, and an MCP server.",
   "author": {
     "name": "Rohit Goswami",

@@ -10,7 +10,7 @@ authors:
 license: MIT
 repository-code: "https://github.com/leidarljos/vissue"
 # [[[cog import versions; cog.outl(f"version: {versions.version()}") ]]]
-version: 0.23.1
+version: 0.24.0
 # [[[end]]]
 keywords:
   - issue tracking

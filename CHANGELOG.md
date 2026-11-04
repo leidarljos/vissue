@@ -6,6 +6,86 @@ All notable changes to vissue are recorded here. The format follows
 
 <!-- towncrier release notes start -->
 
+## [0.24.0](https://github.com/leidarljos/vissue/releases/tag/v0.24.0) - 2026-11-04
+
+### Added
+
+- `cargo binstall vissue-cli` fetches a prebuilt archive.
+  `vissue-mcp` and `vissue-hud` fetch that same archive.
+  The name is `vissue-v<version>-<target>.tar.gz`.
+  A `.sha256` file sits beside it.
+  Apple targets are aarch64-apple-darwin and x86_64-apple-darwin.
+  Linux targets are aarch64-unknown-linux-gnu and x86_64-unknown-linux-gnu.
+  A tag builds those archives only after CI on that commit is green.
+
+### Changed
+
+- Reading `vissue://issue/{id}` keeps the heading as the org content. When the heading looks like credential material, a second content item carries the `[warn]` line. That line used to be written only to stderr.
+- `body-excerpt`, `recall --excerpts`, and `show --org` return credential-shaped text as stored and write a `[warn]` line. A packed satchel includes that heading. They used to withhold the range or refuse the export.
+  A control-socket peer whose uid does not match the server is served. The server writes a `[warn]` line instead of closing the connection.
+- `vissue ready` with no project named no longer reads the whole tracker once per project.
+  On 173 projects it takes 32 ms instead of 98 ms, and prints the same rows.
+- `vissue_org` starts its result with a `[warn]` line when the heading looks like credential material, and the heading follows. The line used to be written only to stderr, which a tool caller is not shown.
+- vissue_list and vissue_ready take filters for claims, parent, tag and limit, and vissue_search takes a project.
+  Five more tools return the same JSON as `--json`.
+
+### Fixed
+
+- A ledger log line that is not a record, such as an org `:LOGBOOK:` line, is skipped.
+  Search, list and show warn with the file and the line and keep the later records.
+  A write still appends only records.
+- A project with a ledger op from a newer vissue still reads, with one warning per op.
+  Records longer than one write no longer fail with short append.
+- A rewrite keeps `:BLOCKEDBY:`, `:DISCOVERED:`, `:SUPERSEDED_BY:`, `:BLOCKER:` and `:EFFORT:`.
+  State and note lines it did not change keep their bytes.
+- An idle `vissue serve` now stays quiet when a file is only touched.
+  It also stays quiet when macOS reports writes from before the server started.
+  A change notice names only the projects whose issues changed.
+  The comparison is on parsed issues, not bytes: an edit that parses the same sends no notice, and issues that only moved lines send one.
+- On macOS and other case-folding file systems, a project keeps the directory's spelling.
+  `-p parser` beside a `Parser` project now mints `Parser-` ids instead of `parser-` ones.
+- The control and reference pages no longer say every catalog rebuild sends vault/changed and bumps the revision.
+  Only a rebuild that changes a project's parsed issues does; a touch, or an edit that parses the same, sends nothing.
+- Without `-p`, vissue create and q use a configured route or an existing project named after the repo.
+  They print the project used.
+  If nothing matches, they exit 1, list the projects and file nothing.
+- `serve status` labels a dead pid, and a failed bind no longer leaves a pid file behind.
+- `vissue merge-driver --install` now untracks a tracker's committed event log and lock files.
+  The files stay on disk.
+  A merge where both branches wrote no longer conflicts on `.vault-events.jsonl`.
+- vissue consensus builds trust rows the way ljos-consensus 0.9.0 does.
+  A voter with no row listens to every voter equally.
+
+### Developer
+
+- CI builds the towncrier draft and fails on a fragment name it cannot parse.
+- CI runs the test suite on macOS as well as Linux.
+- Every CI job that installs Rust 1.97.1 now installs rustfmt and clippy with it.
+  No cargo call adds them later in a second install, which used to stop on `detected conflict: 'bin/cargo-fmt'`.
+- The Linux runs of the watcher timing are recorded again with the current example.
+  They are in scripts/bench/data/watch_timing/linux, and watch_timing.md regenerates its table from them.
+  The largest gap inside one save on Linux is 3.75 ms, not 11.94 ms.
+  The old figure counted the writes of the git-checkout setup.
+- The default self_weight of 0.5 now cites its source, the holding probability of the lazy random walk.
+- The macOS CI job records six release runs of the watcher timing example on pushes to main, Emacs included, and keeps them as an artifact.
+- The man page and the flag tables in the reference come from vissue itself, and CI fails when they drift.
+- The release workflow pins each action to the commit of a tag or branch.
+  dtolnay/rust-toolchain is pinned to the master commit that tag v1 names.
+  Top-level permissions stay read-only.
+  The release job writes the GitHub release and its attestations.
+  The publish job grants id-token so the called workflow can mint a token.
+  Every job that GitHub allows to take a time limit has one.
+- The six macOS release runs of the watcher timing are kept in scripts/bench/data/watch_timing/macos.
+  watch_timing.md gives their median and interquartile range (IQR) per method.
+  It also gives the margin of the 200 ms window over the largest gap they show.
+- The version is written by hand only in `Cargo.toml`; every other copy is generated from it, and CI fails on drift. `scripts/sync-version.sh` is gone: run `python3 scripts/versions.py X.Y.Z` and `uvx --from cogapp cog -r @cogfiles.txt` instead. The plugin manifest and the committed manual page now carry the current version.
+- `COALESCE_MS` and `GEN_POLL_MS` are documented as measured budgets.
+  The comments name the timing data and the range each value may take on Linux and macOS.
+- scripts/bench/watch_mutants.md shows the two broken comparisons the watcher's change-check tests catch.
+  A header on each test output names the machine and the commit.
+  scripts/bench/watch_mutants.sh records the outputs again.
+
+
 ## [0.23.1](https://github.com/leidarljos/vissue/releases/tag/v0.23.1) - 2026-10-31
 
 ### Developer

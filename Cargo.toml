@@ -34,7 +34,7 @@ missing_errors_doc = "warn"
 missing_panics_doc = "warn"
 
 [workspace.package]
-version = "0.23.1"
+version = "0.24.0"
 edition = "2024"
 rust-version = "1.89"
 license = "MIT"
@@ -48,10 +48,10 @@ categories = ["command-line-utilities", "development-tools"]
 # The internal pins follow [workspace.package] version. Name a new one in the
 # cog line and run `cog -r @cogfiles.txt`; do not edit the generated lines.
 # [[[cog import versions; cog.out(versions.pins("vissue-core", "vissue-control", "vissue-serve", "vissue-tui")) ]]]
-vissue-core = { version = "0.23.1", path = "crates/vissue-core" }
-vissue-control = { version = "0.23.1", path = "crates/vissue-control" }
-vissue-serve = { version = "0.23.1", path = "crates/vissue-serve" }
-vissue-tui = { version = "0.23.1", path = "crates/vissue-tui" }
+vissue-core = { version = "0.24.0", path = "crates/vissue-core" }
+vissue-control = { version = "0.24.0", path = "crates/vissue-control" }
+vissue-serve = { version = "0.24.0", path = "crates/vissue-serve" }
+vissue-tui = { version = "0.24.0", path = "crates/vissue-tui" }
 # [[[end]]]
 anyhow = "1"
 chrono = "0.4"

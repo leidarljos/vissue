@@ -1,7 +1,7 @@
 [tool.towncrier]
 name = "vissue"
 # [[[cog import versions; cog.outl(f'version = "{versions.version()}"') ]]]
-version = "0.23.1"
+version = "0.24.0"
 # [[[end]]]
 directory = "docs/newsfragments"
 filename = "CHANGELOG.md"
