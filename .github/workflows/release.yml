@@ -164,11 +164,18 @@ jobs:
           set -eu
           awk -v v="${TAG#v}" '$0 ~ "^## \\[" v "\\]" {p=1; next} /^## /{if(p) exit} p' CHANGELOG.md > notes.md
           test -s notes.md || echo "See CHANGELOG.md." > notes.md
-      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
-        with:
-          tag_name: ${{ env.TAG }}
-          body_path: notes.md
-          files: dist/*
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          # The tag is already on the commit. A re-run edits the notes and replaces the archives.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --notes-file notes.md
+          else
+            gh release create "$TAG" --title "$TAG" --notes-file notes.md
+          fi
+          gh release upload "$TAG" dist/* --clobber
 
   publish:
     needs: release
