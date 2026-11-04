@@ -248,6 +248,79 @@ fn vissue_org_puts_a_credential_warning_in_the_tool_result() {
     assert!(org.contains("* TODO"), "{org}");
 }
 
+/// `vissue_show` sends a reader to this resource for the body. The org
+/// item stays the heading. The label is the next content item, because
+/// this server's stderr is discarded.
+#[test]
+fn the_issue_resource_keeps_org_bytes_and_adds_a_warning_item() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir_all(dir.path().join("Software")).expect("projects dir");
+    let mut server = Server::start(dir.path());
+    server.handshake();
+
+    let plain = server
+        .call_text(
+            "vissue_create",
+            json!({"project": "atlas", "title": "Ordinary heading", "body": "Scope: nothing secret."}),
+        )
+        .expect("create");
+    let plain_id = plain.split_whitespace().next().expect("an id").to_string();
+    let plain_read = server.request(
+        "resources/read",
+        json!({"uri": format!("vissue://issue/{plain_id}")}),
+    );
+    assert!(plain_read.get("error").is_none(), "{plain_read}");
+    let plain_contents = plain_read["result"]["contents"]
+        .as_array()
+        .expect("contents");
+    assert_eq!(plain_contents.len(), 1, "{plain_read}");
+    assert_eq!(plain_contents[0]["mimeType"], "text/x-org");
+    assert!(
+        plain_contents[0]["text"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("* "),
+        "{plain_read}"
+    );
+
+    let carrier = concat!("-----BEGIN OPENSSH ", "PRIVATE KEY-----");
+    let made = server
+        .call_text(
+            "vissue_create",
+            json!({
+                "project": "atlas",
+                "title": "Carries a key by mistake",
+                "body": carrier,
+            }),
+        )
+        .expect("create");
+    let id = made.split_whitespace().next().expect("an id").to_string();
+    let read = server.request(
+        "resources/read",
+        json!({"uri": format!("vissue://issue/{id}")}),
+    );
+    assert!(read.get("error").is_none(), "{read}");
+    let contents = read["result"]["contents"].as_array().expect("contents");
+    assert_eq!(contents.len(), 2, "{read}");
+    let org = contents[0]["text"].as_str().unwrap_or_default();
+    assert_eq!(contents[0]["mimeType"], "text/x-org");
+    assert!(org.starts_with("* TODO"), "{org}");
+    assert!(org.contains(carrier), "the heading was withheld: {org}");
+    assert!(
+        !org.contains("[warn]"),
+        "the org bytes include the label: {org}"
+    );
+    let label = contents[1]["text"].as_str().unwrap_or_default();
+    assert_eq!(contents[1]["mimeType"], "text/plain");
+    assert!(label.starts_with("[warn]"), "{label}");
+    assert!(label.contains("secret material"), "{label}");
+    assert!(label.contains("returned as stored"), "{label}");
+    assert!(
+        !label.contains("PRIVATE"),
+        "the label repeated the material: {label}"
+    );
+}
+
 #[test]
 fn a_write_tool_changes_the_tracker_over_the_pipe() {
     let dir = tempfile::tempdir().expect("tempdir");

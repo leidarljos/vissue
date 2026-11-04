@@ -1197,7 +1197,9 @@ Read one issue or many: =vissue_list=, =vissue_ready=, =vissue_show=,
 =vissue_count=, =vissue_search=, =vissue_claims=, =vissue_agenda=,
 =vissue_body_excerpt=, =vissue_org=, =vissue_export=. When the heading
 looks like credential material, =vissue_org= starts its result with a
-=[warn]= line and the heading follows.
+=[warn]= line and the heading follows. =vissue_show= points at
+=vissue://issue/{id}= for the body. That read keeps the org bytes as
+the heading and adds a second content item with the same line.
 
 Change one: =vissue_create=, =vissue_update=, =vissue_claim=, =vissue_release=,
 =vissue_note=,

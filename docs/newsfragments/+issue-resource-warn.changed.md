@@ -1,0 +1,1 @@
+Reading `vissue://issue/{id}` keeps the heading as the org content. When the heading looks like credential material, a second content item carries the `[warn]` line. That line used to be written only to stderr.

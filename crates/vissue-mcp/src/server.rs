@@ -1565,7 +1565,7 @@ impl ServerHandler for VissueServer {
         template.title = Some("One issue".to_string());
         template.description =
             Some(
-                "The org text of one issue, by id. Credential-shaped text is included and a [warn] line is written to stderr."
+                "The org text of one issue, by id. The org bytes are the heading. When it looks like credential material, a second content item carries the [warn] line."
                     .to_string(),
             );
         template.mime_type = Some(ORG.to_string());
@@ -1618,9 +1618,18 @@ impl ServerHandler for VissueServer {
         let rest = uri.strip_prefix(&format!("{SCHEME}://")).ok_or_else(|| {
             McpError::resource_not_found(format!("not a {SCHEME} uri: {uri}"), None)
         })?;
-        let text = match rest.split_once('/') {
-            Some(("issue", id)) if !id.is_empty() => self.read_issue(id)?,
-            Some(("project", project)) if !project.is_empty() => self.read_project(project)?,
+        let (text, warning) = match rest.split_once('/') {
+            Some(("issue", id)) if !id.is_empty() => {
+                let text = self.read_issue(id)?;
+                // The org item stays the heading. The label is a second
+                // item, because vissue_show sends a reader here for the
+                // text and that reader is not shown stderr.
+                let warning = catalog::secret_warning(id, &text);
+                (text, warning)
+            }
+            Some(("project", project)) if !project.is_empty() => {
+                (self.read_project(project)?, None)
+            }
             _ => {
                 return Err(McpError::resource_not_found(
                     format!("{uri} names neither an issue nor a project"),
@@ -1628,17 +1637,24 @@ impl ServerHandler for VissueServer {
                 ));
             }
         };
-        Ok(
-            ReadResourceResult::new(vec![ResourceContents::TextResourceContents {
+        let mut contents = vec![ResourceContents::TextResourceContents {
+            uri: uri.clone(),
+            mime_type: Some(ORG.to_string()),
+            text,
+            meta: None,
+        }];
+        if let Some(label) = warning {
+            contents.push(ResourceContents::TextResourceContents {
                 uri,
-                mime_type: Some(ORG.to_string()),
-                text,
+                mime_type: Some("text/plain".to_string()),
+                text: label,
                 meta: None,
-            }])
+            });
+        }
+        Ok(ReadResourceResult::new(contents)
             .with_ttl_ms(RESOURCE_TTL_MS)
             .with_cache_scope(CacheScope::Private)
-            .into(),
-        )
+            .into())
     }
 }
 
