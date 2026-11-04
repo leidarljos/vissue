@@ -211,6 +211,43 @@ fn a_read_tool_answers_over_the_pipe() {
     assert!(org.contains(":ID:"), "{org}");
 }
 
+/// The tool result is what the caller is shown. This server's stderr is
+/// discarded, so a warning that lived only there would never arrive.
+#[test]
+fn vissue_org_puts_a_credential_warning_in_the_tool_result() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir_all(dir.path().join("Software")).expect("projects dir");
+    let mut server = Server::start(dir.path());
+    server.handshake();
+
+    let carrier = concat!("-----BEGIN OPENSSH ", "PRIVATE KEY-----");
+    let made = server
+        .call_text(
+            "vissue_create",
+            json!({
+                "project": "atlas",
+                "title": "Carries a key by mistake",
+                "body": carrier,
+            }),
+        )
+        .expect("create");
+    let id = made.split_whitespace().next().expect("an id").to_string();
+
+    let org = server
+        .call_text("vissue_org", json!({"issue_id": id}))
+        .expect("org");
+    let label = org.lines().next().unwrap_or_default();
+    assert!(label.starts_with("[warn]"), "{org}");
+    assert!(label.contains("secret material"), "{label}");
+    assert!(label.contains("returned as stored"), "{label}");
+    assert!(
+        !label.contains("PRIVATE"),
+        "the label repeated the material: {label}"
+    );
+    assert!(org.contains(carrier), "the heading was withheld: {org}");
+    assert!(org.contains("* TODO"), "{org}");
+}
+
 #[test]
 fn a_write_tool_changes_the_tracker_over_the_pipe() {
     let dir = tempfile::tempdir().expect("tempdir");

@@ -72,6 +72,8 @@ file holds it. =body-excerpt= and =recall --excerpts= do the same, and
 each writes a =[warn]= line naming the marker. The label is not a
 redaction: keep credentials out of issue bodies. =show --org= writes
 that line to stderr so the file it prints stays the heading.
+=vissue_org= puts the same line at the start of the tool result, ahead
+of the heading, because that result is the text the caller is shown.
 
 Plain =show= prints the metadata and then the body, and =show --json=
 carries both along with the logbook, so a caller that already fetched

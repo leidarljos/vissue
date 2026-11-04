@@ -603,7 +603,12 @@ pub fn org_text_from(rec: &IssueRec) -> Result<String> {
 }
 
 /// `[warn]` line when `text` looks like credential material.
-fn secret_warning(id: &str, text: &str) -> Option<String> {
+///
+/// The text is still returned. Callers that hand the heading to someone
+/// as a tool result put this line in that result. Callers that write the
+/// heading to a file print it on stderr instead, so the file stays the heading.
+#[must_use]
+pub fn secret_warning(id: &str, text: &str) -> Option<String> {
     secret_marker(text).map(|marker| {
         format!("[warn] {id} looks like secret material ({marker}); returned as stored")
     })

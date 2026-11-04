@@ -682,7 +682,7 @@ impl VissueServer {
     }
 
     #[tool(
-        description = "One issue's org text in full, untruncated. Credential-shaped text is returned as stored and a [warn] line is written to stderr. Use this when handing an issue to someone as the thing to work from; body_excerpt is a capped preview.",
+        description = "One issue's org text in full, untruncated. Credential-shaped text is returned as stored, and the result starts with a [warn] line naming the marker. Use this when handing an issue to someone as the thing to work from; body_excerpt is a capped preview.",
         annotations(
             title = "Full Org text",
             read_only_hint = true,
@@ -693,9 +693,18 @@ impl VissueServer {
         &self,
         Parameters(args): Parameters<IdArgs>,
     ) -> Result<CallToolResult, McpError> {
+        // The tool result is the only text a caller of this tool is shown.
+        // stderr is not part of that result, so the label has to lead the
+        // heading here. `show --org` and a satchel still write the heading
+        // alone and put the same line on stderr.
+        let org = self
+            .layout_for_id(&args.issue_id)
+            .and_then(|layout| agent::org_text(&layout, &args.issue_id));
         text(
-            self.layout_for_id(&args.issue_id)
-                .and_then(|layout| agent::org_text(&layout, &args.issue_id)),
+            org.map(|org| match catalog::secret_warning(&args.issue_id, &org) {
+                Some(label) => format!("{label}\n{org}"),
+                None => org,
+            }),
         )
     }
 

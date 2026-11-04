@@ -1195,7 +1195,9 @@ the writers.
 
 Read one issue or many: =vissue_list=, =vissue_ready=, =vissue_show=,
 =vissue_count=, =vissue_search=, =vissue_claims=, =vissue_agenda=,
-=vissue_body_excerpt=, =vissue_org=, =vissue_export=.
+=vissue_body_excerpt=, =vissue_org=, =vissue_export=. When the heading
+looks like credential material, =vissue_org= starts its result with a
+=[warn]= line and the heading follows.
 
 Change one: =vissue_create=, =vissue_update=, =vissue_claim=, =vissue_release=,
 =vissue_note=,

@@ -1,0 +1,1 @@
+`vissue_org` starts its result with a `[warn]` line when the heading looks like credential material, and the heading follows. The line used to be written only to stderr, which a tool caller is not shown.

@@ -2,9 +2,10 @@
 
 Reads return the file as it is stored. A heading that looks like
 credential material is still returned. `body-excerpt` and
-`recall --excerpts` put a `[warn]` line with the text. `show --org`
-and a packed satchel write that line to stderr, so the bytes written
-to a file stay the heading.
+`recall --excerpts` put a `[warn]` line with the text. `vissue_org`
+puts that line at the start of the tool result, ahead of the heading.
+`show --org` and a packed satchel write the line to stderr, so the
+bytes written to a file stay the heading.
 
 A control connection whose peer uid does not match the server is
 served. stderr carries a `[warn]` line. The socket stays mode `0600`
