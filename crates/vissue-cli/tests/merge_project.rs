@@ -294,7 +294,7 @@ fn two_branches_that_note_and_vote_on_one_split_issue_merge_both() {
 }
 
 #[test]
-fn a_split_issue_left_with_conflict_markers_is_an_error_not_an_older_issue() {
+fn a_split_issue_left_with_a_malformed_log_line_still_reads() {
     let (dir, id) = ledger_repo();
     let root = dir.path();
     let note = vissue_as(root, "alice", &["note", &id, "kept before the clash"]);
@@ -305,10 +305,17 @@ fn a_split_issue_left_with_conflict_markers_is_an_error_not_an_older_issue() {
     fs::write(&path, file).unwrap();
 
     let shown = vissue_in(root, &["show", &id]);
-    assert!(!shown.status.success(), "{}", text(&shown));
-    assert!(text(&shown).contains("conflict marker"), "{}", text(&shown));
+    assert!(shown.status.success(), "{}", text(&shown));
+    let card = text(&shown);
+    assert!(card.contains("kept before the clash"), "{card}");
+    assert!(card.contains("[warn]"), "{card}");
+    assert!(
+        card.contains(&format!("{id}.org:")),
+        "warning did not name the file: {card}"
+    );
+    assert!(card.contains("conflict marker"), "{card}");
     let check = vissue_in(root, &["check"]);
-    assert!(!check.status.success(), "{}", text(&check));
+    assert!(check.status.success(), "{}", text(&check));
 }
 
 #[test]

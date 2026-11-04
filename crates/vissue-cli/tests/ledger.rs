@@ -68,3 +68,66 @@ fn an_op_from_a_later_vissue_warns_once_and_stays_as_written() {
     let shown = stdout(&vissue(root, &["show", &first]));
     assert!(shown.contains("after the later op"), "{shown}");
 }
+
+/// A real tracker log carried an org `:LOGBOOK:` line.
+/// That line is not a record.
+/// The read skips it, names the file and the line, and keeps the records after it.
+/// A later write still appends only records.
+#[test]
+fn a_logbook_line_in_the_ledger_does_not_stop_search_list_or_show() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let stdout = |out: &Output| String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let first = stdout(&vissue(root, &["q", "-p", "sample", "First"]));
+    let second = stdout(&vissue(root, &["q", "-p", "sample", "Second"]));
+    vissue(root, &["migrate-ledger"]);
+    let issues = root.join("Software/sample/issues");
+    let first_file = issues.join(format!("{first}.org"));
+    // The line a real log held is indented, so it is not the legacy drawer opener the folder already knows, and it is not a record.
+    append(&first_file, " :LOGBOOK:\n%% state 4\nDONE\n");
+    let written = fs::read(&first_file).unwrap();
+    let text = String::from_utf8(written.clone()).unwrap();
+    let line_no = text
+        .lines()
+        .position(|line| line.trim() == ":LOGBOOK:")
+        .unwrap()
+        + 1;
+    let named = format!("{}:{line_no}:", first_file.display());
+
+    let found = vissue(root, &["search", "First"]);
+    let hits = stdout(&found);
+    assert!(hits.contains(&first), "{hits}");
+    assert!(hits.contains("DONE"), "{hits}");
+    let said = warnings(&found);
+    assert!(
+        said.iter().any(|line| line.contains(&named)),
+        "warning {said:?} did not name {named}"
+    );
+
+    let listed = stdout(&vissue(root, &["list"]));
+    assert!(listed.contains(&first), "{listed}");
+    assert!(listed.contains(&second), "{listed}");
+    assert!(listed.contains("DONE"), "{listed}");
+
+    let shown = vissue(root, &["show", &first]);
+    let card = stdout(&shown);
+    assert!(card.contains("State:    DONE"), "{card}");
+    assert!(
+        warnings(&shown).iter().any(|line| line.contains(&named)),
+        "{:?}",
+        warnings(&shown)
+    );
+    let other = stdout(&vissue(root, &["show", &second]));
+    assert!(other.contains("State:"), "{other}");
+    assert!(!other.contains("State:    DONE"), "{other}");
+
+    let noted = vissue(root, &["note", &first, "after the logbook line"]);
+    let grown = fs::read(&first_file).unwrap();
+    assert!(grown.starts_with(&written), "the file was rewritten");
+    let added = String::from_utf8(grown[written.len()..].to_vec()).unwrap();
+    assert!(!added.contains(":LOGBOOK:"), "{added}");
+    assert!(added.contains("%% "), "{added}");
+    assert_eq!(warnings(&noted).len(), 1, "{:?}", warnings(&noted));
+    let shown = stdout(&vissue(root, &["show", &first]));
+    assert!(shown.contains("after the logbook line"), "{shown}");
+}

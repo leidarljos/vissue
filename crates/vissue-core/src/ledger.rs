@@ -259,7 +259,8 @@ pub fn merge_file(base: &str, ours: &str, theirs: &str) -> Result<crate::merge::
             .into_iter()
             .next()
             .ok_or_else(|| anyhow!("merge: the {label} side has no heading"))?;
-        let (removed, opaque) = apply_records(&mut heading, log, &doc.preamble)
+        let log_line = log_start_line(text, log);
+        let (removed, opaque) = apply_records(&mut heading, log, &doc.preamble, label, log_line)
             .map_err(|e| anyhow!("merge: the {label} side does not fold: {e}"))?;
         if removed {
             return Err(anyhow!("merge: the {label} side removed the issue").into());
@@ -751,7 +752,9 @@ fn read_file(issues_org: &Path, file: &Path) -> Result<Loaded> {
     // `#+VISSUE_LINES:` records the old board span. The heading's own
     // line numbers are where it sits in this file, which is what `show`
     // prints next to the path.
-    let (tombstoned, opaque) = apply_records(&mut heading, log, &doc.preamble)?;
+    let log_line = log_start_line(&source, log);
+    let origin = file.display().to_string();
+    let (tombstoned, opaque) = apply_records(&mut heading, log, &doc.preamble, &origin, log_line)?;
     for kept in &opaque {
         warn_opaque(kept.op, file);
     }
@@ -761,6 +764,23 @@ fn read_file(issues_org: &Path, file: &Path) -> Result<Loaded> {
         heading,
         tombstoned,
     })
+}
+
+/// Name a skipped ledger line once per process.
+/// A command folds the same file more than once, and one line is enough to say where it is.
+fn warn_skipped(origin: &str, line_no: usize, conflict: bool) {
+    static WARNED: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+    let mut warned = WARNED.lock().unwrap_or_else(PoisonError::into_inner);
+    if warned.insert(format!("{origin}:{line_no}")) {
+        eprintln!(
+            "[warn] {origin}:{line_no}: skipped a ledger log line that is not a record{}",
+            if conflict {
+                " (a git conflict marker; install the merge driver with `vissue merge-driver --install` and redo the merge)"
+            } else {
+                ""
+            }
+        );
+    }
 }
 
 /// Name an op this vissue does not know, once per process. A sitting folds
@@ -794,31 +814,35 @@ fn copied_preamble(source: &str) -> Option<String> {
     }
 }
 
-fn apply_legacy_logbook(heading: &mut IssueHeading, log: &str, start: usize) -> Result<usize> {
+/// A closed `:LOGBOOK:` drawer written into the log before records existed.
+///
+/// The opening line may be indented.
+/// An opening that never meets `:END:` is not a drawer: the caller skips that one line and keeps reading, so a stray `:LOGBOOK:` does not swallow the records after it.
+fn legacy_logbook(heading: &mut IssueHeading, log: &str, start: usize) -> Option<usize> {
     let mut lines = log[start..].split_inclusive('\n');
-    let Some(opening) = lines.next() else {
-        return Err(anyhow!("empty legacy logbook drawer in ledger log").into());
-    };
+    let opening = lines.next()?;
     if !opening.trim().eq_ignore_ascii_case(":LOGBOOK:") {
-        return Err(anyhow!("invalid legacy logbook drawer in ledger log").into());
+        return None;
     }
 
     let mut consumed = opening.len();
     let mut entries = Vec::new();
     let mut closed = false;
     for line in lines {
-        consumed += line.len();
-        let line = line.trim_end_matches(['\r', '\n']);
-        if line.trim().eq_ignore_ascii_case(":END:") {
+        let trimmed = line.trim();
+        if trimmed.eq_ignore_ascii_case(":END:") {
+            consumed += line.len();
             closed = true;
             break;
         }
-        if !line.trim().is_empty() {
-            entries.push(parse_log_line(line));
+        consumed += line.len();
+        let bare = line.trim_end_matches(['\r', '\n']);
+        if !bare.trim().is_empty() {
+            entries.push(parse_log_line(bare));
         }
     }
     if !closed {
-        return Err(anyhow!("unterminated legacy logbook drawer in ledger log").into());
+        return None;
     }
 
     for entry in entries.into_iter().rev() {
@@ -826,7 +850,13 @@ fn apply_legacy_logbook(heading: &mut IssueHeading, log: &str, start: usize) -> 
             heading.logbook.insert(0, entry);
         }
     }
-    Ok(start + consumed)
+    Some(start + consumed)
+}
+
+/// Line number of the first byte of `suffix` when `suffix` is the tail of `text`.
+fn log_start_line(text: &str, suffix: &str) -> usize {
+    let at = text.len().saturating_sub(suffix.len());
+    text[..at].bytes().filter(|byte| *byte == b'\n').count() + 1
 }
 
 /// A record whose op this vissue does not know, as written. A later vissue
@@ -843,6 +873,8 @@ fn apply_records<'a>(
     heading: &mut IssueHeading,
     log: &'a str,
     preamble: &str,
+    origin: &str,
+    log_line: usize,
 ) -> Result<(bool, Vec<Opaque<'a>>)> {
     let bytes = log.as_bytes();
     let mut index = 0usize;
@@ -856,25 +888,14 @@ fn apply_records<'a>(
             break;
         }
         if !bytes[index..].starts_with(b"%% ") {
-            if log[index..].starts_with(":LOGBOOK:") {
-                index = apply_legacy_logbook(heading, log, index)?;
+            if let Some(next) = legacy_logbook(heading, log, index) {
+                index = next;
                 continue;
             }
-            // A line that is not a record is never skipped: stopping here
-            // would fold the issue to whatever came before it and drop every
-            // later record without a word. Git's conflict markers are the
-            // usual cause.
-            let line = log[index..].lines().next().unwrap_or_default();
-            return Err(anyhow!(
-                "ledger log holds a line that is not a record: {:?}{}",
-                line.chars().take(40).collect::<String>(),
-                if line.starts_with("<<<<<<<") || line.starts_with("=======") || line.starts_with(">>>>>>>") {
-                    " (a git conflict marker; install the merge driver with `vissue merge-driver --install` and redo the merge)"
-                } else {
-                    ""
-                }
-            )
-            .into());
+            // One bad line used to fail the read, so search, list and show stopped on the whole project and every later record was lost.
+            // Skip the line, name it, and keep folding.
+            index = skip_non_record(log, index, origin, log_line);
+            continue;
         }
         let Some(relative_end) = bytes[index..].iter().position(|byte| *byte == b'\n') else {
             break;
@@ -909,6 +930,24 @@ fn apply_records<'a>(
         }
     }
     Ok((tombstoned, opaque))
+}
+
+/// Skip one line that is not a record.
+/// A blank line is only whitespace the record scanner already stepped over when it was a bare newline; a line with text is named so a seat can find it.
+fn skip_non_record(log: &str, index: usize, origin: &str, log_line: usize) -> usize {
+    let bytes = log.as_bytes();
+    let line = log[index..].lines().next().unwrap_or_default();
+    if !line.trim().is_empty() {
+        let line_no = log_line + log[..index].bytes().filter(|byte| *byte == b'\n').count();
+        let conflict = line.starts_with("<<<<<<<")
+            || line.starts_with("=======")
+            || line.starts_with(">>>>>>>");
+        warn_skipped(origin, line_no, conflict);
+    }
+    match bytes[index..].iter().position(|byte| *byte == b'\n') {
+        Some(relative) => index + relative + 1,
+        None => bytes.len(),
+    }
 }
 
 /// Apply one record. `false` when this vissue does not know `op`.
@@ -1495,7 +1534,11 @@ Body two.
         push_op(&mut log, "state", "DONE");
 
         let log = String::from_utf8(log).unwrap();
-        assert!(!apply_records(&mut heading, &log, "").unwrap().0);
+        assert!(
+            !apply_records(&mut heading, &log, "", "sample-aaaa.org", 1)
+                .unwrap()
+                .0
+        );
         assert_eq!(heading.state, "DONE");
         let notes: Vec<_> = heading
             .logbook
@@ -1509,12 +1552,41 @@ Body two.
     }
 
     #[test]
-    fn malformed_ledger_text_still_fails_instead_of_truncating() {
+    fn a_conflict_marker_is_skipped_and_the_later_record_applies() {
         let doc = IssueDoc::parse("sample", PathBuf::new(), FIXTURE).unwrap();
         let mut heading = doc.headings.into_iter().next().unwrap();
-        let error =
-            apply_records(&mut heading, "<<<<<<< conflict\n%% state 4\nDONE\n", "").unwrap_err();
-        assert!(error.to_string().contains("git conflict marker"));
+        let (tombstoned, _) = apply_records(
+            &mut heading,
+            "<<<<<<< conflict\n%% state 4\nDONE\n",
+            "",
+            "sample-aaaa.org",
+            1,
+        )
+        .unwrap();
+        assert!(!tombstoned);
+        assert_eq!(heading.state, "DONE");
+    }
+
+    #[test]
+    fn a_logbook_line_is_skipped_and_the_later_record_applies() {
+        let heading = || {
+            IssueDoc::parse("sample", PathBuf::new(), FIXTURE)
+                .unwrap()
+                .headings
+                .into_iter()
+                .next()
+                .unwrap()
+        };
+        for log in [
+            ":LOGBOOK:\n%% state 4\nDONE\n",
+            " :LOGBOOK:\n%% state 4\nDONE\n",
+        ] {
+            let mut issue = heading();
+            let (tombstoned, _) =
+                apply_records(&mut issue, log, "", "issues/sample-aaaa.org", 20).unwrap();
+            assert!(!tombstoned, "{log:?}");
+            assert_eq!(issue.state, "DONE", "{log:?}");
+        }
     }
 
     /// A record from a later vissue, with an op this one does not know.
