@@ -1,16 +1,17 @@
 name: crates.io
 
 on:
-  # cargo-dist calls this from Release after the GitHub release exists.
+  # release.yml calls this after the GitHub release exists.
   # crates.io pins the JWT workflow filename. A tag call presents as
   # release.yml; workflow_dispatch presents as this file. Both must be
   # pinned on every crate.
   workflow_call:
     inputs:
       plan:
-        description: 'cargo-dist plan JSON from the Release plan job'
-        required: true
+        description: 'Kept so a caller may still pass a plan document.'
+        required: false
         type: string
+        default: ""
       dry_run:
         description: 'Mint the token and package, but upload nothing'
         required: false
@@ -142,7 +143,11 @@ jobs:
               echo "::endgroup::"
               continue
             fi
-            cargo publish --locked -p "$crate" $DRY_RUN
+            if [ -n "$DRY_RUN" ]; then
+              cargo publish --locked -p "$crate" "$DRY_RUN"
+            else
+              cargo publish --locked -p "$crate"
+            fi
             echo "::endgroup::"
             if [ -n "$DRY_RUN" ]; then
               continue

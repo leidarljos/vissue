@@ -73,15 +73,17 @@ for the length of the run. crates.io accepts it because the registry side
 pins this repository, this workflow file, and the `crates-io` environment; a
 mismatch fails there rather than falling back to a long-lived credential.
 
-A `v*` tag runs `release.yml`. That workflow builds the platform archives,
-attests them, creates the GitHub release, and then calls
-`publish-crates.yml` as a reusable workflow. crates.io reads the
-**caller** workflow filename from the GitHub OIDC JWT, so a tag publish
-presents as `release.yml`. A `workflow_dispatch` of the crates workflow
-presents as `publish-crates.yml`. Each crate therefore needs both
-filenames pinned (same repository, same `crates-io` environment). The
-crates workflow has no tag trigger of its own, so a tag cannot start two
-publishes.
+A `v*` tag runs `release.yml`.
+That workflow waits until CI on the tagged commit is green.
+It then builds the archives, attests them, and creates the GitHub release.
+It calls `publish-crates.yml` as a reusable workflow.
+crates.io reads the caller workflow name from the GitHub OIDC JWT.
+A tag publish therefore presents as `release.yml`.
+A `workflow_dispatch` of the crates workflow presents as `publish-crates.yml`.
+Each crate needs both filenames pinned.
+The pin is this repository and the `crates-io` environment.
+The crates workflow has no tag trigger of its own.
+A tag cannot start two publishes.
 
 ## First public version
 
@@ -140,10 +142,15 @@ $ git push origin main
 $ git push origin vX.Y.Z
 ```
 
-`release.yml` builds the archives (including musl for `vissue-cli` and
-`vissue-mcp`; the HUD stays on glibc because iced links native graphics
-stacks), attests them, creates the GitHub release, and calls
-`publish-crates.yml` to publish every crate through OIDC.
+`release.yml` builds `vissue-v<version>-<target>.tar.gz`.
+A `.sha256` file sits beside each archive.
+Apple targets are aarch64-apple-darwin and x86_64-apple-darwin.
+Linux targets are aarch64-unknown-linux-gnu and x86_64-unknown-linux-gnu.
+Each archive holds `vissue`, `vissue-mcp` and `vissue-hud`.
+The job attests the archives and creates the GitHub release.
+It calls `publish-crates.yml` to publish every crate through OIDC.
+It does not start until CI on that commit is green.
+Those runs are Test, Pre-checks, News fragments and CLI reference.
 
 There is no Homebrew tap. `GITHUB_TOKEN` cannot push a formula to another
 repository, and `HaoZeke/homebrew-tap` does not exist.

@@ -30,10 +30,13 @@ $ cargo binstall vissue-mcp   # the MCP server, same version
 $ cargo binstall vissue-hud   # summonable overlay, optional
 ```
 
-`cargo binstall` fetches the prebuilt archives from the
-[releases page](https://github.com/leidarljos/vissue/releases), which also
-carries a shell installer. `cargo install` takes the same names and builds
-from source.
+`cargo binstall vissue-cli` installs the `vissue` binary.
+The three packages share one archive named `vissue-v<version>-<target>.tar.gz`.
+A `.sha256` file sits beside that archive.
+The files are on the [releases page](https://github.com/leidarljos/vissue/releases).
+Apple targets are aarch64-apple-darwin and x86_64-apple-darwin.
+Linux targets are aarch64-unknown-linux-gnu and x86_64-unknown-linux-gnu.
+`cargo install` takes the same names and builds from source.
 `vissue completions zsh` and `vissue man` come out of the binary.
 
 The leidarljos marketplace in

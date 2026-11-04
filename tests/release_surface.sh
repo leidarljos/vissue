@@ -27,7 +27,17 @@ test -s .github/workflows/publish-crates.yml || {
 grep -q 'pr-run-mode = "upload"' dist-workspace.toml
 grep -q 'aarch64-apple-darwin' dist-workspace.toml
 grep -q 'x86_64-unknown-linux-gnu' dist-workspace.toml
-grep -q 'cargo-dist-installer.sh' .github/workflows/release.yml
+# The tag workflow packs one tar.gz per target.
+# It waits until CI on that commit is green.
+# dist's generated installer is not that workflow.
+grep -q 'vissue-${TAG}-${TARGET}' .github/workflows/release.yml
+grep -q '.tar.gz.sha256' .github/workflows/release.yml
+grep -q 'gh run watch' .github/workflows/release.yml
+grep -q 'aarch64-apple-darwin' .github/workflows/release.yml
+grep -q 'x86_64-apple-darwin' .github/workflows/release.yml
+grep -q 'aarch64-unknown-linux-gnu' .github/workflows/release.yml
+grep -q 'x86_64-unknown-linux-gnu' .github/workflows/release.yml
+grep -q 'publish-crates.yml' .github/workflows/release.yml
 # Publication is trusted publishing: an OIDC identity exchanged for a token
 # that lives only as long as the run, with no long-lived registry secret in
 # the repository at all.

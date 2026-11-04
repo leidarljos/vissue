@@ -5,9 +5,10 @@ members = [
     "cargo:crates/vissue-hud",
 ]
 
-# Config for 'dist' (cargo-dist). `dist generate` writes the release workflow
-# from this file; the checked-in release.yml is a placeholder until the first
-# tag.
+# Config for 'dist' (cargo-dist).
+# The tag workflow in release.yml is written by hand: one tar.gz per target, named vissue-v<version>-<target>.tar.gz.
+# `dist generate` would replace the hand-written workflow.
+# `allow-dirty` keeps `dist generate --check` from treating that file as drift.
 [dist]
 cargo-dist-version = "0.30.3"
 ci = "github"
