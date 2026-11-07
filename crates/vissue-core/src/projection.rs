@@ -275,11 +275,47 @@ fn apply_claims(source: &Layout, path: &Path, lines: &mut Vec<String>) -> Result
     Ok(changed)
 }
 
-/// An id that lives in one of the repository's mirrors: the board and the
-/// heading's text as the mirror carries it, so a reader on a machine
-/// without the source still gets an answer and is told where to write.
+/// An id that lives in one of the repository's mirrors or inboxes: the
+/// board and the heading's text as the file carries it, so a reader on a
+/// machine without the source still gets an answer and is told where to
+/// write. The mirrors are read first. An inbox heading is work filed on
+/// this seat that the source has not folded yet; its id answers from the
+/// moment it is filed.
 #[must_use]
 pub fn find_in_mirrors(repo: &Path, id: &str) -> Option<(Board, String)> {
+    if let Some(hit) = find_in_mirror_files(repo, id) {
+        return Some(hit);
+    }
+    for board in boards(repo).ok()? {
+        let Some(inbox) = &board.inbox else {
+            continue;
+        };
+        let Ok(text) = fs::read_to_string(repo.join(inbox)) else {
+            continue;
+        };
+        if let Some(block) = inbox_heading(&text, id) {
+            return Some((board, block));
+        }
+    }
+    None
+}
+
+/// The top-level heading of an inbox that carries `id`, as written.
+fn inbox_heading(text: &str, id: &str) -> Option<String> {
+    let lines: Vec<&str> = text.lines().collect();
+    let at = lines.iter().position(|l| {
+        let t = l.trim();
+        t.starts_with(":ID:") && t[4..].trim() == id
+    })?;
+    let start = lines[..at].iter().rposition(|l| l.starts_with("* "))?;
+    let end = lines[at..]
+        .iter()
+        .position(|l| l.starts_with("* "))
+        .map_or(lines.len(), |n| at + n);
+    Some(lines[start..end].join("\n").trim_end().to_string() + "\n")
+}
+
+fn find_in_mirror_files(repo: &Path, id: &str) -> Option<(Board, String)> {
     for board in boards(repo).ok()? {
         let path = repo.join(&board.mirror);
         let Ok(text) = fs::read_to_string(&path) else {
@@ -329,6 +365,45 @@ pub fn projected_note(board: &Board) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An id filed into a board's inbox answers before the source folds
+    /// it, and names the inbox as the place to write.
+    #[test]
+    fn an_inbox_heading_answers_by_id_before_it_is_folded() {
+        let dir = std::env::temp_dir().join(format!("vissue-inbox-{}", std::process::id()));
+        fs::create_dir_all(dir.join("Software/ljos")).unwrap();
+        fs::write(
+            dir.join("vissue.toml"),
+            "prefix = \"Issues\"\n\n[[projection.board]]\nproject = \"ljos\"\nsource = \"vault\"\nmirror = \"Software/ljos/issues-mirror.org\"\ninbox = \"Software/ljos/inbox.org\"\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("Software/ljos/issues-mirror.org"),
+            "#+TITLE: vissue mirror\n\n* ljos\n** DONE [#C] Older\n:PROPERTIES:\n:ID:         ljos-zzzz\n:END:\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("Software/ljos/inbox.org"),
+            "* DONE Folded already\n:VISSUE_ID: ljos-aaaa\n* TODO [#B] Discovered on this seat :bug:ljos:\n:PROPERTIES:\n:ID:         ljos-newi\n:CREATED:    [2026-11-07 Sat]\n:TYPE:       bug\n:PARENT:     ljos-e931\n:END:\nBody of the discovery.\n* TODO [#C] Another\n:PROPERTIES:\n:ID:         ljos-othr\n:END:\n",
+        )
+        .unwrap();
+        let (board, text) = find_in_mirrors(&dir, "ljos-newi").expect("found in the inbox");
+        assert_eq!(board.project, "ljos");
+        assert!(
+            text.starts_with("* TODO [#B] Discovered on this seat :bug:ljos:"),
+            "{text}"
+        );
+        assert!(text.contains(":PARENT:     ljos-e931"), "{text}");
+        assert!(text.contains("Body of the discovery."), "{text}");
+        assert!(!text.contains("Another"), "{text}");
+        assert!(projected_note(&board).contains("Software/ljos/inbox.org"));
+        // The mirror still answers first, and a stamped inbox heading is
+        // not an issue of its own.
+        let (_, older) = find_in_mirrors(&dir, "ljos-zzzz").expect("found in the mirror");
+        assert!(older.starts_with("* DONE [#C] Older"), "{older}");
+        assert!(find_in_mirrors(&dir, "ljos-aaaa").is_none());
+        fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn a_board_is_read_from_the_repository_config() {
