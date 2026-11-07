@@ -1,0 +1,1 @@
+`vissue show` on an id filed into a projected board's inbox answers from the inbox heading and names the inbox, instead of reporting the issue missing until the source folds it. The mirror still answers first.

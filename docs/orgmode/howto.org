@@ -440,6 +440,11 @@ $ vissue show ljos-kcd6
 read-only projection of ljos from vault; write discovered work to Software/ljos/inbox.org
 #+end_src
 
+An id filed into the inbox answers the same way before the source folds
+it, from the inbox heading that carries it, so a child filed on this seat
+can be named at once. The mirror is read first; a heading the fold has
+already stamped is not an issue of its own.
+
 A claims line is =* TODO claim ID as AGENT=, =* TODO release ID as
 AGENT= or =* TODO done ID as AGENT=; the verb stamps each applied line to
 DONE with its result, so the file is its own receipt and applying twice
