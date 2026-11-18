@@ -6,6 +6,13 @@ All notable changes to vissue are recorded here. The format follows
 
 <!-- towncrier release notes start -->
 
+## [0.24.1](https://github.com/leidarljos/vissue/releases/tag/v0.24.1) - 2026-11-18
+
+### Fixed
+
+- Legacy claim-stamped logbook rows remain byte-for-byte unchanged when a tracker is rewritten.
+
+
 ## [0.24.0](https://github.com/leidarljos/vissue/releases/tag/v0.24.0) - 2026-11-04
 
 ### Added
