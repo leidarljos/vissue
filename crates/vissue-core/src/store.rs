@@ -413,7 +413,7 @@ impl IssueDoc {
         let parents: Vec<Option<String>> = self
             .headings
             .iter()
-            .map(|h| h.properties.get("PARENT").map(|p| p.trim().to_string()))
+            .map(|h| h.parent().map(str::to_string))
             .collect();
         let mut updates = Vec::new();
         for (i, h) in self.headings.iter().enumerate() {

@@ -55,30 +55,29 @@ impl<'a> GraphIndex<'a> {
 fn blocker_ids(h: &IssueHeading) -> Vec<&str> {
     let mut ids = Vec::new();
     if let Some(raw) = crate::props::get(&h.properties, crate::props::BLOCKED_BY) {
-        ids.extend(
-            raw.split(|c: char| c == ',' || c.is_whitespace())
-                .map(str::trim)
-                .filter(|id| !id.is_empty()),
-        );
+        for token in raw.split(|c: char| c == ',' || c.is_whitespace()) {
+            remember_edge_id(&mut ids, token);
+        }
     }
     if let Some(raw) = h.properties.get("BLOCKER") {
         if crate::org::is_edna_blocker(raw) {
-            ids.extend(crate::org::edna_blocker_id_refs(raw));
+            for token in crate::org::edna_blocker_id_refs(raw) {
+                remember_edge_id(&mut ids, token);
+            }
         } else {
-            ids.extend(
-                raw.split(|c: char| c == ',' || c.is_whitespace())
-                    .map(str::trim)
-                    .filter(|id| !id.is_empty()),
-            );
+            for token in raw.split(|c: char| c == ',' || c.is_whitespace()) {
+                remember_edge_id(&mut ids, token);
+            }
         }
     }
-    let mut unique = Vec::new();
-    for id in ids {
-        if !unique.contains(&id) {
-            unique.push(id);
-        }
+    ids
+}
+
+fn remember_edge_id<'a>(ids: &mut Vec<&'a str>, token: &'a str) {
+    let (id, _) = crate::org::split_edge_token(token);
+    if !id.is_empty() && !ids.contains(&id) {
+        ids.push(id);
     }
-    unique
 }
 
 /// One row per issue: id, state, priority cookie, title.
@@ -1609,8 +1608,12 @@ fn edge_connects(all: &[(String, IssueHeading)], a: &str, b: &str) -> bool {
         ]
         .iter()
         .any(|key| {
-            crate::props::get(&h.properties, key)
-                .is_some_and(|value| value.split(&[',', ' '][..]).any(|part| part.trim() == far))
+            crate::props::get(&h.properties, key).is_some_and(|value| {
+                value.split(&[',', ' '][..]).any(|part| {
+                    let (id, _) = crate::org::split_edge_token(part);
+                    id == far
+                })
+            })
         })
     })
 }
@@ -2141,11 +2144,11 @@ pub fn backlinks(layout: &Layout, target_id: &str) -> Result<String> {
             let _ = writeln!(out, "{:<22} (parent) ({})", h.id, project);
             hit = true;
         }
-        if crate::props::get(&h.properties, crate::props::DISCOVERED_FROM) == Some(target_id) {
+        if crate::props::id_of(&h.properties, crate::props::DISCOVERED_FROM) == Some(target_id) {
             let _ = writeln!(out, "{:<22} (discovered-from) ({})", h.id, project);
             hit = true;
         }
-        if crate::props::get(&h.properties, crate::props::PIVOTED_TO) == Some(target_id) {
+        if crate::props::id_of(&h.properties, crate::props::PIVOTED_TO) == Some(target_id) {
             let _ = writeln!(out, "{:<22} (pivoted-to) ({})", h.id, project);
             hit = true;
         }

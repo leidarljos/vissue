@@ -280,7 +280,15 @@ impl IssueHeading {
     /// an `ids(...)` form or a bare id list both count; `prev-sibling` and
     /// the rest of the condition language do not.
     pub fn blocked_by(&self) -> Vec<String> {
-        crate::org::blocker_ids_from_properties(&self.properties)
+        self.blocked_by_edges()
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect()
+    }
+
+    /// Blocker edges as `(id, importance)`. A token with no `*weight` weighs 1.
+    pub fn blocked_by_edges(&self) -> Vec<(String, f64)> {
+        crate::org::blocker_edges_from_properties(&self.properties)
     }
 
     /// Deed accessions this issue's work produced.
@@ -342,9 +350,15 @@ impl IssueHeading {
         self.properties.get("SCHEDULED").map(|s| s.as_str())
     }
 
-    /// `:PARENT:` id, when set.
+    /// `:PARENT:` id, when set. A trailing `*weight` is the edge's importance,
+    /// not part of the id.
     pub fn parent(&self) -> Option<&str> {
-        crate::props::get(&self.properties, crate::props::PARENT)
+        crate::props::id_of(&self.properties, crate::props::PARENT)
+    }
+
+    /// Importance of the `:PARENT:` edge. `None` when the issue has no parent.
+    pub fn parent_weight(&self) -> Option<f64> {
+        crate::props::id_edge(&self.properties, crate::props::PARENT).map(|(_, weight)| weight)
     }
 
     /// The identity holding this issue, when one has claimed it.

@@ -80,6 +80,27 @@ pub const ALIASES: &[(&str, &str)] = &[
     ("EFFORT", EFFORT),
 ];
 
+/// The id named by `canonical`, with a trailing `*weight` stripped.
+pub fn id_of<'a>(properties: &'a BTreeMap<String, String>, canonical: &str) -> Option<&'a str> {
+    let raw = get(properties, canonical)?;
+    let (id, _) = crate::org::split_edge_token(raw);
+    if id.is_empty() { None } else { Some(id) }
+}
+
+/// The id and importance named by a single-valued edge property.
+pub fn id_edge<'a>(
+    properties: &'a BTreeMap<String, String>,
+    canonical: &str,
+) -> Option<(&'a str, f64)> {
+    let raw = get(properties, canonical)?;
+    let (id, weight) = crate::org::split_edge_token(raw);
+    if id.is_empty() {
+        None
+    } else {
+        Some((id, weight))
+    }
+}
+
 /// Read `canonical`, then any legacy alias.
 pub fn get<'a>(properties: &'a BTreeMap<String, String>, canonical: &str) -> Option<&'a str> {
     if let Some(value) = properties.get(canonical)
@@ -160,20 +181,35 @@ pub fn canonicalize(properties: &mut BTreeMap<String, String>) -> usize {
 }
 
 fn merge_id_valued(properties: &mut BTreeMap<String, String>, dest: &str, extra: &str) {
-    let mut ids = properties
+    let mut edges = properties
         .get(dest)
-        .map(|s| split_id_list(s))
+        .map(|s| edge_tokens(s))
         .unwrap_or_default();
-    for id in split_id_list(extra) {
-        if !ids.iter().any(|seen| seen == &id) {
-            ids.push(id);
+    for (id, weight) in edge_tokens(extra) {
+        if let Some((_, existing)) = edges.iter_mut().find(|(seen, _)| seen == &id) {
+            // A later token that names a weight beats a bare id of the same edge.
+            if crate::org::is_default_weight(*existing) && !crate::org::is_default_weight(weight) {
+                *existing = weight;
+            }
+        } else {
+            edges.push((id, weight));
         }
     }
-    if ids.is_empty() {
+    if edges.is_empty() {
         properties.remove(dest);
     } else {
-        properties.insert(dest.to_string(), ids.join(" "));
+        properties.insert(dest.to_string(), crate::org::format_edge_list(&edges));
     }
+}
+
+fn edge_tokens(raw: &str) -> Vec<(String, f64)> {
+    split_id_list(raw)
+        .into_iter()
+        .map(|token| {
+            let (id, weight) = crate::org::split_edge_token(&token);
+            (id.to_string(), weight)
+        })
+        .collect()
 }
 
 /// Canonicalize keys, then move legal type/tags onto the heading.

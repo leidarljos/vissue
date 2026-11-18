@@ -1422,6 +1422,13 @@ const EDNA_ATOMS: &[&str] = &[
     "todo-state!",
 ];
 
+/// Importance of a declared edge that does not name one.
+///
+/// One is the multiplicative identity, so an unweighted token contributes
+/// exactly what it did before weights existed, and the writer leaves the
+/// marker off.
+pub const DEFAULT_EDGE_WEIGHT: f64 = 1.0;
+
 /// Split a BLOCKED_BY-style id list: commas and whitespace both separate.
 pub fn split_id_list(raw: &str) -> Vec<String> {
     raw.split(|c: char| c == ',' || c.is_whitespace())
@@ -1429,6 +1436,61 @@ pub fn split_id_list(raw: &str) -> Vec<String> {
         .filter(|x| !x.is_empty())
         .map(str::to_string)
         .collect()
+}
+
+/// Whether `weight` is the default importance and should not be written.
+pub fn is_default_weight(weight: f64) -> bool {
+    (weight - DEFAULT_EDGE_WEIGHT).abs() <= 1e-9
+}
+
+/// Split `id` or `id*weight` into the id and its importance.
+///
+/// A trailing `*` and a finite weight greater than zero is the importance.
+/// The marker is not part of an issue id: generated ids are a project, a
+/// hyphen, and base36. A star that is not such a weight stays in the token,
+/// so a hand-written id that merely contains `*` still round-trips.
+pub fn split_edge_token(token: &str) -> (&str, f64) {
+    let token = token.trim();
+    let Some((id, suffix)) = token.rsplit_once('*') else {
+        return (token, DEFAULT_EDGE_WEIGHT);
+    };
+    let id = id.trim();
+    if id.is_empty() {
+        return (token, DEFAULT_EDGE_WEIGHT);
+    }
+    match suffix.trim().parse::<f64>() {
+        Ok(weight) if weight.is_finite() && weight > 0.0 => (id, weight),
+        _ => (token, DEFAULT_EDGE_WEIGHT),
+    }
+}
+
+/// Render one edge token. A default weight is the bare id.
+pub fn format_edge_token(id: &str, weight: f64) -> String {
+    if is_default_weight(weight) {
+        id.to_string()
+    } else {
+        format!("{id}*{}", format_weight(weight))
+    }
+}
+
+/// Render an id list, one token per edge, separated by a single space.
+pub fn format_edge_list(edges: &[(String, f64)]) -> String {
+    edges
+        .iter()
+        .map(|(id, weight)| format_edge_token(id, *weight))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Shortest decimal that round-trips the weights the writer emits.
+pub fn format_weight(weight: f64) -> String {
+    let text = format!("{weight:.10}");
+    let trimmed = text.trim_end_matches('0').trim_end_matches('.');
+    if trimmed.is_empty() {
+        "0".to_string()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 /// Whether a `:BLOCKER:` value is org-edna / org-depend syntax, not a
@@ -1475,19 +1537,19 @@ pub fn edna_blocker_ids(raw: &str) -> Vec<String> {
         .collect()
 }
 
-/// Every blocker id a heading declares: `:BLOCKED_BY:`, a typo
-/// `:BLOCKEDBY:`, a `:BLOCKER:` that is just ids, and `ids(...)` inside
-/// an org-edna form.
-pub fn blocker_ids_from_properties(
+/// Blocker edges a heading declares, id then importance.
+///
+/// `:BLOCKED_BY:`, a typo `:BLOCKEDBY:`, a `:BLOCKER:` that is just ids,
+/// and `ids(...)` inside an org-edna form. The same id twice keeps the
+/// first token, unless that one weighed 1 and a later token names a weight.
+pub fn blocker_edges_from_properties(
     properties: &std::collections::BTreeMap<String, String>,
-) -> Vec<String> {
-    let mut ids = Vec::new();
+) -> Vec<(String, f64)> {
+    let mut edges = Vec::new();
     for key in ["VISSUE_BLOCKED_BY", "BLOCKED_BY", "BLOCKEDBY"] {
         if let Some(raw) = properties.get(key) {
-            for id in split_id_list(raw) {
-                if !ids.iter().any(|seen| seen == &id) {
-                    ids.push(id);
-                }
+            for token in split_id_list(raw) {
+                push_edge_token(&mut edges, &token);
             }
         }
     }
@@ -1497,13 +1559,37 @@ pub fn blocker_ids_from_properties(
         } else {
             split_id_list(raw)
         };
-        for id in extra {
-            if !ids.iter().any(|seen| seen == &id) {
-                ids.push(id);
-            }
+        for token in extra {
+            push_edge_token(&mut edges, &token);
         }
     }
-    ids
+    edges
+}
+
+fn push_edge_token(edges: &mut Vec<(String, f64)>, token: &str) {
+    let (id, weight) = split_edge_token(token);
+    if id.is_empty() {
+        return;
+    }
+    if let Some((_, existing)) = edges.iter_mut().find(|(seen, _)| seen == id) {
+        if is_default_weight(*existing) && !is_default_weight(weight) {
+            *existing = weight;
+        }
+        return;
+    }
+    edges.push((id.to_string(), weight));
+}
+
+/// Every blocker id a heading declares.
+///
+/// The ids are [`blocker_edges_from_properties`] with the importance dropped.
+pub fn blocker_ids_from_properties(
+    properties: &std::collections::BTreeMap<String, String>,
+) -> Vec<String> {
+    blocker_edges_from_properties(properties)
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect()
 }
 
 /// Effort value Org's column view and agenda effort filter read.
@@ -1776,19 +1862,238 @@ pub fn org_link_targets(body: &str, known_ids: &std::collections::HashSet<&str>)
     targets
 }
 
+/// The issue id a link target names, and the importance written on it.
+///
+/// `[[id:foo*2][title]]` is id `foo` at weight 2. The description stays a
+/// description. A target with no marker weighs [`DEFAULT_EDGE_WEIGHT`].
+pub fn link_target_edge(raw: &str) -> Option<(&str, f64)> {
+    let target = raw.trim();
+    if target.is_empty() {
+        return None;
+    }
+    let target = target.strip_prefix("id:").unwrap_or(target);
+    let fragment = target
+        .rsplit_once("::")
+        .map_or(target, |(_, fragment)| fragment);
+    let fragment = fragment.strip_prefix('#').unwrap_or(fragment);
+    let (id, weight) = split_edge_token(fragment);
+    if id.is_empty() {
+        None
+    } else {
+        Some((id, weight))
+    }
+}
+
 fn push_link_target(
     targets: &mut Vec<String>,
     raw: &str,
     known_ids: &std::collections::HashSet<&str>,
 ) {
-    let target = raw.trim();
-    let target = target.strip_prefix("id:").unwrap_or(target);
-    let target = target.rsplit_once("::").map_or(target, |(_, fragment)| {
-        fragment.strip_prefix('#').unwrap_or(fragment)
-    });
-    let target = target.strip_prefix('#').unwrap_or(target);
+    let Some((target, _)) = link_target_edge(raw) else {
+        return;
+    };
     if known_ids.contains(target) && !targets.iter().any(|t| t == target) {
         targets.push(target.to_string());
+    }
+}
+
+/// Declared Org-link edges in `body` whose target is a known id.
+///
+/// The same id twice keeps the greater weight. A link with no marker weighs 1.
+pub fn org_link_edges(
+    body: &str,
+    known_ids: &std::collections::HashSet<&str>,
+) -> Vec<(String, f64)> {
+    let mut edges = Vec::new();
+    let consider = |raw: &str, edges: &mut Vec<(String, f64)>| {
+        let Some((id, weight)) = link_target_edge(raw) else {
+            return;
+        };
+        if !known_ids.contains(id) {
+            return;
+        }
+        if let Some((_, existing)) = edges.iter_mut().find(|(seen, _)| seen == id) {
+            if weight > *existing {
+                *existing = weight;
+            }
+            return;
+        }
+        edges.push((id.to_string(), weight));
+    };
+    let mut rest = body;
+    while let Some(start) = rest.find("[[") {
+        let after_start = &rest[start + 2..];
+        let Some(end) = after_start.find("]]") else {
+            break;
+        };
+        let raw = &after_start[..end];
+        let target = raw.split_once("][").map_or(raw, |(target, _)| target);
+        consider(target, &mut edges);
+        rest = &after_start[end + 2..];
+    }
+    rest = body;
+    while let Some(start) = rest.find('<') {
+        let after = &rest[start + 1..];
+        let Some(end) = after.find('>') else {
+            break;
+        };
+        consider(&after[..end], &mut edges);
+        rest = &after[end + 1..];
+    }
+    rest = body;
+    while let Some(start) = rest.find("id:") {
+        let after = &rest[start + 3..];
+        let len = after
+            .find(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-')
+            .unwrap_or(after.len());
+        let mut raw_len = len;
+        if after[len..].starts_with('*')
+            && let Some(weight_len) = weight_suffix_len(&after[len + 1..])
+        {
+            raw_len = len + 1 + weight_len;
+        }
+        if len > 0 {
+            consider(&format!("id:{}", &after[..raw_len]), &mut edges);
+        }
+        rest = &after[raw_len.max(1)..];
+    }
+    edges
+}
+
+/// How many leading bytes of `suffix` are a positive finite weight.
+fn weight_suffix_len(suffix: &str) -> Option<usize> {
+    let bytes = suffix.as_bytes();
+    let mut i = 0;
+    let mut saw_digit = false;
+    let mut saw_dot = false;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'0'..=b'9' => {
+                saw_digit = true;
+                i += 1;
+            }
+            b'.' if !saw_dot && i + 1 < bytes.len() && bytes[i + 1].is_ascii_digit() => {
+                saw_dot = true;
+                i += 1;
+            }
+            _ => break,
+        }
+    }
+    if !saw_digit {
+        return None;
+    }
+    let weight: f64 = suffix[..i].parse().ok()?;
+    (weight.is_finite() && weight > 0.0).then_some(i)
+}
+
+/// Rewrite every Org link in `body` that names `id` so it carries `weight`.
+///
+/// Returns the new body and how many links changed. A weight of 1 drops the
+/// marker. The description of a bracket link is left as it was written.
+pub fn rewrite_org_link_weight(body: &str, id: &str, weight: f64) -> (String, usize) {
+    let mut out = String::with_capacity(body.len() + 8);
+    let mut rest = body;
+    let mut updated = 0usize;
+    while !rest.is_empty() {
+        let bracket = rest.find("[[");
+        let angle = rest.find('<');
+        let bare = rest.find("id:");
+        let Some(at) = [bracket, angle, bare].into_iter().flatten().min() else {
+            out.push_str(rest);
+            break;
+        };
+        out.push_str(&rest[..at]);
+        let from = &rest[at..];
+        if let Some(inner) = from.strip_prefix("[[") {
+            let Some(end) = inner.find("]]") else {
+                out.push_str(from);
+                break;
+            };
+            let raw = &inner[..end];
+            let (target, desc) = raw
+                .split_once("][")
+                .map_or((raw, None), |(target, desc)| (target, Some(desc)));
+            if let Some(rewritten) = retarget_link(target, id, weight) {
+                out.push_str("[[");
+                out.push_str(&rewritten);
+                if let Some(desc) = desc {
+                    out.push_str("][");
+                    out.push_str(desc);
+                }
+                out.push_str("]]");
+                updated += 1;
+            } else {
+                out.push_str(&from[..end + 4]);
+            }
+            rest = &inner[end + 2..];
+            continue;
+        }
+        if let Some(inner) = from.strip_prefix('<') {
+            let Some(end) = inner.find('>') else {
+                out.push('<');
+                rest = inner;
+                continue;
+            };
+            let inside = &inner[..end];
+            if let Some(rewritten) = retarget_link(inside, id, weight) {
+                out.push('<');
+                out.push_str(&rewritten);
+                out.push('>');
+                updated += 1;
+            } else {
+                out.push_str(&from[..end + 2]);
+            }
+            rest = &inner[end + 1..];
+            continue;
+        }
+        let Some(after) = from.strip_prefix("id:") else {
+            out.push_str(from);
+            break;
+        };
+        let len = after
+            .find(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-')
+            .unwrap_or(after.len());
+        let mut consumed = 3 + len;
+        if after[len..].starts_with('*')
+            && let Some(weight_len) = weight_suffix_len(&after[len + 1..])
+        {
+            consumed += 1 + weight_len;
+        }
+        if len > 0 && &after[..len] == id {
+            out.push_str("id:");
+            out.push_str(&format_edge_token(id, weight));
+            updated += 1;
+        } else {
+            out.push_str(&from[..consumed]);
+        }
+        rest = &from[consumed..];
+    }
+    (out, updated)
+}
+
+fn retarget_link(target: &str, id: &str, weight: f64) -> Option<String> {
+    let (prefix, rest) = if let Some(rest) = target.trim().strip_prefix("id:") {
+        ("id:", rest)
+    } else {
+        ("", target.trim())
+    };
+    if let Some((head, fragment)) = rest.rsplit_once("::") {
+        let hash = if fragment.starts_with('#') { "#" } else { "" };
+        let bare = fragment.strip_prefix('#').unwrap_or(fragment);
+        let (frag_id, _) = split_edge_token(bare);
+        if frag_id == id {
+            return Some(format!(
+                "{prefix}{head}::{hash}{}",
+                format_edge_token(id, weight)
+            ));
+        }
+        return None;
+    }
+    let (found, _) = split_edge_token(rest);
+    if found == id {
+        Some(format!("{prefix}{}", format_edge_token(id, weight)))
+    } else {
+        None
     }
 }
 
@@ -1989,6 +2294,63 @@ mod tests {
             "See [[id:atlas-1a2b][the parser]] and <id:beacon-5j6k> plus id:atlas-1a2b again.";
         let found = org_link_targets(body, &known);
         assert_eq!(found, vec!["atlas-1a2b", "beacon-5j6k"]);
+    }
+
+    #[test]
+    fn a_star_weight_is_importance_and_a_bare_id_weighs_one() {
+        assert_eq!(split_edge_token("atlas-1a2b"), ("atlas-1a2b", 1.0));
+        assert_eq!(split_edge_token("atlas-1a2b*2"), ("atlas-1a2b", 2.0));
+        assert_eq!(split_edge_token("atlas-1a2b*2.5"), ("atlas-1a2b", 2.5));
+        assert_eq!(split_edge_token("atlas-1a2b*0"), ("atlas-1a2b*0", 1.0));
+        assert_eq!(
+            split_edge_token("atlas-1a2b*nope"),
+            ("atlas-1a2b*nope", 1.0)
+        );
+        assert_eq!(format_edge_token("atlas-1a2b", 1.0), "atlas-1a2b");
+        assert_eq!(format_edge_token("atlas-1a2b", 2.5), "atlas-1a2b*2.5");
+        let props = std::collections::BTreeMap::from([
+            ("BLOCKED_BY".into(), "atlas-1a2b*2, beacon-5j6k".into()),
+            ("PARENT".into(), "plan-0001*3".into()),
+        ]);
+        assert_eq!(
+            blocker_edges_from_properties(&props),
+            vec![("atlas-1a2b".into(), 2.0), ("beacon-5j6k".into(), 1.0),]
+        );
+        assert_eq!(
+            blocker_ids_from_properties(&props),
+            vec!["atlas-1a2b".to_string(), "beacon-5j6k".to_string()]
+        );
+    }
+
+    #[test]
+    fn a_weighted_org_link_still_names_the_id() {
+        let known: HashSet<&str> = ["atlas-1a2b", "beacon-5j6k"].into_iter().collect();
+        let body =
+            "See [[id:atlas-1a2b*2][the parser]] and <id:beacon-5j6k*0.5> plus id:atlas-1a2b*4.";
+        assert_eq!(
+            org_link_targets(body, &known),
+            vec!["atlas-1a2b".to_string(), "beacon-5j6k".to_string()]
+        );
+        let edges = org_link_edges(body, &known);
+        assert_eq!(
+            edges,
+            vec![("atlas-1a2b".into(), 4.0), ("beacon-5j6k".into(), 0.5),]
+        );
+        let (rewritten, n) = rewrite_org_link_weight(body, "atlas-1a2b", 3.0);
+        assert_eq!(n, 2, "{rewritten}");
+        assert!(
+            rewritten.contains("[[id:atlas-1a2b*3][the parser]]"),
+            "{rewritten}"
+        );
+        assert!(rewritten.contains("id:atlas-1a2b*3."), "{rewritten}");
+        assert!(rewritten.contains("<id:beacon-5j6k*0.5>"), "{rewritten}");
+        let (cleared, n) = rewrite_org_link_weight(&rewritten, "atlas-1a2b", 1.0);
+        assert_eq!(n, 2, "{cleared}");
+        assert!(
+            cleared.contains("[[id:atlas-1a2b][the parser]]"),
+            "{cleared}"
+        );
+        assert!(!cleared.contains("atlas-1a2b*"), "{cleared}");
     }
 
     #[test]

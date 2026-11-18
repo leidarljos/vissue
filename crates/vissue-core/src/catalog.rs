@@ -1160,7 +1160,8 @@ pub fn recall_from(issues: &[IssueRec], id: &str, depth: usize, excerpts: bool) 
     }
     // Where the work came from is an input a blocker edge does not carry: a
     // bounce names its origin and nothing else points back at it.
-    if let Some(origin) = crate::props::get(&rec.heading.properties, crate::props::DISCOVERED_FROM)
+    if let Some(origin) =
+        crate::props::id_of(&rec.heading.properties, crate::props::DISCOVERED_FROM)
         && !inputs.iter().any(|i| i.id == origin)
         && let Some(orec) = issues.iter().find(|r| r.heading.id == origin)
     {
@@ -1254,17 +1255,14 @@ pub fn backlinks_from(issues: &[IssueRec], target_id: &str) -> Result<Vec<WalkHi
             out.push(walk_hit(rec, "parent"));
             hit = true;
         }
-        if rec
-            .heading
-            .properties
-            .get("DISCOVERED_FROM")
-            .map(String::as_str)
+        if crate::props::id_of(&rec.heading.properties, crate::props::DISCOVERED_FROM)
             == Some(target_id)
         {
             out.push(walk_hit(rec, "discovered-from"));
             hit = true;
         }
-        if rec.heading.properties.get("PIVOTED_TO").map(String::as_str) == Some(target_id) {
+        if crate::props::id_of(&rec.heading.properties, crate::props::PIVOTED_TO) == Some(target_id)
+        {
             out.push(walk_hit(rec, "pivoted-to"));
             hit = true;
         }
