@@ -52,6 +52,9 @@ server as `vissue@leidarljos`. `vissue-mcp` stays on `PATH`.
 ## A minute of it
 
 ```console
+$ mkdir -p /tmp/vissue-demo && cd /tmp/vissue-demo
+$ export VISSUE_ROOT=$PWD
+
 $ vissue create --project parser "Reject a manifest with no header"
 parser-k29f  TODO  [#C]  Reject a manifest with no header
 
