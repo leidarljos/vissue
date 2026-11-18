@@ -111,6 +111,24 @@ only the first is true. The partial order says exactly what is known.
 that no earlier unfinished sibling holds when the parent is =ORDERED=.
 That is the set that can proceed in parallel.
 
+* How =ready= is ordered
+
+The set above is unchanged. =list= stays on the priority cookie, then state,
+then id. =ready= keeps the cookie first and, within it, ranks by how much
+weighted work the issue unblocks. Write $w(b, i)$ for the importance of the
+edge from blocker $b$ to issue $i$. A token with no =*weight= weighs 1. Let
+$\mathrm{reach}(i)$ be 1 plus the number of issues reachable from $i$ along
+blocker edges, counting each descendant once. Then
+
+$$
+\mathrm{unblock}(b) \;=\; \sum_{i : b \to i} w(b, i) \cdot \mathrm{reach}(i) .
+$$
+
+A higher score comes first. State and then id break the remaining ties, so a
+frontier where every score is equal keeps the previous order. A cycle cannot
+be scored and falls back to that tie-break. The score is taken over the whole
+corpus the query sees, so unblocking work in another project counts.
+
 Acyclicity is checked at two moments and they are not the same check.
 =update --block= tests the prospective edge against the corpus read inside the
 lock, so a cycle is refused before it is written. =check= and =cycles= test
@@ -127,10 +145,12 @@ S(i,j) \;=\; 1000\,e(i,j) \;+\; \frac{100}{d(i,j)} \;+\; 25\,\lvert T_i \cap T_j
 \rvert \;+\; 2\,[\,p_i = p_j\,] \;+\!\!\sum_{w \in W_i \cap W_j}\!\! \mathrm{idf}(w)^2
 $$
 
-where $e$ counts the explicit relations that hold between the two
-(=blocked_by=, =blocks=, =parent=, =child=, =discovered_from=, =source_of=,
-=pivoted_to=, =successor_of=, =org_link=), $d$ is the hop distance in the undirected graph of those same
-declared edges, $T$ is the tag set, $p$ the project, $W$ the term set of the
+where $e$ is the sum of the importance of the explicit relations that hold
+between the two (=blocked_by=, =blocks=, =parent=, =child=,
+=discovered_from=, =source_of=, =pivoted_to=, =successor_of=, =org_link=),
+each weighing 1 when its token has no =*weight=, $d$ is the hop distance in the
+undirected graph of those same declared edges, $T$ is the tag set, $p$ the
+project, $W$ the term set of the
 title, body, type and tags, and
 
 $$
@@ -138,7 +158,7 @@ $$
 $$
 
 The constants are a lexicographic ordering wearing the clothes of a sum. A
-single declared relation is worth 1000; a rare term is worth at most about
+declared relation of weight $w$ is worth $1000 w$; a rare term is worth at most about
 $(\ln \lvert I \rvert)^2$, which for a corpus of ten thousand issues stays
 under 100. So no amount of shared vocabulary promotes a candidate above
 something you actually wrote down, which is the property that matters: the

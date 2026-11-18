@@ -85,6 +85,10 @@ interpreted.
 - =<id:foo>=
 - a bare =id:foo=
 
+A trailing =*N= on the target, as in =[[id:foo*2][desc]]= or =id:foo*0.5=,
+is that link's importance. =N= is finite and greater than zero. The marker
+is left off when the weight is 1, and the description stays a description.
+
 Radio targets, link abbreviations, and custom search options are not
 interpreted. Attachment links are body text.
 
@@ -251,6 +255,14 @@ Settable: a heading may put these in the drawer and Org honours them.
 
 =:BLOCKED_BY:= remains the vissue graph. =:BLOCKEDBY:= is a typo that
 =vissue normalize= rewrites. =:OWNER:= is not a claim; =:CLAIMED_BY:= is.
+A token may end in =*N=, the importance of that edge, on =:BLOCKED_BY:=,
+=:PARENT:=, =:DISCOVERED_FROM:=, and =:PIVOTED_TO:=. =N= is finite and
+greater than zero, and a missing marker weighs 1, so a file that names no
+weights is unchanged. A star that is not such a weight stays in the token.
+Commas and whitespace still separate a list. =vissue update ID --block
+OTHER --weight N= writes the marker, and =--edge parent=,
+=discovered-from=, =pivoted-to=, or =link:ID= writes it on the other
+relations.
 
 ** vissue-owned (same drawer, no extra prefix)
 
