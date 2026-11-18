@@ -1606,6 +1606,44 @@ mod tests {
     }
 
     #[test]
+    fn legacy_claim_log_lines_round_trip_verbatim() {
+        let board = concat!(
+            "#+TITLE: sample issues\n",
+            "#+VISSUE: 1\n",
+            "#+CATEGORY: sample\n",
+            "#+FILETAGS: :issues:sample:noexport:\n",
+            "#+TAGS: { bug(b) feature(f) task(t) chore(c) plan(p) }\n",
+            "#+TAGS: docs(d) perf ignore ARCHIVE\n",
+            "#+PRIORITIES: A C C\n",
+            "#+EXCLUDE_TAGS: noexport\n",
+            "#+SELECT_TAGS: export\n",
+            "#+TODO: TODO STARTED BLOCKED | DONE CANCELLED\n",
+            "\n",
+            "* STARTED [#C] Keep the old claim rows\n",
+            ":PROPERTIES:\n",
+            ":ID:         sample-log2\n",
+            ":END:\n",
+            ":LOGBOOK:\n",
+            "- Note: \"picked up\" Claimed-by: saddle [2026-11-17 Tue 17:13]\n",
+            "- Claimed by saddle [2026-11-17 Tue 17:14]\n",
+            "CLOCK: [2026-11-17 Tue 17:15]--[2026-11-17 Tue 17:45] =>  0:30\n",
+            "- Note: \"ordinary note\" [2026-11-17 Tue 17:16]\n",
+            ":END:\n",
+            "\n",
+            "The body stays outside the operation's ownership.\n",
+            "\n",
+        );
+        let doc = IssueDoc::parse("sample", PathBuf::from("issues.org"), board).unwrap();
+        let legacy = &doc.headings[0].logbook[..2];
+        assert!(legacy.iter().all(|entry| entry.raw.is_some()), "{legacy:?}");
+        assert!(
+            legacy.iter().all(|entry| entry.note.is_none()),
+            "{legacy:?}"
+        );
+        assert_eq!(doc.render_string(), board);
+    }
+
+    #[test]
     fn logbook_survives_a_document_round_trip() {
         let mut h = sample_heading();
         h.logbook = vec![LogEntry {

@@ -201,12 +201,22 @@ pub(crate) fn parse_log_line(s: &str) -> LogEntry {
         }
         .keeping_line(s)
     } else if let Some(rest) = prefix.strip_prefix("Note:") {
-        let note = rest.trim().trim_matches('"').to_string();
+        let quoted = rest.trim();
+        let Some(note) = quoted
+            .strip_prefix('"')
+            .and_then(|note| note.strip_suffix('"'))
+        else {
+            return LogEntry::verbatim(s, timestamp);
+        };
         LogEntry {
             timestamp,
             from_state: None,
             to_state: None,
-            note: if note.is_empty() { None } else { Some(note) },
+            note: if note.is_empty() {
+                None
+            } else {
+                Some(note.to_string())
+            },
             raw: None,
         }
         .keeping_line(s)
