@@ -13,6 +13,7 @@ Creating the first issue creates the file.
 #+begin_src console
 $ mkdir -p /tmp/demo && cd /tmp/demo
 $ export VISSUE_ROOT=$PWD
+$ export VISSUE_NO_ROUTE=1
 $ vissue create --project parser "Reject a manifest with no header"
 project: parser
 parser-k29f  TODO  [#C]  Reject a manifest with no header
