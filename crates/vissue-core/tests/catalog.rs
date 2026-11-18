@@ -511,6 +511,52 @@ fn related_merges_guess_rankers_with_borda_and_keeps_the_edge_floor() {
 }
 
 #[test]
+fn related_scores_a_declared_edge_in_proportion_to_its_weight() {
+    // Different projects and no shared words, so nothing but the edge weight
+    // separates the hits. Depth 0 leaves the hop ranker out.
+    let recs = vec![
+        issue("atlas", "atlas-target", "TODO", "Quasar spindle"),
+        with_property(
+            issue("beacon", "beacon-heavy", "TODO", "Marmot ledger"),
+            "BLOCKED_BY",
+            "atlas-target*4",
+        ),
+        with_property(
+            issue("cedar", "cedar-light", "TODO", "Nimbus carton"),
+            "BLOCKED_BY",
+            "atlas-target",
+        ),
+        with_body(
+            issue("dune", "dune-link", "TODO", "Pelican invoice"),
+            "See [[id:atlas-target*2.5]] there.",
+        ),
+    ];
+    let hits = CatalogService::from_recs(&recs)
+        .related("atlas-target", 0, 10)
+        .unwrap();
+    let heavy = tagged_score(&hits, "beacon-heavy");
+    let light = tagged_score(&hits, "cedar-light");
+    let link = tagged_score(&hits, "dune-link");
+    assert!(
+        (heavy - 4_000.0).abs() < 1e-9 && (light - 1_000.0).abs() < 1e-9,
+        "a weight-w edge scores 1000 w: {hits:?}"
+    );
+    assert!(
+        (heavy - light - 3_000.0).abs() < 1e-9,
+        "the heavier blocker leads by 1000 times the weight gap: {hits:?}"
+    );
+    assert!(
+        (link - 2_500.0).abs() < 1e-9,
+        "an Org link contributes its own weight: {hits:?}"
+    );
+    assert!(
+        evidence_for(&hits, "beacon-heavy").contains(&"blocks".to_string())
+            && evidence_for(&hits, "dune-link").contains(&"org_link".to_string()),
+        "{hits:?}"
+    );
+}
+
+#[test]
 fn related_ranks_a_declared_edge_above_shared_words() {
     let recs = corpus();
     let hits = CatalogService::from_recs(&recs)
