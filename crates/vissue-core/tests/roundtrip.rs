@@ -268,6 +268,83 @@ fn generated_headings_round_trip() {
     assert_round_trip("generated tracker", &text);
 }
 
+fn tracker_with(project: &str, heading: &str) -> String {
+    format!(
+        "{}\n\n{heading}\n",
+        store::default_preamble(project).trim_end()
+    )
+}
+
+/// A tracker with no importance markers parses, rewrites byte for byte, and
+/// every edge weighs 1. A marker that is present rewrites byte for byte too.
+#[test]
+fn unweighted_edges_round_trip_and_weigh_one_and_a_marker_round_trips() {
+    let plain = tracker_with(
+        "plain",
+        "\
+* TODO [#B] Unweighted
+:PROPERTIES:
+:ID:         plain-0001
+:BLOCKED_BY: other-0001 other-0002
+:PARENT:     plan-0001
+:DISCOVERED_FROM: src-0001
+:END:
+
+See [[id:other-0001][the other]] and id:plan-0001.
+",
+    );
+    assert_round_trip("unweighted edges", &plain);
+    let doc = IssueDoc::parse("plain", PathBuf::from("issues.org"), &plain).unwrap();
+    let h = &doc.headings[0];
+    assert_eq!(
+        h.blocked_by_edges(),
+        vec![("other-0001".into(), 1.0), ("other-0002".into(), 1.0),]
+    );
+    assert_eq!(h.parent(), Some("plan-0001"));
+    assert_eq!(h.parent_weight(), Some(1.0));
+    assert_eq!(
+        vissue_core::props::id_edge(&h.properties, vissue_core::props::DISCOVERED_FROM),
+        Some(("src-0001", 1.0))
+    );
+
+    let weighted = tracker_with(
+        "wt",
+        "\
+* TODO [#B] Weighted
+:PROPERTIES:
+:ID:         wt-0001
+:BLOCKED_BY: other-0001*2 other-0002
+:PARENT:     plan-0001*3
+:DISCOVERED_FROM: src-0001*0.5
+:PIVOTED_TO: next-0001*4
+:END:
+
+See [[id:other-0001*2][the other]] and <id:plan-0001*3>.
+",
+    );
+    assert_round_trip("weighted edges", &weighted);
+    let doc = IssueDoc::parse("wt", PathBuf::from("issues.org"), &weighted).unwrap();
+    let h = &doc.headings[0];
+    assert_eq!(
+        h.blocked_by_edges(),
+        vec![("other-0001".into(), 2.0), ("other-0002".into(), 1.0)]
+    );
+    assert_eq!(
+        h.blocked_by(),
+        vec!["other-0001".to_string(), "other-0002".to_string()]
+    );
+    assert_eq!(h.parent(), Some("plan-0001"));
+    assert_eq!(h.parent_weight(), Some(3.0));
+    assert_eq!(
+        vissue_core::props::id_edge(&h.properties, vissue_core::props::DISCOVERED_FROM),
+        Some(("src-0001", 0.5))
+    );
+    assert_eq!(
+        vissue_core::props::id_edge(&h.properties, vissue_core::props::PIVOTED_TO),
+        Some(("next-0001", 4.0))
+    );
+}
+
 /// An issue a seat claimed, as a tracker carries it after a stamp from ljos
 /// and a rewrite by vissue 0.21: the holder in its SEAT-TAG form on the
 /// drawer, the seat's own stamp, and the earlier stamp folded into a note.

@@ -327,7 +327,7 @@ fn neighbour_graph(
             }
         }
         for key in [crate::props::DISCOVERED_FROM, crate::props::PIVOTED_TO] {
-            if let Some(origin) = crate::props::get(&issue.properties, key)
+            if let Some(origin) = crate::props::id_of(&issue.properties, key)
                 .and_then(|origin| ids.get(origin).copied())
             {
                 join(index, origin, &mut neighbors);
@@ -398,18 +398,19 @@ fn declared_relations(
     if issue.parent() == Some(target_id) {
         named.push("child");
     }
-    if crate::props::get(&issue.properties, crate::props::DISCOVERED_FROM) == Some(target_id) {
+    if crate::props::id_of(&issue.properties, crate::props::DISCOVERED_FROM) == Some(target_id) {
         named.push("discovered_from");
     }
-    if crate::props::get(&target.properties, crate::props::DISCOVERED_FROM)
+    if crate::props::id_of(&target.properties, crate::props::DISCOVERED_FROM)
         == Some(issue.id.as_str())
     {
         named.push("source_of");
     }
-    if crate::props::get(&target.properties, crate::props::PIVOTED_TO) == Some(issue.id.as_str()) {
+    if crate::props::id_of(&target.properties, crate::props::PIVOTED_TO) == Some(issue.id.as_str())
+    {
         named.push("pivoted_to");
     }
-    if crate::props::get(&issue.properties, crate::props::PIVOTED_TO) == Some(target_id) {
+    if crate::props::id_of(&issue.properties, crate::props::PIVOTED_TO) == Some(target_id) {
         named.push("successor_of");
     }
     if org_link_targets(&target.body, known_ids)
