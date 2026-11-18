@@ -50,6 +50,6 @@ pub mod views;
 pub use config::{ConsensusSection, DEFAULT_PREFIX, Layout, VissueConfig};
 pub use error::{Error, Result};
 pub use model::{IssueHeading, LogEntry, READY_STATES, TODO_HEADER, TODO_KEYWORDS};
-pub use ops::{CreateOpts, RejectOpts, UpdatePred};
+pub use ops::{CreateOpts, RejectOpts, UpdatePred, Weighting};
 pub use router::{ProjectRef, RouteHit, Router};
 pub use store::IssueDoc;

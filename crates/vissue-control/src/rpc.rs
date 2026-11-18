@@ -2156,6 +2156,7 @@ mod tests {
             blocked_by: vec![],
             deeds: vec![],
             parent: None,
+            edge_weights: BTreeMap::new(),
             claimed_by: None,
             claimed_at: None,
             file: "issues.org:1-2".into(),

@@ -604,6 +604,20 @@ pub struct UpdatePred<'a> {
     pub if_gen: Option<u64>,
 }
 
+/// Importance to write onto one declared edge.
+///
+/// `weight` is a finite number greater than zero. Absent, an existing edge is
+/// left as it was. `edge` names a non-blocker relation to reweight: `parent`,
+/// `discovered-from`, `pivoted-to`, or `link:ID`. A blocker weight is set with
+/// `block` instead.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Weighting<'a> {
+    /// Finite weight greater than zero.
+    pub weight: Option<f64>,
+    /// Relation to reweight when it is not a blocker.
+    pub edge: Option<&'a str>,
+}
+
 /// [`update`] with a last-seen predicate.
 ///
 /// # Errors
@@ -618,6 +632,37 @@ pub fn update_pred(
     block_clear: Option<&str>,
     pred: UpdatePred<'_>,
 ) -> Result<UpdateOutcome> {
+    update_weighted(
+        layout,
+        id,
+        new_state,
+        new_priority,
+        block_add,
+        block_clear,
+        pred,
+        Weighting::default(),
+    )
+}
+
+/// [`update_pred`] that can also set an edge's importance.
+///
+/// # Errors
+///
+/// Same as [`update_pred`]. Also fails when `weighting` names no edge, names
+/// both a blocker and another edge, combines a weight with an unblock, asks
+/// for a non-positive weight, or reweights a parent, discovered-from, or
+/// pivoted-to edge that is not there.
+#[allow(clippy::too_many_arguments)]
+pub fn update_weighted(
+    layout: &Layout,
+    id: &str,
+    new_state: Option<&str>,
+    new_priority: Option<char>,
+    block_add: Option<&str>,
+    block_clear: Option<&str>,
+    pred: UpdatePred<'_>,
+    weighting: Weighting<'_>,
+) -> Result<UpdateOutcome> {
     let identity = crate::config::identity(layout);
     update_as_pred(
         layout,
@@ -628,6 +673,7 @@ pub fn update_pred(
         block_clear,
         &identity,
         pred,
+        weighting,
     )
 }
 
@@ -655,6 +701,7 @@ pub fn update_as(
         block_clear,
         identity,
         UpdatePred::default(),
+        Weighting::default(),
     )
 }
 
@@ -673,7 +720,9 @@ pub fn update_as_pred(
     block_clear: Option<&str>,
     identity: &str,
     pred: UpdatePred<'_>,
+    weighting: Weighting<'_>,
 ) -> Result<UpdateOutcome> {
+    let weight = checked_weight(weighting, block_add, block_clear)?;
     let (_h0, path, project) =
         find_by_id(layout, id)?.ok_or_else(|| Error::IssueNotFound { id: id.to_string() })?;
 
@@ -815,52 +864,17 @@ pub fn update_as_pred(
             }
         }
 
-        if let Some(blk) = block_add {
-            let mut current = h.blocked_by();
-            if !current.iter().any(|x| x == blk) {
-                if let Some(graph) = &graph {
-                    graph.accepts_edge(blk, id)?;
-                }
-                current.push(blk.to_string());
-                crate::props::insert(
-                    &mut h.properties,
-                    crate::props::BLOCKED_BY,
-                    current.join(" "),
-                );
-                if h.state == "TODO" || h.state == "STARTED" {
-                    let from = h.state.clone();
-                    h.record_state_change("BLOCKED");
-                    changed.push(format!("state {from} -> BLOCKED (auto on block)"));
-                }
-                changed.push(format!("blocked_by += {blk}"));
-            }
-        }
-
-        if let Some(blk) = block_clear {
-            let mut current = h.blocked_by();
-            let before = current.len();
-            current.retain(|x| x != blk);
-            if current.len() < before {
-                if current.is_empty() {
-                    crate::props::remove(&mut h.properties, crate::props::BLOCKED_BY);
-                    if h.state == "BLOCKED" {
-                        let from = h.state.clone();
-                        h.record_state_change("TODO");
-                        changed.push("state BLOCKED -> TODO (auto on unblock)".to_string());
-                        for note in settle_claim(h, &from, "TODO", identity) {
-                            changed.push(note);
-                        }
-                    }
-                } else {
-                    crate::props::insert(
-                        &mut h.properties,
-                        crate::props::BLOCKED_BY,
-                        current.join(" "),
-                    );
-                }
-                changed.push(format!("blocked_by -= {blk}"));
-            }
-        }
+        apply_edge_edits(
+            h,
+            graph.as_ref(),
+            id,
+            block_add,
+            block_clear,
+            weight,
+            weighting.edge,
+            identity,
+            &mut changed,
+        )?;
 
         if changed.is_empty() {
             return Ok((None, Vec::new()));
@@ -905,6 +919,224 @@ pub fn update_as_pred(
         report: format!("{id}: {}\n", changed.join(", ")),
         hints,
     })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_edge_edits(
+    heading: &mut crate::model::IssueHeading,
+    graph: Option<&DependencyGraph>,
+    id: &str,
+    block_add: Option<&str>,
+    block_clear: Option<&str>,
+    weight: Option<f64>,
+    edge: Option<&str>,
+    identity: &str,
+    changed: &mut Vec<String>,
+) -> Result<()> {
+    if let Some(blk) = block_add {
+        let mut current = heading.blocked_by_edges();
+        if let Some((_, existing)) = current.iter_mut().find(|(item, _)| item == blk) {
+            if let Some(weight) = weight
+                && !same_weight(*existing, weight)
+            {
+                *existing = weight;
+                write_blocked_by(heading, &current);
+                changed.push(format!(
+                    "blocked_by {blk} weight -> {}",
+                    crate::org::format_weight(weight)
+                ));
+            }
+        } else {
+            if let Some(graph) = graph {
+                graph.accepts_edge(blk, id)?;
+            }
+            let weight = weight.unwrap_or(crate::org::DEFAULT_EDGE_WEIGHT);
+            current.push((blk.to_string(), weight));
+            write_blocked_by(heading, &current);
+            if heading.state == "TODO" || heading.state == "STARTED" {
+                let from = heading.state.clone();
+                heading.record_state_change("BLOCKED");
+                changed.push(format!("state {from} -> BLOCKED (auto on block)"));
+            }
+            changed.push(format!(
+                "blocked_by += {}",
+                crate::org::format_edge_token(blk, weight)
+            ));
+        }
+    }
+
+    if let Some(blk) = block_clear {
+        let mut current = heading.blocked_by_edges();
+        let before = current.len();
+        current.retain(|(item, _)| item != blk);
+        if current.len() < before {
+            if current.is_empty() {
+                crate::props::remove(&mut heading.properties, crate::props::BLOCKED_BY);
+                if heading.state == "BLOCKED" {
+                    let from = heading.state.clone();
+                    heading.record_state_change("TODO");
+                    changed.push("state BLOCKED -> TODO (auto on unblock)".to_string());
+                    for note in settle_claim(heading, &from, "TODO", identity) {
+                        changed.push(note);
+                    }
+                }
+            } else {
+                write_blocked_by(heading, &current);
+            }
+            changed.push(format!("blocked_by -= {blk}"));
+        }
+    }
+
+    if let Some(edge) = edge
+        && let Some(weight) = weight
+    {
+        match parse_edge_name(edge)? {
+            EdgeName::Parent => {
+                reweight_single(heading, crate::props::PARENT, "parent", weight, changed)?;
+            }
+            EdgeName::DiscoveredFrom => {
+                reweight_single(
+                    heading,
+                    crate::props::DISCOVERED_FROM,
+                    "discovered_from",
+                    weight,
+                    changed,
+                )?;
+            }
+            EdgeName::PivotedTo => {
+                reweight_single(
+                    heading,
+                    crate::props::PIVOTED_TO,
+                    "pivoted_to",
+                    weight,
+                    changed,
+                )?;
+            }
+            EdgeName::Link(other) => reweight_link(heading, other, weight, changed)?,
+        }
+    }
+    Ok(())
+}
+
+fn checked_weight(
+    weighting: Weighting<'_>,
+    block_add: Option<&str>,
+    block_clear: Option<&str>,
+) -> Result<Option<f64>> {
+    if weighting.weight.is_some() && block_clear.is_some() {
+        return Err(anyhow!("weight cannot be combined with unblock").into());
+    }
+    if weighting.edge.is_some() && block_add.is_some() {
+        return Err(anyhow!("a blocker weight is set with block, not edge").into());
+    }
+    if weighting.edge.is_some() && weighting.weight.is_none() {
+        return Err(anyhow!("edge requires a weight").into());
+    }
+    if weighting.weight.is_some() && block_add.is_none() && weighting.edge.is_none() {
+        return Err(anyhow!("weight requires block or edge").into());
+    }
+    match weighting.weight {
+        Some(weight) if weight.is_finite() && weight > 0.0 => Ok(Some(weight)),
+        Some(_) => Err(anyhow!("edge weight must be finite and greater than zero").into()),
+        None => Ok(None),
+    }
+}
+
+enum EdgeName<'a> {
+    Parent,
+    DiscoveredFrom,
+    PivotedTo,
+    Link(&'a str),
+}
+
+fn parse_edge_name(raw: &str) -> Result<EdgeName<'_>> {
+    match raw {
+        "parent" => Ok(EdgeName::Parent),
+        "discovered-from" => Ok(EdgeName::DiscoveredFrom),
+        "pivoted-to" => Ok(EdgeName::PivotedTo),
+        other => match other.strip_prefix("link:") {
+            Some(id) if !id.is_empty() => Ok(EdgeName::Link(id)),
+            _ => {
+                Err(anyhow!("edge must be parent, discovered-from, pivoted-to, or link:ID").into())
+            }
+        },
+    }
+}
+
+fn same_weight(left: f64, right: f64) -> bool {
+    (left - right).abs() <= 1e-9
+}
+
+fn write_blocked_by(heading: &mut crate::model::IssueHeading, edges: &[(String, f64)]) {
+    if edges.is_empty() {
+        crate::props::remove(&mut heading.properties, crate::props::BLOCKED_BY);
+    } else {
+        crate::props::insert(
+            &mut heading.properties,
+            crate::props::BLOCKED_BY,
+            crate::org::format_edge_list(edges),
+        );
+    }
+}
+
+fn reweight_single(
+    heading: &mut crate::model::IssueHeading,
+    key: &str,
+    label: &str,
+    weight: f64,
+    changed: &mut Vec<String>,
+) -> Result<()> {
+    let Some((id, existing)) = crate::props::id_edge(&heading.properties, key) else {
+        return Err(anyhow!("no {label} edge to reweight").into());
+    };
+    let id = id.to_string();
+    if same_weight(existing, weight) {
+        return Ok(());
+    }
+    crate::props::insert(
+        &mut heading.properties,
+        key,
+        crate::org::format_edge_token(&id, weight),
+    );
+    changed.push(format!(
+        "{label} {id} weight -> {}",
+        crate::org::format_weight(weight)
+    ));
+    Ok(())
+}
+
+fn reweight_link(
+    heading: &mut crate::model::IssueHeading,
+    id: &str,
+    weight: f64,
+    changed: &mut Vec<String>,
+) -> Result<()> {
+    let (body, updated) = crate::org::rewrite_org_link_weight(&heading.body, id, weight);
+    if updated == 0 {
+        let line = format!("[[id:{}]]", crate::org::format_edge_token(id, weight));
+        if heading.body.trim().is_empty() {
+            heading.body = format!("{line}\n");
+        } else {
+            let mut next = heading.body.trim_end().to_string();
+            next.push_str("\n\n");
+            next.push_str(&line);
+            next.push('\n');
+            heading.body = next;
+        }
+        changed.push(format!(
+            "org_link += {}",
+            crate::org::format_edge_token(id, weight)
+        ));
+        return Ok(());
+    }
+    if body != heading.body {
+        heading.body = body;
+        changed.push(format!(
+            "org_link {id} weight -> {}",
+            crate::org::format_weight(weight)
+        ));
+    }
+    Ok(())
 }
 
 /// States that keep a claim: someone still holds the issue even when it is
@@ -2797,6 +3029,157 @@ mod tests {
         let h = issue_at(&layout, "sample", &first);
         assert_eq!(h.state, "TODO");
         assert!(h.blocked_by().is_empty());
+    }
+
+    #[test]
+    fn a_weight_is_stored_on_the_edge_and_other_edges_keep_theirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = fresh_layout(dir.path());
+        create(&layout, "sample", "waiting", CreateOpts::default()).unwrap();
+        create(&layout, "sample", "heavy", CreateOpts::default()).unwrap();
+        create(&layout, "sample", "light", CreateOpts::default()).unwrap();
+        let doc = IssueDoc::parse_file("sample", &layout.project_issues_path("sample")).unwrap();
+        let waiting = doc.headings[0].id.clone();
+        let heavy = doc.headings[1].id.clone();
+        let light = doc.headings[2].id.clone();
+
+        update_weighted(
+            &layout,
+            &waiting,
+            None,
+            None,
+            Some(&heavy),
+            None,
+            UpdatePred::default(),
+            Weighting {
+                weight: Some(2.5),
+                edge: None,
+            },
+        )
+        .unwrap();
+        update(&layout, &waiting, None, None, Some(&light), None).unwrap();
+        let blocked = issue_at(&layout, "sample", &waiting).blocked_by_edges();
+        assert_eq!(blocked[0].0, heavy);
+        assert!((blocked[0].1 - 2.5).abs() < 1e-9, "{blocked:?}");
+        assert_eq!(blocked[1].0, light);
+        assert!((blocked[1].1 - 1.0).abs() < 1e-9, "{blocked:?}");
+
+        update(&layout, &waiting, None, None, None, Some(&light)).unwrap();
+        let file = fs::read_to_string(layout.project_issues_path("sample")).unwrap();
+        assert!(
+            file.contains(&format!("{heavy}*2.5")),
+            "unblocking the other edge stripped the weight:\n{file}"
+        );
+        assert!(
+            !file.contains(&format!("BLOCKED_BY: {light}")) && !file.contains(&format!("{light} ")),
+            "{file}"
+        );
+
+        update_weighted(
+            &layout,
+            &waiting,
+            None,
+            None,
+            Some(&heavy),
+            None,
+            UpdatePred::default(),
+            Weighting {
+                weight: Some(4.0),
+                edge: None,
+            },
+        )
+        .unwrap();
+        let again = fs::read_to_string(layout.project_issues_path("sample")).unwrap();
+        assert!(again.contains(&format!("{heavy}*4")), "{again}");
+        assert!(!again.contains(&format!("{heavy}*2.5")), "{again}");
+
+        let shown = crate::report::show(&layout, &waiting).unwrap();
+        assert!(
+            shown.contains("Weights:") && shown.contains(&format!("blocked_by {heavy}*4")),
+            "{shown}"
+        );
+
+        let child = create(
+            &layout,
+            "sample",
+            "child",
+            CreateOpts {
+                parent: Some(&waiting),
+                ..CreateOpts::default()
+            },
+        )
+        .unwrap();
+        let child_id = child.split_whitespace().next().unwrap().to_string();
+        update_weighted(
+            &layout,
+            &child_id,
+            None,
+            None,
+            None,
+            None,
+            UpdatePred::default(),
+            Weighting {
+                weight: Some(3.0),
+                edge: Some("parent"),
+            },
+        )
+        .unwrap();
+        let file = fs::read_to_string(layout.project_issues_path("sample")).unwrap();
+        assert!(
+            file.contains(&format!("{waiting}*3")),
+            "parent weight missing:\n{file}"
+        );
+
+        let missing = update_weighted(
+            &layout,
+            &waiting,
+            None,
+            None,
+            None,
+            None,
+            UpdatePred::default(),
+            Weighting {
+                weight: Some(3.0),
+                edge: Some("parent"),
+            },
+        );
+        assert!(missing.is_err(), "a missing parent was reweighted");
+
+        let bad = update_weighted(
+            &layout,
+            &waiting,
+            None,
+            None,
+            Some(&light),
+            None,
+            UpdatePred::default(),
+            Weighting {
+                weight: Some(0.0),
+                edge: None,
+            },
+        );
+        assert!(bad.is_err(), "a zero weight was stored");
+
+        let link = format!("link:{heavy}");
+        update_weighted(
+            &layout,
+            &waiting,
+            None,
+            None,
+            None,
+            None,
+            UpdatePred::default(),
+            Weighting {
+                weight: Some(2.0),
+                edge: Some(&link),
+            },
+        )
+        .unwrap();
+        let linked = fs::read_to_string(layout.project_issues_path("sample")).unwrap();
+        assert!(
+            linked.contains(&format!("[[id:{heavy}*2]]")),
+            "a missing link was not appended:\n{linked}"
+        );
     }
 
     #[test]

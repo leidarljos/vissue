@@ -170,6 +170,32 @@ fn ready_ranks_heavier_unblock_work_inside_one_priority() {
 }
 
 #[test]
+fn a_non_default_weight_is_reported_beside_the_bare_blocker_id() {
+    let recs = vec![
+        with_property(
+            issue("atlas", "atlas-wait", "BLOCKED", "waiting"),
+            "BLOCKED_BY",
+            "atlas-block*2.5",
+        ),
+        issue("atlas", "atlas-block", "TODO", "blocker"),
+    ];
+    let detail = CatalogService::from_recs(&recs)
+        .detail("atlas-wait")
+        .unwrap();
+    assert_eq!(detail.blocked_by, vec!["atlas-block".to_string()]);
+    let weight = detail.edge_weights["blocked_by"]["atlas-block"].0;
+    assert!((weight - 2.5).abs() < 1e-9, "{weight}");
+    let json = serde_json::to_value(&detail).unwrap();
+    assert_eq!(json["edge_weights"]["blocked_by"]["atlas-block"], 2.5);
+
+    let plain = CatalogService::from_recs(&[issue("atlas", "atlas-solo", "TODO", "alone")])
+        .detail("atlas-solo")
+        .unwrap();
+    let json = serde_json::to_value(&plain).unwrap();
+    assert!(json.get("edge_weights").is_none(), "{json}");
+}
+
+#[test]
 fn rows_are_ordered_by_priority_then_state_then_id() {
     let recs = corpus();
     let rows = issues_rows_from(&recs, ListQuery::default()).unwrap();

@@ -108,7 +108,9 @@ _arguments "${_arguments_options[@]}" : \
 '--state=[New state\: TODO, STARTED, BLOCKED, DONE, or CANCELLED]:STATE:_default' \
 '--priority=[New priority\: A, B, or C]:PRIORITY:_default' \
 '--block=[Add a blocker edge]:BLOCK:_default' \
-'--unblock=[Remove a blocker edge]:UNBLOCK:_default' \
+'(--weight)--unblock=[Remove a blocker edge]:UNBLOCK:_default' \
+'(--unblock)--weight=[Importance of the edge named by --block or --edge. Finite and greater than zero]:WEIGHT:_default' \
+'(--block)--edge=[Reweight an existing edge\: parent, discovered-from, pivoted-to, or link\:ID]:EDGE:_default' \
 '*-t+[Add a tag; repeat it, or give several with commas]:TAG:_default' \
 '*--tag=[Add a tag; repeat it, or give several with commas]:TAG:_default' \
 '*--untag=[Remove a tag; repeat it, or give several with commas]:UNTAG:_default' \
@@ -1143,7 +1145,7 @@ _vissue_commands() {
 'update:Update state, priority, or blocker edges' \
 'resolve:Pick one terminal after a sibling close' \
 'reject:Reject an issue, redirecting to an existing destination or a new replacement' \
-'ready:Actionable issues\: TODO or STARTED with no open blocker' \
+'ready:Actionable issues\: TODO or STARTED with no open blocker, highest priority first, then the weighted work each one unblocks' \
 'claim:Take an issue\: move it to STARTED and stamp the claim' \
 'release:Drop every claim stamp held by one identity, including one left on a closed heading. State stays' \
 'vote:Cast this agent'\''s vote on an issue, or show the tally with no \`--for\`' \
@@ -1313,7 +1315,7 @@ _vissue__subcmd__help_commands() {
 'update:Update state, priority, or blocker edges' \
 'resolve:Pick one terminal after a sibling close' \
 'reject:Reject an issue, redirecting to an existing destination or a new replacement' \
-'ready:Actionable issues\: TODO or STARTED with no open blocker' \
+'ready:Actionable issues\: TODO or STARTED with no open blocker, highest priority first, then the weighted work each one unblocks' \
 'claim:Take an issue\: move it to STARTED and stamp the claim' \
 'release:Drop every claim stamp held by one identity, including one left on a closed heading. State stays' \
 'vote:Cast this agent'\''s vote on an issue, or show the tally with no \`--for\`' \

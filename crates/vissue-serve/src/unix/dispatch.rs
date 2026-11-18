@@ -577,6 +577,7 @@ fn dispatch_update(
             if_state: params.if_state.as_deref(),
             if_gen: params.if_gen,
         },
+        vissue_core::Weighting::default(),
     )
     .map_err(map_core)?;
     let issue = detail_one(&state.layout, &params.id);

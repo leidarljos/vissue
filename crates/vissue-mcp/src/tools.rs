@@ -84,6 +84,12 @@ pub struct UpdateArgs {
     pub block: Option<String>,
     /// Remove a blocker edge.
     pub unblock: Option<String>,
+    /// Finite importance greater than zero for the edge named by `block` or `edge`.
+    #[serde(default)]
+    pub weight: Option<f64>,
+    /// Relation to reweight: parent, discovered-from, pivoted-to, or link:ID.
+    #[serde(default)]
+    pub edge: Option<String>,
     /// Refuse unless the heading is still this state.
     pub if_state: Option<String>,
     /// Refuse unless the corpus generation is still this value.

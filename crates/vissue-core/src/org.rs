@@ -1904,12 +1904,27 @@ pub fn org_link_edges(
     body: &str,
     known_ids: &std::collections::HashSet<&str>,
 ) -> Vec<(String, f64)> {
+    scan_org_link_edges(body, Some(known_ids))
+}
+
+/// Every Org-link edge written in `body`, whether or not the target is loaded.
+///
+/// Used when a reader is looking at one heading and still wants the importance
+/// written on its links. The same id twice keeps the greater weight.
+pub fn org_link_edges_written(body: &str) -> Vec<(String, f64)> {
+    scan_org_link_edges(body, None)
+}
+
+fn scan_org_link_edges(
+    body: &str,
+    known_ids: Option<&std::collections::HashSet<&str>>,
+) -> Vec<(String, f64)> {
     let mut edges = Vec::new();
     let consider = |raw: &str, edges: &mut Vec<(String, f64)>| {
         let Some((id, weight)) = link_target_edge(raw) else {
             return;
         };
-        if !known_ids.contains(id) {
+        if known_ids.is_some_and(|ids| !ids.contains(id)) {
             return;
         }
         if let Some((_, existing)) = edges.iter_mut().find(|(seen, _)| seen == id) {
