@@ -39,6 +39,12 @@ Linux targets are aarch64-unknown-linux-gnu and x86_64-unknown-linux-gnu.
 `cargo install` takes the same names and builds from source.
 `vissue completions zsh` and `vissue man` come out of the binary.
 
+From a source checkout, install the CLI directly:
+
+```console
+$ cargo install --locked --path crates/vissue-cli
+```
+
 The leidarljos marketplace in
 [leidarljos/ljos](https://github.com/leidarljos/ljos) installs this MCP
 server as `vissue@leidarljos`. `vissue-mcp` stays on `PATH`.
