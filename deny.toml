@@ -1,5 +1,9 @@
 [advisories]
 version = 2
+ignore = [
+    { id = "RUSTSEC-2026-0462", reason = "rmcp 3.8.0, through vissue-mcp; the upgrade in dependabot PR #5 is reviewed separately; review on 2027-02-18" },
+    { id = "RUSTSEC-2026-0543", reason = "chrono 0.4.45, used by vissue-cli and vissue-core and through rmcp 3.8.0 and schemars 1.2.3; every version is affected and no fixed release exists; review on 2027-02-18" },
+]
 # iced 0.14 still depends on unmaintained font crates. Fail only if a
 # workspace package itself is unmaintained.
 unmaintained = "workspace"
