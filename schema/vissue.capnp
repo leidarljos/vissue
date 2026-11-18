@@ -169,6 +169,8 @@ const operations :List(Operation) = [
       ( cli = "priority", tool = "priority", socket = "priority", note = "", toolType = "Option<String>", socketType = "Option<String>" ),
       ( cli = "block", tool = "block", socket = "block", note = "", toolType = "Option<String>", socketType = "Option<String>" ),
       ( cli = "unblock", tool = "unblock", socket = "unblock", note = "", toolType = "Option<String>", socketType = "Option<String>" ),
+      ( cli = "weight", tool = "weight", socket = "", note = "command line and MCP: the importance of the edge named by block or edge. The control socket's issue/update does not take it, so a remote client keeps writing an unweighted edge", toolType = "Option<f64>", socketType = "" ),
+      ( cli = "edge", tool = "edge", socket = "", note = "command line and MCP: parent, discovered-from, pivoted-to, or link:ID. Absent from the socket for the same reason as weight", toolType = "Option<String>", socketType = "" ),
       ( cli = "tag", tool = "", socket = "", note = "command line only: an agent at a shell tags with -t, as create takes tags; the remote surfaces set tags through create", toolType = "", socketType = "" ),
       ( cli = "untag", tool = "", socket = "", note = "command line only, as tag", toolType = "", socketType = "" ),
       ( cli = "if-state", tool = "if_state", socket = "if_state", note = "", toolType = "Option<String>", socketType = "Option<String>" ),
