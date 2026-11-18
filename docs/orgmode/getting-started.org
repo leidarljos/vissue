@@ -121,7 +121,7 @@ Produced
   (nothing cited yet)
 
 Body
-  (no body)
+  Scope: the error message quoted in the release notes.
 #+end_src
 
 Now remove the edge and watch the issue become workable:
