@@ -164,9 +164,10 @@ Two writers do not last-write-wins. Name the generation you read, and a
 later write refuses if the corpus moved:
 
 #+begin_src console
-$ vissue gen
-7
-$ vissue update parser-3xq7 --state DONE --if-gen 7
+$ generation=$(vissue gen)
+$ printf '%s\n' "$generation"
+13
+$ vissue update parser-3xq7 --state DONE --if-gen "$generation"
 #+end_src
 
 =gen=, =events --since=, and =wait= are the log a second process polls.
