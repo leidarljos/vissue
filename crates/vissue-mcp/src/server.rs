@@ -2020,6 +2020,102 @@ mod tests {
         assert_eq!(updated.is_error, Some(false));
         let file = std::fs::read_to_string(layout.project_issues_path("atlas")).unwrap();
         assert!(file.contains(&format!("{one}*3")), "{file}");
+
+        for bad in [
+            UpdateArgs {
+                issue_id: two.clone(),
+                state: None,
+                priority: None,
+                block: Some(one.clone()),
+                unblock: None,
+                weight: Some(0.0),
+                edge: None,
+                if_state: None,
+                if_gen: None,
+            },
+            UpdateArgs {
+                issue_id: two.clone(),
+                state: None,
+                priority: None,
+                block: Some(one.clone()),
+                unblock: None,
+                weight: Some(-1.0),
+                edge: None,
+                if_state: None,
+                if_gen: None,
+            },
+            UpdateArgs {
+                issue_id: two.clone(),
+                state: None,
+                priority: None,
+                block: Some(one.clone()),
+                unblock: None,
+                weight: Some(f64::NAN),
+                edge: None,
+                if_state: None,
+                if_gen: None,
+            },
+            UpdateArgs {
+                issue_id: two.clone(),
+                state: None,
+                priority: None,
+                block: Some(one.clone()),
+                unblock: None,
+                weight: Some(f64::INFINITY),
+                edge: None,
+                if_state: None,
+                if_gen: None,
+            },
+            UpdateArgs {
+                issue_id: two.clone(),
+                state: None,
+                priority: None,
+                block: None,
+                unblock: None,
+                weight: Some(2.0),
+                edge: None,
+                if_state: None,
+                if_gen: None,
+            },
+            UpdateArgs {
+                issue_id: two.clone(),
+                state: None,
+                priority: None,
+                block: None,
+                unblock: None,
+                weight: Some(2.0),
+                edge: Some("bogus".into()),
+                if_state: None,
+                if_gen: None,
+            },
+            UpdateArgs {
+                issue_id: two.clone(),
+                state: None,
+                priority: None,
+                block: None,
+                unblock: None,
+                weight: Some(2.0),
+                edge: Some(format!("link:{one}*2")),
+                if_state: None,
+                if_gen: None,
+            },
+            UpdateArgs {
+                issue_id: two,
+                state: None,
+                priority: None,
+                block: Some(format!("{one}*2")),
+                unblock: None,
+                weight: None,
+                edge: None,
+                if_state: None,
+                if_gen: None,
+            },
+        ] {
+            assert!(
+                server.vissue_update(Parameters(bad)).await.is_err(),
+                "invalid MCP update input was accepted"
+            );
+        }
     }
 
     #[tokio::test]

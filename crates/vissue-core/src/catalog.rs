@@ -361,6 +361,7 @@ pub fn issues_rows_from(issues: &[IssueRec], q: ListQuery) -> Result<Vec<IssueRo
         picked.retain(|rec| !holds.hold(rec));
     }
 
+    let known: HashSet<&str> = issues.iter().map(|rec| rec.heading.id.as_str()).collect();
     let mut rows: Vec<(char, String, String, IssueRow)> = Vec::new();
     for rec in picked {
         if let Some(needle) = q.query.as_deref()
@@ -372,7 +373,7 @@ pub fn issues_rows_from(issues: &[IssueRec], q: ListQuery) -> Result<Vec<IssueRo
             rec.heading.priority,
             rec.heading.state.clone(),
             rec.heading.id.clone(),
-            issue_row(rec, issues),
+            issue_row(rec, &known),
         ));
     }
     // Scores come from the whole corpus passed in, not the filtered rows: a
@@ -505,13 +506,12 @@ impl<'a> Holds<'a> {
 
 /// Non-default importance on the heading's declared edges.
 ///
-/// Org links count only when the target is an id in `corpus`.
+/// Org links count only when the target is an id in `known`.
 fn edge_weights_of(
     heading: &IssueHeading,
-    corpus: &[IssueRec],
+    known: &HashSet<&str>,
 ) -> std::collections::BTreeMap<String, std::collections::BTreeMap<String, crate::views::EdgeWeight>>
 {
-    let known: HashSet<&str> = corpus.iter().map(|rec| rec.heading.id.as_str()).collect();
     let mut out = std::collections::BTreeMap::new();
     let mut put = |kind: &str, id: &str, weight: f64| {
         if crate::org::is_default_weight(weight) {
@@ -533,7 +533,7 @@ fn edge_weights_of(
             put(kind, id, weight);
         }
     }
-    for (id, weight) in crate::org::org_link_edges(&heading.body, &known) {
+    for (id, weight) in crate::org::org_link_edges(&heading.body, known) {
         put("org_link", &id, weight);
     }
     out
@@ -553,7 +553,7 @@ fn list_query_matches(rec: &IssueRec, needle: &str) -> bool {
         .any(|(k, v)| k.to_lowercase().contains(&needle) || v.to_lowercase().contains(&needle))
 }
 
-fn issue_row(rec: &IssueRec, corpus: &[IssueRec]) -> IssueRow {
+fn issue_row(rec: &IssueRec, known: &HashSet<&str>) -> IssueRow {
     IssueRow {
         id: rec.heading.id.clone(),
         state: rec.heading.state.clone(),
@@ -564,11 +564,12 @@ fn issue_row(rec: &IssueRec, corpus: &[IssueRec]) -> IssueRow {
         claimed_by: rec.heading.claimed_by().map(str::to_string),
         claimed_at: rec.heading.claimed_at().map(str::to_string),
         parent: rec.heading.parent().map(str::to_string),
-        edge_weights: edge_weights_of(&rec.heading, corpus),
+        edge_weights: edge_weights_of(&rec.heading, known),
     }
 }
 
 fn issue_detail(rec: &IssueRec, corpus: &[IssueRec]) -> IssueDetail {
+    let known: HashSet<&str> = corpus.iter().map(|r| r.heading.id.as_str()).collect();
     IssueDetail {
         id: rec.heading.id.clone(),
         project: rec.project.clone(),
@@ -581,7 +582,7 @@ fn issue_detail(rec: &IssueRec, corpus: &[IssueRec]) -> IssueDetail {
         tags: rec.tag_settings.all_tags(&rec.heading.tags()),
         blocked_by: rec.heading.blocked_by(),
         parent: rec.heading.parent().map(str::to_string),
-        edge_weights: edge_weights_of(&rec.heading, corpus),
+        edge_weights: edge_weights_of(&rec.heading, &known),
         claimed_by: rec.heading.claimed_by().map(str::to_string),
         claimed_at: rec.heading.claimed_at().map(str::to_string),
         file: format!(

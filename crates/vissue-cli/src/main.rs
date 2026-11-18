@@ -1695,6 +1695,11 @@ fn run() -> Result<()> {
             if weight.is_some() && block.is_none() && edge.is_none() {
                 anyhow::bail!("--weight requires --block or --edge");
             }
+            let weighting = ops::Weighting {
+                weight,
+                edge: edge.as_deref(),
+            };
+            ops::validate_update_weighting(block.as_deref(), unblock.as_deref(), weighting)?;
             let found = layout_for_id(&router, &id)?;
             if !tag.is_empty() || !untag.is_empty() {
                 let changed = ops::retag(&found, &id, &tag, &untag)?;
@@ -1726,10 +1731,7 @@ fn run() -> Result<()> {
                     if_state: if_state.as_deref(),
                     if_gen,
                 },
-                ops::Weighting {
-                    weight,
-                    edge: edge.as_deref(),
-                },
+                weighting,
             )?;
             emit!("{}", outcome.report);
             for hint in outcome.hints {

@@ -1486,8 +1486,12 @@ pub fn format_edge_list(edges: &[(String, f64)]) -> String {
 pub fn format_weight(weight: f64) -> String {
     let text = format!("{weight:.10}");
     let trimmed = text.trim_end_matches('0').trim_end_matches('.');
-    if trimmed.is_empty() {
-        "0".to_string()
+    if trimmed.is_empty() || trimmed == "0" {
+        if weight.is_finite() && weight > 0.0 {
+            weight.to_string()
+        } else {
+            "0".to_string()
+        }
     } else {
         trimmed.to_string()
     }
@@ -1921,10 +1925,17 @@ fn scan_org_link_edges(
 ) -> Vec<(String, f64)> {
     let mut edges = Vec::new();
     let consider = |raw: &str, edges: &mut Vec<(String, f64)>| {
+        if known_ids.is_none() && raw.contains("://") {
+            return;
+        }
         let Some((id, weight)) = link_target_edge(raw) else {
             return;
         };
-        if known_ids.is_some_and(|ids| !ids.contains(id)) {
+        if let Some(ids) = known_ids {
+            if !ids.contains(id) {
+                return;
+            }
+        } else if id.contains(':') || id.chars().any(char::is_whitespace) {
             return;
         }
         if let Some((_, existing)) = edges.iter_mut().find(|(seen, _)| seen == id) {
@@ -2317,12 +2328,30 @@ mod tests {
         assert_eq!(split_edge_token("atlas-1a2b*2"), ("atlas-1a2b", 2.0));
         assert_eq!(split_edge_token("atlas-1a2b*2.5"), ("atlas-1a2b", 2.5));
         assert_eq!(split_edge_token("atlas-1a2b*0"), ("atlas-1a2b*0", 1.0));
+        assert_eq!(split_edge_token("atlas-1a2b*-1"), ("atlas-1a2b*-1", 1.0));
+        assert_eq!(split_edge_token("atlas-1a2b*NaN"), ("atlas-1a2b*NaN", 1.0));
+        assert_eq!(split_edge_token("atlas-1a2b*inf"), ("atlas-1a2b*inf", 1.0));
+        assert_eq!(
+            split_edge_token("atlas-1a2b*1e-400"),
+            ("atlas-1a2b*1e-400", 1.0)
+        );
+        assert_eq!(
+            split_edge_token("atlas-1a2b*1e400"),
+            ("atlas-1a2b*1e400", 1.0)
+        );
         assert_eq!(
             split_edge_token("atlas-1a2b*nope"),
             ("atlas-1a2b*nope", 1.0)
         );
+        assert_eq!(
+            split_edge_token("atlas*part*nope"),
+            ("atlas*part*nope", 1.0)
+        );
         assert_eq!(format_edge_token("atlas-1a2b", 1.0), "atlas-1a2b");
         assert_eq!(format_edge_token("atlas-1a2b", 2.5), "atlas-1a2b*2.5");
+        let tiny = format_edge_token("atlas-1a2b", 1e-12);
+        assert_ne!(tiny, "atlas-1a2b*0");
+        assert_eq!(split_edge_token(&tiny), ("atlas-1a2b", 1e-12));
         let props = std::collections::BTreeMap::from([
             ("BLOCKED_BY".into(), "atlas-1a2b*2, beacon-5j6k".into()),
             ("PARENT".into(), "plan-0001*3".into()),
@@ -2366,6 +2395,10 @@ mod tests {
             "{cleared}"
         );
         assert!(!cleared.contains("atlas-1a2b*"), "{cleared}");
+
+        let with_url = "See [[https://example.com/path*2][site]] and [[id:atlas-1a2b*2]]";
+        let written = org_link_edges_written(with_url);
+        assert_eq!(written, vec![("atlas-1a2b".into(), 2.0)]);
     }
 
     #[test]

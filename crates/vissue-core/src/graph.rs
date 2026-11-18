@@ -6,7 +6,7 @@ use crate::error::Result;
 use daggy::{Dag, NodeIndex};
 use petgraph::Direction;
 use petgraph::algo::{has_path_connecting, toposort};
-use petgraph::visit::EdgeRef;
+use petgraph::visit::{EdgeRef, NodeIndexable};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::error::Error;
@@ -162,26 +162,62 @@ impl DependencyGraph {
         scores
     }
 
-    /// `reach(i)` for every node, computed sinks-first so a child's set is done
-    /// before the nodes that point at it.
-    fn reaches(&self) -> HashMap<NodeIndex, usize> {
+    /// `reach(i)` for every node, computed sinks-first in chunked bitsets so
+    /// large DAGs stay O(N) in memory.
+    fn reaches(&self) -> Vec<usize> {
         let graph = self.dag.graph();
+        let bound = graph.node_bound();
+        let mut reach = vec![1usize; bound];
         let order = toposort(graph, None).unwrap_or_default();
-        let mut descendants: HashMap<NodeIndex, HashSet<NodeIndex>> = HashMap::new();
-        for node in order.into_iter().rev() {
-            let mut below = HashSet::new();
-            for child in graph.neighbors_directed(node, Direction::Outgoing) {
-                below.insert(child);
-                if let Some(further) = descendants.get(&child) {
-                    below.extend(further.iter().copied());
-                }
-            }
-            descendants.insert(node, below);
+        if order.is_empty() {
+            return reach;
         }
-        descendants
-            .into_iter()
-            .map(|(node, below)| (node, 1 + below.len()))
-            .collect()
+
+        let mut targets: Vec<NodeIndex> = Vec::new();
+        let mut target_slot = vec![usize::MAX; bound];
+        for &node in &order {
+            if graph
+                .neighbors_directed(node, Direction::Incoming)
+                .next()
+                .is_some()
+            {
+                target_slot[node.index()] = targets.len();
+                targets.push(node);
+            }
+        }
+        if targets.is_empty() {
+            return reach;
+        }
+
+        const WORDS: usize = 8;
+        const CHUNK_BITS: usize = WORDS * 64;
+        let mut bits = vec![[0u64; WORDS]; bound];
+
+        for chunk_start in (0..targets.len()).step_by(CHUNK_BITS) {
+            let chunk_end = (chunk_start + CHUNK_BITS).min(targets.len());
+            if chunk_start > 0 {
+                bits.fill([0u64; WORDS]);
+            }
+            for &node in order.iter().rev() {
+                let mut acc = [0u64; WORDS];
+                for child in graph.neighbors_directed(node, Direction::Outgoing) {
+                    let child_idx = child.index();
+                    let slot = target_slot[child_idx];
+                    if slot >= chunk_start && slot < chunk_end {
+                        let local = slot - chunk_start;
+                        acc[local / 64] |= 1u64 << (local % 64);
+                    }
+                    let child_bits = bits[child_idx];
+                    for (dst, src) in acc.iter_mut().zip(child_bits) {
+                        *dst |= src;
+                    }
+                }
+                bits[node.index()] = acc;
+                let count: usize = acc.iter().map(|w| w.count_ones() as usize).sum();
+                reach[node.index()] += count;
+            }
+        }
+        reach
     }
 
     /// Return nodes that transitively block issue, bounded by hop depth.
@@ -245,12 +281,12 @@ impl DependencyGraph {
 fn score_node(
     graph: &petgraph::Graph<String, f64, petgraph::Directed, u32>,
     node: NodeIndex,
-    reach: &HashMap<NodeIndex, usize>,
+    reach: &[usize],
 ) -> f64 {
     let mut score = 0.0;
     for edge in graph.edges_directed(node, Direction::Outgoing) {
         let child = edge.target();
-        score += *edge.weight() * reach.get(&child).copied().unwrap_or(1) as f64;
+        score += *edge.weight() * reach.get(child.index()).copied().unwrap_or(1) as f64;
     }
     score
 }
@@ -312,5 +348,27 @@ mod tests {
         assert!((graph.unblock_score("c") - 1.0).abs() < 1e-9);
         assert!((graph.unblock_score("d") - 0.0).abs() < 1e-9);
         assert!((graph.unblock_score("missing") - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn unblock_score_scales_past_one_bitset_chunk() {
+        // A 1200-node chain plus a second diamond branch spans three 512-bit
+        // chunks and verifies exact descendant deduplication across chunks.
+        let n = 1200usize;
+        let mut issues = Vec::with_capacity(n);
+        issues.push(heading("n-0000", ""));
+        for i in 1..n {
+            let blocked = if i == n - 1 {
+                format!("n-{:04} n-{:04}", i - 1, i - 2)
+            } else {
+                format!("n-{:04}", i - 1)
+            };
+            issues.push(heading(&format!("n-{i:04}"), &blocked));
+        }
+        let graph = DependencyGraph::from_headings(issues.iter()).unwrap();
+        let scores = graph.unblock_scores();
+        assert!((scores["n-0000"] - (n - 1) as f64).abs() < 1e-9);
+        assert!((scores["n-0512"] - (n - 1 - 512) as f64).abs() < 1e-9);
+        assert!((scores[&format!("n-{:04}", n - 3)] - 3.0).abs() < 1e-9);
     }
 }

@@ -1247,6 +1247,34 @@ fn update_weight_sets_importance_and_show_and_json_report_it() {
         !bare.status.success(),
         "weight without an edge was accepted"
     );
+    for args in [
+        vec!["update", &waiting, "--block", &light, "--weight", "0"],
+        vec!["update", &waiting, "--block", &light, "--weight=-1"],
+        vec!["update", &waiting, "--block", &light, "--weight", "NaN"],
+        vec!["update", &waiting, "--block", &light, "--weight", "inf"],
+        vec!["update", &waiting, "--edge", "bogus", "--weight", "2"],
+        vec!["update", &waiting, "--edge", "link:a*2", "--weight", "2"],
+        vec!["update", &waiting, "--block", "atlas-1*2"],
+    ] {
+        let out = run(&args);
+        assert!(!out.status.success(), "{args:?} was accepted");
+    }
+    let partial = run(&[
+        "update",
+        &waiting,
+        "--tag",
+        "should-not-stick",
+        "--block",
+        &light,
+        "--weight",
+        "0",
+    ]);
+    assert!(!partial.status.success());
+    let board = fs::read_to_string(root.join("Software/atlas/issues.org")).unwrap();
+    assert!(
+        !board.contains("should-not-stick"),
+        "tag mutation leaked before weight validation:\n{board}"
+    );
 }
 
 /// The tracker refuses to write a blocker cycle and `ready` survives one

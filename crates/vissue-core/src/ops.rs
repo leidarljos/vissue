@@ -722,7 +722,7 @@ pub fn update_as_pred(
     pred: UpdatePred<'_>,
     weighting: Weighting<'_>,
 ) -> Result<UpdateOutcome> {
-    let weight = checked_weight(weighting, block_add, block_clear)?;
+    let weight = validate_update_weighting(block_add, block_clear, weighting)?;
     let (_h0, path, project) =
         find_by_id(layout, id)?.ok_or_else(|| Error::IssueNotFound { id: id.to_string() })?;
 
@@ -1018,6 +1018,47 @@ fn apply_edge_edits(
     Ok(())
 }
 
+/// Validate edge names, blocker tokens, and weights before mutating disk.
+///
+/// # Errors
+///
+/// Fails when the weight is non-finite or non-positive, when `weight` and
+/// `edge` / `block` / `unblock` are combined inconsistently, when `edge` is not
+/// `parent`, `discovered-from`, `pivoted-to`, or a clean `link:ID`, or when
+/// `block` / `unblock` carries an empty or malformed token.
+pub fn validate_update_weighting(
+    block_add: Option<&str>,
+    block_clear: Option<&str>,
+    weighting: Weighting<'_>,
+) -> Result<Option<f64>> {
+    if let Some(blk) = block_add
+        && (blk.is_empty()
+            || blk
+                .chars()
+                .any(|c| c.is_whitespace() || c.is_control() || matches!(c, ',' | '*')))
+    {
+        return Err(anyhow!(
+            "blocker id {blk:?} must be non-empty without whitespace, commas, or '*'"
+        )
+        .into());
+    }
+    if let Some(blk) = block_clear
+        && (blk.trim().is_empty()
+            || blk
+                .chars()
+                .any(|c| c.is_whitespace() || c.is_control() || c == ','))
+    {
+        return Err(
+            anyhow!("unblock id {blk:?} must be non-empty without whitespace or commas").into(),
+        );
+    }
+    let weight = checked_weight(weighting, block_add, block_clear)?;
+    if let Some(edge) = weighting.edge {
+        parse_edge_name(edge)?;
+    }
+    Ok(weight)
+}
+
 fn checked_weight(
     weighting: Weighting<'_>,
     block_add: Option<&str>,
@@ -1055,7 +1096,20 @@ fn parse_edge_name(raw: &str) -> Result<EdgeName<'_>> {
         "discovered-from" => Ok(EdgeName::DiscoveredFrom),
         "pivoted-to" => Ok(EdgeName::PivotedTo),
         other => match other.strip_prefix("link:") {
-            Some(id) if !id.is_empty() => Ok(EdgeName::Link(id)),
+            Some(id)
+                if !id.is_empty()
+                    && !id.chars().any(|c| {
+                        c.is_whitespace()
+                            || c.is_control()
+                            || matches!(c, '*' | ',' | '[' | ']' | '<' | '>')
+                    }) =>
+            {
+                Ok(EdgeName::Link(id))
+            }
+            Some(id) => Err(anyhow!(
+                "link target {id:?} must be a non-empty id without whitespace, '*', ',', or Org link brackets"
+            )
+            .into()),
             _ => {
                 Err(anyhow!("edge must be parent, discovered-from, pivoted-to, or link:ID").into())
             }
@@ -2495,8 +2549,8 @@ fn first_existing_id_link(body: &str, known: &std::collections::HashSet<String>)
         let raw = &after_start[..end];
         let target = raw.split_once("][").map_or(raw, |(target, _)| target);
         let target = target.trim();
-        if let Some(id) = target.strip_prefix("id:") {
-            let id = id.trim();
+        if let Some(raw_id) = target.strip_prefix("id:") {
+            let (id, _) = crate::org::split_edge_token(raw_id);
             if known.contains(id) {
                 return Some(id.to_string());
             }
@@ -3180,6 +3234,80 @@ mod tests {
             linked.contains(&format!("[[id:{heavy}*2]]")),
             "a missing link was not appended:\n{linked}"
         );
+
+        for invalid_weight in [-1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let err = update_weighted(
+                &layout,
+                &waiting,
+                None,
+                None,
+                Some(&light),
+                None,
+                UpdatePred::default(),
+                Weighting {
+                    weight: Some(invalid_weight),
+                    edge: None,
+                },
+            );
+            assert!(err.is_err(), "weight {invalid_weight:?} was accepted");
+        }
+        for bad_edge in [
+            "bogus",
+            "link:",
+            "link:   ",
+            "link:a*2",
+            "link:a b",
+            "link:a]]\n* TODO x",
+        ] {
+            let err = update_weighted(
+                &layout,
+                &waiting,
+                None,
+                None,
+                None,
+                None,
+                UpdatePred::default(),
+                Weighting {
+                    weight: Some(2.0),
+                    edge: Some(bad_edge),
+                },
+            );
+            assert!(err.is_err(), "edge {bad_edge:?} was accepted");
+        }
+        for bad_block in ["", "   ", "a*2", "a b", "a,b"] {
+            let err = update_weighted(
+                &layout,
+                &waiting,
+                None,
+                None,
+                Some(bad_block),
+                None,
+                UpdatePred::default(),
+                Weighting::default(),
+            );
+            assert!(err.is_err(), "block {bad_block:?} was accepted");
+        }
+        update_weighted(
+            &layout,
+            &waiting,
+            None,
+            None,
+            Some(&light),
+            None,
+            UpdatePred::default(),
+            Weighting {
+                weight: Some(1e-12),
+                edge: None,
+            },
+        )
+        .unwrap();
+        let tiny_edges = issue_at(&layout, "sample", &waiting).blocked_by_edges();
+        let light_weight = tiny_edges
+            .iter()
+            .find(|(id, _)| id == &light)
+            .map(|(_, w)| *w)
+            .unwrap();
+        assert!((light_weight - 1e-12).abs() < 1e-18, "{tiny_edges:?}");
     }
 
     #[test]
