@@ -374,62 +374,88 @@ fn score_graph_distance(
     }
 }
 
-/// The names for every declared relation between the target and one other issue.
+/// The names and importance of every declared relation between the target and
+/// one other issue.
 ///
 /// Named from the target's end, and the two ends of one edge get different names:
 /// `blocks` and `blocked_by` are the same edge, and which of them a reader is told
-/// decides whether they are looking at what waits or at what is waited on.
+/// decides whether they are looking at what waits or at what is waited on. The
+/// weight is the one written on that edge. An Org link keeps the greater weight
+/// when both bodies name the pair. A missing marker weighs 1.
 fn declared_relations(
     target: &IssueHeading,
     target_id: &str,
     issue: &IssueHeading,
     known_ids: &HashSet<&str>,
-) -> Vec<&'static str> {
+) -> Vec<(&'static str, f64)> {
     let mut named = Vec::new();
-    if target.blocked_by().iter().any(|item| item == &issue.id) {
-        named.push("blocked_by");
+    if let Some((_, weight)) = target
+        .blocked_by_edges()
+        .into_iter()
+        .find(|(item, _)| item == &issue.id)
+    {
+        named.push(("blocked_by", weight));
     }
-    if issue.blocked_by().iter().any(|item| item == target_id) {
-        named.push("blocks");
+    if let Some((_, weight)) = issue
+        .blocked_by_edges()
+        .into_iter()
+        .find(|(item, _)| item == target_id)
+    {
+        named.push(("blocks", weight));
     }
     if target.parent() == Some(issue.id.as_str()) {
-        named.push("parent");
+        named.push(("parent", target.parent_weight().unwrap_or(1.0)));
     }
     if issue.parent() == Some(target_id) {
-        named.push("child");
+        named.push(("child", issue.parent_weight().unwrap_or(1.0)));
     }
-    if crate::props::id_of(&issue.properties, crate::props::DISCOVERED_FROM) == Some(target_id) {
-        named.push("discovered_from");
+    if let Some(weight) = single_edge_weight(issue, crate::props::DISCOVERED_FROM, target_id) {
+        named.push(("discovered_from", weight));
     }
-    if crate::props::id_of(&target.properties, crate::props::DISCOVERED_FROM)
-        == Some(issue.id.as_str())
-    {
-        named.push("source_of");
+    if let Some(weight) = single_edge_weight(target, crate::props::DISCOVERED_FROM, &issue.id) {
+        named.push(("source_of", weight));
     }
-    if crate::props::id_of(&target.properties, crate::props::PIVOTED_TO) == Some(issue.id.as_str())
-    {
-        named.push("pivoted_to");
+    if let Some(weight) = single_edge_weight(target, crate::props::PIVOTED_TO, &issue.id) {
+        named.push(("pivoted_to", weight));
     }
-    if crate::props::id_of(&issue.properties, crate::props::PIVOTED_TO) == Some(target_id) {
-        named.push("successor_of");
+    if let Some(weight) = single_edge_weight(issue, crate::props::PIVOTED_TO, target_id) {
+        named.push(("successor_of", weight));
     }
-    if org_link_targets(&target.body, known_ids)
-        .iter()
-        .any(|linked_id| linked_id == &issue.id)
-        || org_link_targets(&issue.body, known_ids)
-            .iter()
-            .any(|linked_id| linked_id == target_id)
-    {
-        named.push("org_link");
+    let from_target = link_weight(&target.body, &issue.id, known_ids);
+    let from_issue = link_weight(&issue.body, target_id, known_ids);
+    if let Some(weight) = match (from_target, from_issue) {
+        (Some(left), Some(right)) => Some(left.max(right)),
+        (Some(weight), None) | (None, Some(weight)) => Some(weight),
+        (None, None) => None,
+    } {
+        named.push(("org_link", weight));
     }
     named
+}
+
+/// Importance of a single-valued edge on `issue` that names `id`.
+fn single_edge_weight(issue: &IssueHeading, key: &str, id: &str) -> Option<f64> {
+    crate::props::id_edge(&issue.properties, key)
+        .filter(|(named, _)| *named == id)
+        .map(|(_, weight)| weight)
+}
+
+/// Importance of an Org link in `body` whose target is `id`.
+fn link_weight(body: &str, id: &str, known_ids: &HashSet<&str>) -> Option<f64> {
+    crate::org::org_link_edges(body, known_ids)
+        .into_iter()
+        .find(|(linked, _)| linked == id)
+        .map(|(_, weight)| weight)
 }
 
 /// Score what the target and one other issue share directly: a declared relation, a
 /// tag, a project.
 ///
-/// Each signal ranks on its own. Borda merges the guess rankers; a declared
-/// relation still adds 1000 so no amount of coincidence outvotes a fact.
+/// Each signal ranks on its own. Borda merges the guess rankers. A declared
+/// relation of weight `w` adds `1000 w`, so a weight of 1 still outvotes any
+/// amount of coincidence and a heavier edge outranks a lighter one by
+/// `1000` times the difference. A shared deed stays at weight 1: it is a
+/// citation, not one of these edges. Distance stays a hop count.
 fn score_direct_relations(
     all: &[(&str, &IssueHeading)],
     terms: &[IssueTerms],
@@ -445,8 +471,8 @@ fn score_direct_relations(
         if index == target_idx {
             continue;
         }
-        for relation in declared_relations(target, target_id, issue, known_ids) {
-            bump(candidates, index, 1.0, relation, Signal::Edge);
+        for (relation, weight) in declared_relations(target, target_id, issue, known_ids) {
+            bump(candidates, index, weight, relation, Signal::Edge);
         }
         // Two issues citing one deed worked on the same product. That is a
         // declared fact rather than a resemblance, so it scores with the edges
