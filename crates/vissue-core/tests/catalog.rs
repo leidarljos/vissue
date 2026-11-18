@@ -120,6 +120,56 @@ fn ids(rows: &[vissue_core::views::IssueRow]) -> Vec<&str> {
 }
 
 #[test]
+fn ready_ranks_heavier_unblock_work_inside_one_priority() {
+    // Same cookie. `heavy` blocks a leaf at weight 4, `light` blocks a leaf
+    // at weight 1, `idle` blocks nothing. Priority A still outranks all of
+    // them. Equal scores fall through to state, then id.
+    let leaf_h = with_property(
+        issue("atlas", "atlas-hleaf", "BLOCKED", "held by heavy"),
+        "BLOCKED_BY",
+        "atlas-heavy*4",
+    );
+    let leaf_l = with_property(
+        issue("atlas", "atlas-lleaf", "BLOCKED", "held by light"),
+        "BLOCKED_BY",
+        "atlas-light",
+    );
+    let recs = vec![
+        with_priority(issue("atlas", "atlas-idle", "TODO", "idle"), 'B'),
+        with_priority(issue("atlas", "atlas-light", "TODO", "light"), 'B'),
+        with_priority(issue("atlas", "atlas-heavy", "STARTED", "heavy"), 'B'),
+        with_priority(issue("atlas", "atlas-urgent", "TODO", "urgent"), 'A'),
+        leaf_h,
+        leaf_l,
+        // Same score as idle (nothing downstream). STARTED sorts before TODO,
+        // and ids break a remaining tie.
+        with_priority(issue("atlas", "atlas-also", "TODO", "also idle"), 'B'),
+    ];
+    let ready = CatalogService::from_recs(&recs).ready(None).unwrap();
+    assert_eq!(
+        ids(&ready),
+        vec![
+            "atlas-urgent",
+            "atlas-heavy",
+            "atlas-light",
+            "atlas-also",
+            "atlas-idle",
+        ]
+    );
+
+    // `list` does not consult the unblock score: two TODO rows stay in id order
+    // even though `light` unblocks a leaf and `idle` unblocks nothing.
+    let listed_rows = issues_rows_from(&recs, ListQuery::default()).unwrap();
+    let listed = ids(&listed_rows);
+    assert_eq!(listed[0], "atlas-urgent");
+    assert!(
+        listed.iter().position(|id| *id == "atlas-idle")
+            < listed.iter().position(|id| *id == "atlas-light"),
+        "list stays on state then id: {listed:?}"
+    );
+}
+
+#[test]
 fn rows_are_ordered_by_priority_then_state_then_id() {
     let recs = corpus();
     let rows = issues_rows_from(&recs, ListQuery::default()).unwrap();

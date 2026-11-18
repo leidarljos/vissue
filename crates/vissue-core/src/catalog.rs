@@ -336,6 +336,13 @@ impl<'a> CatalogService<'a> {
 
 /// List/ready rows, same filters and sort as [`crate::agent::issues_json`].
 ///
+/// `list` orders by priority cookie, then state, then id. `ready` keeps the
+/// cookie first and, within it, ranks by how much weighted work the issue
+/// unblocks ([`DependencyGraph::unblock_score`], higher first). State and id
+/// break the remaining ties, so a frontier where every score is equal keeps
+/// the previous order. A blocker cycle cannot be scored and falls back to
+/// that tie-break.
+///
 /// # Errors
 ///
 /// Does not fail for a parsed catalog.
@@ -368,10 +375,30 @@ pub fn issues_rows_from(issues: &[IssueRec], q: ListQuery) -> Result<Vec<IssueRo
             issue_row(rec),
         ));
     }
+    // Scores come from the whole corpus passed in, not the filtered rows: a
+    // ready issue unblocks work that is itself still blocked, and that work
+    // may sit in another project.
+    let unblock = if q.ready {
+        DependencyGraph::from_headings(issues.iter().map(|rec| &rec.heading))
+            .map(|graph| graph.unblock_scores())
+            .unwrap_or_default()
+    } else {
+        HashMap::new()
+    };
     rows.sort_by(|a, b| {
-        a.0.cmp(&b.0)
-            .then_with(|| a.1.cmp(&b.1))
-            .then_with(|| a.2.cmp(&b.2))
+        let by_priority = a.0.cmp(&b.0);
+        if by_priority != std::cmp::Ordering::Equal {
+            return by_priority;
+        }
+        if q.ready {
+            let right = unblock.get(&b.2).copied().unwrap_or(0.0);
+            let left = unblock.get(&a.2).copied().unwrap_or(0.0);
+            let by_unblock = right.total_cmp(&left);
+            if by_unblock != std::cmp::Ordering::Equal {
+                return by_unblock;
+            }
+        }
+        a.1.cmp(&b.1).then_with(|| a.2.cmp(&b.2))
     });
     let mut out: Vec<IssueRow> = rows.into_iter().map(|r| r.3).collect();
     let offset = q.offset.unwrap_or(0);

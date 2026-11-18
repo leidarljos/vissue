@@ -143,13 +143,23 @@ impl DependencyGraph {
         let Some(&node) = self.ids.get(issue) else {
             return 0.0;
         };
+        score_node(self.dag.graph(), node, &self.reaches())
+    }
+
+    /// [`Self::unblock_score`] for every issue that unblocks something.
+    ///
+    /// One reach pass for the whole graph. A zero is omitted.
+    pub fn unblock_scores(&self) -> HashMap<String, f64> {
         let reach = self.reaches();
-        let mut score = 0.0;
-        for edge in self.dag.graph().edges_directed(node, Direction::Outgoing) {
-            let child = edge.target();
-            score += *edge.weight() * reach.get(&child).copied().unwrap_or(1) as f64;
+        let graph = self.dag.graph();
+        let mut scores = HashMap::new();
+        for (id, &node) in &self.ids {
+            let score = score_node(graph, node, &reach);
+            if score > 0.0 {
+                scores.insert(id.clone(), score);
+            }
         }
-        score
+        scores
     }
 
     /// `reach(i)` for every node, computed sinks-first so a child's set is done
@@ -232,6 +242,19 @@ impl DependencyGraph {
     }
 }
 
+fn score_node(
+    graph: &petgraph::Graph<String, f64, petgraph::Directed, u32>,
+    node: NodeIndex,
+    reach: &HashMap<NodeIndex, usize>,
+) -> f64 {
+    let mut score = 0.0;
+    for edge in graph.edges_directed(node, Direction::Outgoing) {
+        let child = edge.target();
+        score += *edge.weight() * reach.get(&child).copied().unwrap_or(1) as f64;
+    }
+    score
+}
+
 #[cfg(test)]
 mod tests {
     use super::DependencyGraph;
@@ -263,11 +286,7 @@ mod tests {
 
     #[test]
     fn an_unweighted_edge_weighs_one_and_a_marker_is_stored() {
-        let issues = [
-            heading("a", ""),
-            heading("b", "a*2.5"),
-            heading("c", "a"),
-        ];
+        let issues = [heading("a", ""), heading("b", "a*2.5"), heading("c", "a")];
         let graph = DependencyGraph::from_headings(issues.iter()).unwrap();
         assert_eq!(graph.edge_weight("a", "b"), Some(2.5));
         assert_eq!(graph.edge_weight("a", "c"), Some(1.0));
