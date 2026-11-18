@@ -106,16 +106,8 @@ requires deedar to be installed: the tracker only ever stores the id.
 
 * 5. Watch the backlog open up, and hand the product on
 
-#+begin_src console
-$ vissue update parser-3xq7 --unblock parser-k29f
-parser-3xq7: state BLOCKED -> TODO (auto on unblock), blocked_by -= parser-k29f
-$ vissue ready
-parser-3xq7            TODO      [#A]  Publish the release notes
-#+end_src
-
-Unblocking dropped the edge, so =recall= now has nothing to hand over. Ask it
-before clearing the blocker instead, which is the ordinary order: the next
-worker claims, reads what its inputs produced, and only then starts.
+Ask =recall= before clearing the blocker. The next worker reads what its
+inputs produced and only then removes the edge.
 
 #+begin_src console
 $ vissue recall parser-3xq7
@@ -130,6 +122,15 @@ Produced
 
 Body
   (no body)
+#+end_src
+
+Now remove the edge and watch the issue become workable:
+
+#+begin_src console
+$ vissue update parser-3xq7 --unblock parser-k29f
+parser-3xq7: state BLOCKED -> TODO (auto on unblock), blocked_by -= parser-k29f
+$ vissue ready
+parser-3xq7            TODO      [#A]  Publish the release notes
 #+end_src
 
 * 6. Put a second worker on it
