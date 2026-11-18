@@ -3120,7 +3120,7 @@ _vissue() {
             return 0
             ;;
         vissue__subcmd__update)
-            opts="-s -t -h --state --priority --block --unblock --tag --untag --if-state --if-gen --root --prefix --no-route --help"
+            opts="-s -t -h --state --priority --block --unblock --weight --edge --tag --untag --if-state --if-gen --root --prefix --no-route --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -3143,6 +3143,14 @@ _vissue() {
                     return 0
                     ;;
                 --unblock)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --weight)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --edge)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;

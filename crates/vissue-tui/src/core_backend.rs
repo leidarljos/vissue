@@ -188,6 +188,7 @@ impl BoardBackend for CoreBackend {
                 if_state: req.if_state.as_deref(),
                 if_gen: req.if_gen,
             },
+            vissue_core::Weighting::default(),
         )?;
         self.mut_result(report, &req.id)
     }

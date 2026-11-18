@@ -36,6 +36,23 @@ pub struct ListQuery {
     pub offset: Option<usize>,
 }
 
+/// Importance of one declared edge.
+///
+/// Compared by its bits so a row can stay [`Eq`]. The writer only stores a
+/// finite weight greater than zero, so NaN and negative zero do not appear.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(transparent)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct EdgeWeight(pub f64);
+
+impl PartialEq for EdgeWeight {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.to_bits() == other.0.to_bits()
+    }
+}
+
+impl Eq for EdgeWeight {}
+
 /// One list/ready row: the fields a board or JSON client paints.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -59,6 +76,14 @@ pub struct IssueRow {
     /// `:PARENT:` id, when set.
     #[serde(default)]
     pub parent: Option<String>,
+    /// Non-default importance on declared edges.
+    ///
+    /// The outer key is the relation (`blocked_by`, `parent`,
+    /// `discovered_from`, `pivoted_to`, `org_link`) and the inner key is the
+    /// other issue's id. A weight of 1 is left out, and so is the map when
+    /// every edge weighs 1. `blocked_by` stays the bare id list.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub edge_weights: BTreeMap<String, BTreeMap<String, EdgeWeight>>,
 }
 
 /// One issue as a detail card: properties, tags, file range, body, and logbook.
@@ -92,6 +117,9 @@ pub struct IssueDetail {
     pub deeds: Vec<String>,
     /// `:PARENT:` id, when set.
     pub parent: Option<String>,
+    /// Non-default importance on declared edges. See [`IssueRow::edge_weights`].
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub edge_weights: BTreeMap<String, BTreeMap<String, EdgeWeight>>,
     /// Identity holding the issue, when claimed.
     pub claimed_by: Option<String>,
     /// Org timestamp of the claim.

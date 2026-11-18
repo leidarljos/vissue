@@ -130,6 +130,7 @@ mod tests {
             claimed_by: claimed_by.map(str::to_string),
             claimed_at: None,
             parent: None,
+            edge_weights: std::collections::BTreeMap::new(),
         }
     }
 

@@ -1193,6 +1193,62 @@ fn a_project_comes_into_being_when_something_is_filed_there() {
     assert!(err.contains("Beacon") && err.contains("beacon"), "{err}");
 }
 
+#[test]
+fn update_weight_sets_importance_and_show_and_json_report_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    fs::create_dir_all(root.join("Software")).unwrap();
+    let run = |args: &[&str]| -> std::process::Output {
+        let mut argv = vec!["--root", root.to_str().unwrap()];
+        argv.extend_from_slice(args);
+        vissue_cmd().args(argv).output().unwrap()
+    };
+    let mk = |title: &str| {
+        stdout(&run(&["create", "-p", "atlas", "--quiet", title]))
+            .trim()
+            .to_string()
+    };
+    let waiting = mk("waiting");
+    let heavy = mk("heavy");
+    let light = mk("light");
+    let set = run(&["update", &waiting, "--block", &heavy, "--weight", "2.5"]);
+    assert!(
+        set.status.success(),
+        "{}",
+        String::from_utf8_lossy(&set.stderr)
+    );
+    assert!(
+        run(&["update", &waiting, "--block", &light])
+            .status
+            .success()
+    );
+    let board = fs::read_to_string(root.join("Software/atlas/issues.org")).unwrap();
+    assert!(board.contains(&format!("{heavy}*2.5")), "{board}");
+    assert!(
+        run(&["update", &waiting, "--unblock", &light])
+            .status
+            .success()
+    );
+    let board = fs::read_to_string(root.join("Software/atlas/issues.org")).unwrap();
+    assert!(
+        board.contains(&format!("{heavy}*2.5")),
+        "unblocking stripped the other weight:\n{board}"
+    );
+    let shown = stdout(&run(&["show", &waiting]));
+    assert!(
+        shown.contains("Weights:") && shown.contains(&format!("{heavy}*2.5")),
+        "{shown}"
+    );
+    let json = stdout(&run(&["show", &waiting, "--json"]));
+    assert!(json.contains("edge_weights"), "{json}");
+    assert!(json.contains("2.5"), "{json}");
+    let bare = run(&["update", &waiting, "--weight", "2"]);
+    assert!(
+        !bare.status.success(),
+        "weight without an edge was accepted"
+    );
+}
+
 /// The tracker refuses to write a blocker cycle and `ready` survives one
 /// written by hand.
 #[test]

@@ -209,6 +209,37 @@ pub fn show_all(layout: &Layout) -> Result<String> {
     Ok(out)
 }
 
+/// One line naming every declared edge whose importance is not 1.
+fn weight_line(h: &crate::model::IssueHeading) -> Option<String> {
+    let mut parts = Vec::new();
+    let mut push = |kind: &str, edges: Vec<(String, f64)>| {
+        let kept: Vec<String> = edges
+            .into_iter()
+            .filter(|(_, weight)| !crate::org::is_default_weight(*weight))
+            .map(|(id, weight)| format!("{id}*{}", crate::org::format_weight(weight)))
+            .collect();
+        if !kept.is_empty() {
+            parts.push(format!("{kind} {}", kept.join(" ")));
+        }
+    };
+    push("blocked_by", h.blocked_by_edges());
+    for (key, kind) in [
+        (crate::props::PARENT, "parent"),
+        (crate::props::DISCOVERED_FROM, "discovered_from"),
+        (crate::props::PIVOTED_TO, "pivoted_to"),
+    ] {
+        if let Some((id, weight)) = crate::props::id_edge(&h.properties, key) {
+            push(kind, vec![(id.to_string(), weight)]);
+        }
+    }
+    push("org_link", crate::org::org_link_edges_written(&h.body));
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join(", "))
+    }
+}
+
 fn format_show(
     preamble: &str,
     path: &std::path::Path,
@@ -244,6 +275,9 @@ fn format_show(
             }
             writeln!(out, "  {k}: {v}")?;
         }
+    }
+    if let Some(weights) = weight_line(h) {
+        writeln!(out, "Weights:  {weights}")?;
     }
     writeln!(
         out,

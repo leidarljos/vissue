@@ -185,8 +185,19 @@ enum Command {
         #[arg(long)]
         block: Option<String>,
         /// Remove a blocker edge
-        #[arg(long)]
+        #[arg(long, conflicts_with = "weight")]
         unblock: Option<String>,
+        /// Importance of the edge named by --block or --edge. Finite and greater than zero.
+        #[arg(long, value_name = "WEIGHT", conflicts_with = "unblock")]
+        weight: Option<f64>,
+        /// Reweight an existing edge: parent, discovered-from, pivoted-to, or link:ID
+        #[arg(
+            long,
+            value_name = "EDGE",
+            requires = "weight",
+            conflicts_with = "block"
+        )]
+        edge: Option<String>,
         /// Add a tag; repeat it, or give several with commas
         #[arg(short = 't', long = "tag")]
         tag: Vec<String>,
@@ -230,7 +241,7 @@ enum Command {
         #[arg(long)]
         reason: Option<String>,
     },
-    /// Actionable issues: TODO or STARTED with no open blocker.
+    /// Actionable issues: TODO or STARTED with no open blocker, highest priority first, then the weighted work each one unblocks.
     Ready {
         /// Only this project; every project when omitted
         #[arg(short = 'p', short_alias = 'P', long)]
@@ -1674,11 +1685,16 @@ fn run() -> Result<()> {
             priority,
             block,
             unblock,
+            weight,
+            edge,
             tag,
             untag,
             if_state,
             if_gen,
         } => {
+            if weight.is_some() && block.is_none() && edge.is_none() {
+                anyhow::bail!("--weight requires --block or --edge");
+            }
             let found = layout_for_id(&router, &id)?;
             if !tag.is_empty() || !untag.is_empty() {
                 let changed = ops::retag(&found, &id, &tag, &untag)?;
@@ -1690,11 +1706,16 @@ fn run() -> Result<()> {
                         changed.join(", ")
                     }
                 );
-                if state.is_none() && priority.is_none() && block.is_none() && unblock.is_none() {
+                if state.is_none()
+                    && priority.is_none()
+                    && block.is_none()
+                    && unblock.is_none()
+                    && weight.is_none()
+                {
                     return Ok(());
                 }
             }
-            let outcome = ops::update_pred(
+            let outcome = ops::update_weighted(
                 &found,
                 &id,
                 state.as_deref(),
@@ -1704,6 +1725,10 @@ fn run() -> Result<()> {
                 UpdatePred {
                     if_state: if_state.as_deref(),
                     if_gen,
+                },
+                ops::Weighting {
+                    weight,
+                    edge: edge.as_deref(),
                 },
             )?;
             emit!("{}", outcome.report);

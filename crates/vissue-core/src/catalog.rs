@@ -220,7 +220,7 @@ impl<'a> CatalogService<'a> {
     ///
     /// Returns an error if `id` is not in the catalog.
     pub fn detail(&self, id: &str) -> Result<IssueDetail> {
-        Ok(issue_detail(self.rec(id)?))
+        Ok(issue_detail(self.rec(id)?, self.issues))
     }
 
     /// On-disk heading range, capped. Credential-shaped text is labeled, not withheld.
@@ -372,7 +372,7 @@ pub fn issues_rows_from(issues: &[IssueRec], q: ListQuery) -> Result<Vec<IssueRo
             rec.heading.priority,
             rec.heading.state.clone(),
             rec.heading.id.clone(),
-            issue_row(rec),
+            issue_row(rec, issues),
         ));
     }
     // Scores come from the whole corpus passed in, not the filtered rows: a
@@ -503,6 +503,42 @@ impl<'a> Holds<'a> {
     }
 }
 
+/// Non-default importance on the heading's declared edges.
+///
+/// Org links count only when the target is an id in `corpus`.
+fn edge_weights_of(
+    heading: &IssueHeading,
+    corpus: &[IssueRec],
+) -> std::collections::BTreeMap<String, std::collections::BTreeMap<String, crate::views::EdgeWeight>>
+{
+    let known: HashSet<&str> = corpus.iter().map(|rec| rec.heading.id.as_str()).collect();
+    let mut out = std::collections::BTreeMap::new();
+    let mut put = |kind: &str, id: &str, weight: f64| {
+        if crate::org::is_default_weight(weight) {
+            return;
+        }
+        out.entry(kind.to_string())
+            .or_insert_with(std::collections::BTreeMap::new)
+            .insert(id.to_string(), crate::views::EdgeWeight(weight));
+    };
+    for (id, weight) in heading.blocked_by_edges() {
+        put("blocked_by", &id, weight);
+    }
+    for (key, kind) in [
+        (crate::props::PARENT, "parent"),
+        (crate::props::DISCOVERED_FROM, "discovered_from"),
+        (crate::props::PIVOTED_TO, "pivoted_to"),
+    ] {
+        if let Some((id, weight)) = crate::props::id_edge(&heading.properties, key) {
+            put(kind, id, weight);
+        }
+    }
+    for (id, weight) in crate::org::org_link_edges(&heading.body, &known) {
+        put("org_link", &id, weight);
+    }
+    out
+}
+
 fn list_query_matches(rec: &IssueRec, needle: &str) -> bool {
     let h = &rec.heading;
     let needle = needle.to_lowercase();
@@ -517,7 +553,7 @@ fn list_query_matches(rec: &IssueRec, needle: &str) -> bool {
         .any(|(k, v)| k.to_lowercase().contains(&needle) || v.to_lowercase().contains(&needle))
 }
 
-fn issue_row(rec: &IssueRec) -> IssueRow {
+fn issue_row(rec: &IssueRec, corpus: &[IssueRec]) -> IssueRow {
     IssueRow {
         id: rec.heading.id.clone(),
         state: rec.heading.state.clone(),
@@ -528,10 +564,11 @@ fn issue_row(rec: &IssueRec) -> IssueRow {
         claimed_by: rec.heading.claimed_by().map(str::to_string),
         claimed_at: rec.heading.claimed_at().map(str::to_string),
         parent: rec.heading.parent().map(str::to_string),
+        edge_weights: edge_weights_of(&rec.heading, corpus),
     }
 }
 
-fn issue_detail(rec: &IssueRec) -> IssueDetail {
+fn issue_detail(rec: &IssueRec, corpus: &[IssueRec]) -> IssueDetail {
     IssueDetail {
         id: rec.heading.id.clone(),
         project: rec.project.clone(),
@@ -544,6 +581,7 @@ fn issue_detail(rec: &IssueRec) -> IssueDetail {
         tags: rec.tag_settings.all_tags(&rec.heading.tags()),
         blocked_by: rec.heading.blocked_by(),
         parent: rec.heading.parent().map(str::to_string),
+        edge_weights: edge_weights_of(&rec.heading, corpus),
         claimed_by: rec.heading.claimed_by().map(str::to_string),
         claimed_at: rec.heading.claimed_at().map(str::to_string),
         file: format!(

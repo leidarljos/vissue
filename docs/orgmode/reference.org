@@ -173,6 +173,8 @@ Usage: =vissue update [OPTIONS] <ID>=
 | =--priority= =<PRIORITY>= | New priority: A, B, or C |
 | =--block= =<BLOCK>= | Add a blocker edge |
 | =--unblock= =<UNBLOCK>= | Remove a blocker edge |
+| =--weight= =<WEIGHT>= | Importance of the edge named by =--block= or =--edge=. Finite and greater than zero |
+| =--edge= =<EDGE>= | Reweight an existing edge: parent, discovered-from, pivoted-to, or link:ID |
 | =-t=, =--tag= =<TAG>= | Add a tag; repeat it, or give several with commas |
 | =--untag= =<UNTAG>= | Remove a tag; repeat it, or give several with commas |
 | =--if-state= =<IF_STATE>= | Refuse unless the heading is still this state |
@@ -211,7 +213,7 @@ Usage: =vissue reject [OPTIONS] <ID> [TITLE]=
 
 ** =ready=
 
-Actionable issues: TODO or STARTED with no open blocker
+Actionable issues: TODO or STARTED with no open blocker, highest priority first, then the weighted work each one unblocks
 
 Usage: =vissue ready [OPTIONS]=
 

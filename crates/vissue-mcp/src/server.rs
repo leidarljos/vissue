@@ -306,7 +306,7 @@ impl VissueServer {
         Parameters(args): Parameters<UpdateArgs>,
     ) -> Result<CallToolResult, McpError> {
         let outcome = self.layout_for_id(&args.issue_id).and_then(|layout| {
-            ops::update_pred(
+            ops::update_weighted(
                 &layout,
                 &args.issue_id,
                 args.state.as_deref(),
@@ -316,6 +316,10 @@ impl VissueServer {
                 UpdatePred {
                     if_state: args.if_state.as_deref(),
                     if_gen: args.if_gen,
+                },
+                ops::Weighting {
+                    weight: args.weight,
+                    edge: args.edge.as_deref(),
                 },
             )
         });
@@ -1975,6 +1979,8 @@ mod tests {
                 priority: Some("C".into()),
                 block: None,
                 unblock: None,
+                weight: None,
+                edge: None,
                 if_state: None,
                 if_gen: None,
             }))
@@ -1984,6 +1990,36 @@ mod tests {
         let done = std::fs::read_to_string(layout.project_issues_path("atlas")).unwrap();
         assert!(done.contains("DONE"), "{done}");
         assert!(done.contains("[#C]"), "{done}");
+    }
+
+    #[tokio::test]
+    async fn an_update_writes_the_weight_it_was_given() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = Layout::new(dir.path(), DEFAULT_PREFIX);
+        std::fs::create_dir_all(layout.projects_dir()).unwrap();
+        ops::create(&layout, "atlas", "one", CreateOpts::default()).unwrap();
+        ops::create(&layout, "atlas", "two", CreateOpts::default()).unwrap();
+        let all = vissue_core::store::load_all(&layout).unwrap();
+        let one = all[0].1.id.clone();
+        let two = all[1].1.id.clone();
+        let server = VissueServer::with_layout(layout.clone());
+        let updated = server
+            .vissue_update(Parameters(UpdateArgs {
+                issue_id: two.clone(),
+                state: None,
+                priority: None,
+                block: Some(one.clone()),
+                unblock: None,
+                weight: Some(3.0),
+                edge: None,
+                if_state: None,
+                if_gen: None,
+            }))
+            .await
+            .unwrap();
+        assert_eq!(updated.is_error, Some(false));
+        let file = std::fs::read_to_string(layout.project_issues_path("atlas")).unwrap();
+        assert!(file.contains(&format!("{one}*3")), "{file}");
     }
 
     #[tokio::test]
