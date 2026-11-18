@@ -143,7 +143,7 @@ one's work. The identity is an opaque string: a person, a machine, a script.
 $ VISSUE_AGENT=impl-1 vissue claim parser-3xq7
 claimed parser-3xq7 by impl-1 (TODO -> STARTED)
 
-$ VISSUE_AGENT=impl-2 vissue ready
+$ VISSUE_AGENT=impl-2 vissue ready --unclaimed
 # empty: the only open work is claimed
 #+end_src
 
