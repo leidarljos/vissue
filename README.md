@@ -56,10 +56,14 @@ $ mkdir -p /tmp/vissue-demo && cd /tmp/vissue-demo
 $ export VISSUE_ROOT=$PWD
 
 $ vissue create --project parser "Reject a manifest with no header"
+project: parser
 parser-k29f  TODO  [#C]  Reject a manifest with no header
+file: /tmp/vissue-demo/Software/parser/issues.org
 
 $ vissue create --project parser --priority A "Publish the release notes"
+project: parser
 parser-3xq7  TODO  [#A]  Publish the release notes
+file: /tmp/vissue-demo/Software/parser/issues.org
 
 $ vissue update parser-3xq7 --block parser-k29f
 parser-3xq7: state TODO -> BLOCKED (auto on block), blocked_by += parser-k29f
