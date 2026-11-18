@@ -172,7 +172,7 @@ enum Command {
         #[arg(long, conflicts_with = "json")]
         org: bool,
     },
-    /// Update state, priority, or blocker edges.
+    /// Update an issue; close it with `--state DONE`.
     Update {
         id: String,
         /// New state: TODO, STARTED, BLOCKED, DONE, or CANCELLED
