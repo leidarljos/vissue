@@ -6,15 +6,19 @@ use crate::error::Result;
 use daggy::{Dag, NodeIndex};
 use petgraph::Direction;
 use petgraph::algo::{has_path_connecting, toposort};
+use petgraph::visit::EdgeRef;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::error::Error;
 use crate::model::IssueHeading;
 
 /// A blocker edge points from the prerequisite to the issue waiting on it.
+///
+/// The edge value is that dependency's importance. A token with no marker
+/// weighs [`crate::org::DEFAULT_EDGE_WEIGHT`].
 #[derive(Debug)]
 pub struct DependencyGraph {
-    dag: Dag<String, ()>,
+    dag: Dag<String, f64>,
     ids: HashMap<String, NodeIndex>,
 }
 
@@ -53,7 +57,7 @@ impl DependencyGraph {
             graph.ids.insert(issue.id.clone(), node);
         }
         for issue in &headings {
-            for blocker in issue.blocked_by() {
+            for (blocker, weight) in issue.blocked_by_edges() {
                 let Some(&from) = graph.ids.get(&blocker) else {
                     continue;
                 };
@@ -66,7 +70,7 @@ impl DependencyGraph {
                 }
                 graph
                     .dag
-                    .add_edge(from, to, ())
+                    .add_edge(from, to, weight)
                     .map_err(|_| anyhow!("blocker cycle involving {} and {}", blocker, issue.id))?;
             }
         }
@@ -109,6 +113,65 @@ impl DependencyGraph {
             .map(|node| self.dag.graph()[node].clone())
             .collect::<Vec<_>>();
         Ok(ids)
+    }
+
+    /// Importance of the edge from `blocker` to `issue`, when that edge exists.
+    pub fn edge_weight(&self, blocker: &str, issue: &str) -> Option<f64> {
+        let (&from, &to) = (self.ids.get(blocker)?, self.ids.get(issue)?);
+        self.dag
+            .graph()
+            .edges_connecting(from, to)
+            .next()
+            .map(|edge| *edge.weight())
+    }
+
+    /// How much weighted work `issue` unblocks.
+    ///
+    /// An edge `b → i` of weight `w(b, i)` means `i` lists `b` in
+    /// `:BLOCKED_BY:`. `reach(i)` counts `i` and every issue reachable from it:
+    ///
+    /// ```text
+    /// reach(i) = 1 + |{ j : a blocker path i → j exists }|
+    /// unblock(b) = Σ_{i : b → i} w(b, i) · reach(i)
+    /// ```
+    ///
+    /// A missing id scores 0. An unweighted edge weighs 1, so it contributes
+    /// the size of the work behind it. A shared descendant is counted once
+    /// inside `reach` and again for each direct edge that leads to it, because
+    /// each of those edges is a separate way the work is held.
+    pub fn unblock_score(&self, issue: &str) -> f64 {
+        let Some(&node) = self.ids.get(issue) else {
+            return 0.0;
+        };
+        let reach = self.reaches();
+        let mut score = 0.0;
+        for edge in self.dag.graph().edges_directed(node, Direction::Outgoing) {
+            let child = edge.target();
+            score += *edge.weight() * reach.get(&child).copied().unwrap_or(1) as f64;
+        }
+        score
+    }
+
+    /// `reach(i)` for every node, computed sinks-first so a child's set is done
+    /// before the nodes that point at it.
+    fn reaches(&self) -> HashMap<NodeIndex, usize> {
+        let graph = self.dag.graph();
+        let order = toposort(graph, None).unwrap_or_default();
+        let mut descendants: HashMap<NodeIndex, HashSet<NodeIndex>> = HashMap::new();
+        for node in order.into_iter().rev() {
+            let mut below = HashSet::new();
+            for child in graph.neighbors_directed(node, Direction::Outgoing) {
+                below.insert(child);
+                if let Some(further) = descendants.get(&child) {
+                    below.extend(further.iter().copied());
+                }
+            }
+            descendants.insert(node, below);
+        }
+        descendants
+            .into_iter()
+            .map(|(node, below)| (node, 1 + below.len()))
+            .collect()
     }
 
     /// Return nodes that transitively block issue, bounded by hop depth.
@@ -166,5 +229,69 @@ impl DependencyGraph {
         }
         result.sort();
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DependencyGraph;
+    use crate::model::IssueHeading;
+    use std::collections::BTreeMap;
+
+    fn heading(id: &str, blocked: &str) -> IssueHeading {
+        let mut properties = BTreeMap::new();
+        properties.insert("ID".into(), id.into());
+        if !blocked.is_empty() {
+            properties.insert("BLOCKED_BY".into(), blocked.into());
+        }
+        IssueHeading {
+            id: id.into(),
+            title: id.into(),
+            state: "TODO".into(),
+            priority: 'B',
+            properties,
+            org_tags: Vec::new(),
+            statistics: None,
+            property_order: vec!["ID".into(), "BLOCKED_BY".into()],
+            extra_drawers: Vec::new(),
+            body: String::new(),
+            logbook: Vec::new(),
+            line_start: 1,
+            line_end: 4,
+        }
+    }
+
+    #[test]
+    fn an_unweighted_edge_weighs_one_and_a_marker_is_stored() {
+        let issues = [
+            heading("a", ""),
+            heading("b", "a*2.5"),
+            heading("c", "a"),
+        ];
+        let graph = DependencyGraph::from_headings(issues.iter()).unwrap();
+        assert_eq!(graph.edge_weight("a", "b"), Some(2.5));
+        assert_eq!(graph.edge_weight("a", "c"), Some(1.0));
+        assert_eq!(graph.edge_weight("b", "c"), None);
+    }
+
+    #[test]
+    fn unblock_score_is_weight_times_downstream_reach() {
+        // a -2→ b -1→ d
+        // a -1→ c -1→ d
+        // reach(d) = 1, reach(b) = 2, reach(c) = 2
+        // unblock(a) = 2*2 + 1*2 = 6
+        // unblock(b) = 1*1 = 1
+        let issues = [
+            heading("a", ""),
+            heading("b", "a*2"),
+            heading("c", "a"),
+            heading("d", "b c"),
+        ];
+        let graph = DependencyGraph::from_headings(issues.iter()).unwrap();
+        assert!((graph.unblock_score("a") - 6.0).abs() < 1e-9);
+        assert!((graph.unblock_score("b") - 1.0).abs() < 1e-9);
+        assert!((graph.unblock_score("c") - 1.0).abs() < 1e-9);
+        assert!((graph.unblock_score("d") - 0.0).abs() < 1e-9);
+        assert!((graph.unblock_score("missing") - 0.0).abs() < 1e-9);
     }
 }
