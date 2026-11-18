@@ -288,7 +288,9 @@ $ vissue impact parser-k29f --depth 3
 
 =related= gives a bounded, derived neighbourhood. Explicit =:PARENT:=,
 =:BLOCKED_BY:=, =:DISCOVERED_FROM:=, a shared deed, and Org body links rank
-above shared tags and rare terms. The result names its evidence and writes nothing back.
+above shared tags and rare terms. A trailing =*N= on one of those edges is
+its importance, and the ranking counts the edge in proportion to that
+weight. The result names its evidence and writes nothing back.
 
 #+begin_src console
 $ vissue related parser-k29f --depth 2 --limit 20 --format org

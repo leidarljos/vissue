@@ -1642,7 +1642,9 @@ the stationary distribution of =P=.
 That default is why the verb is safe on a tracker nobody has configured: every
 agent listens to every other equally, the influence matrix is doubly
 stochastic, and the consensus is the tally as a fraction. Configuration only
-ever moves weight away from that.
+ever moves weight away from that. =self_weight= is this holding probability.
+It is not the importance of a blocker or a link; that lives on the edge as a
+trailing =*N=.
 
 The report prints the count and the weighted position together, because the
 useful thing about the weighted answer is where it differs, and a reader shown
