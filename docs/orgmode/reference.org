@@ -159,7 +159,7 @@ Usage: =vissue show [OPTIONS] [ID]=
 
 ** =update=
 
-Update state, priority, or blocker edges
+Update an issue; close it with =--state DONE=
 
 Usage: =vissue update [OPTIONS] <ID>=
 

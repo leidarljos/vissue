@@ -12,7 +12,10 @@ Creating the first issue creates the file.
 
 #+begin_src console
 $ mkdir -p /tmp/demo && cd /tmp/demo
+$ export VISSUE_ROOT=$PWD
+$ export VISSUE_NO_ROUTE=1
 $ vissue create --project parser "Reject a manifest with no header"
+project: parser
 parser-k29f  TODO  [#C]  Reject a manifest with no header
 file: /tmp/demo/Software/parser/issues.org
 #+end_src
@@ -53,7 +56,9 @@ join that lock.
 $ vissue create --project parser --priority A \
     --body "Scope: the error message quoted in the release notes." \
     "Publish the release notes"
+project: parser
 parser-3xq7  TODO  [#A]  Publish the release notes
+file: /tmp/demo/Software/parser/issues.org
 
 $ vissue update parser-3xq7 --block parser-k29f
 parser-3xq7: state TODO -> BLOCKED (auto on block), blocked_by += parser-k29f
@@ -102,16 +107,8 @@ requires deedar to be installed: the tracker only ever stores the id.
 
 * 5. Watch the backlog open up, and hand the product on
 
-#+begin_src console
-$ vissue update parser-3xq7 --unblock parser-k29f
-parser-3xq7: state BLOCKED -> TODO (auto on unblock), blocked_by -= parser-k29f
-$ vissue ready
-parser-3xq7            TODO      [#A]  Publish the release notes
-#+end_src
-
-Unblocking dropped the edge, so =recall= now has nothing to hand over. Ask it
-before clearing the blocker instead, which is the ordinary order: the next
-worker claims, reads what its inputs produced, and only then starts.
+Ask =recall= before clearing the blocker. The next worker reads what its
+inputs produced and only then removes the edge.
 
 #+begin_src console
 $ vissue recall parser-3xq7
@@ -125,7 +122,16 @@ Produced
   (nothing cited yet)
 
 Body
-  (no body)
+  Scope: the error message quoted in the release notes.
+#+end_src
+
+Now remove the edge and watch the issue become workable:
+
+#+begin_src console
+$ vissue update parser-3xq7 --unblock parser-k29f
+parser-3xq7: state BLOCKED -> TODO (auto on unblock), blocked_by -= parser-k29f
+$ vissue ready
+parser-3xq7            TODO      [#A]  Publish the release notes
 #+end_src
 
 * 6. Put a second worker on it
@@ -138,7 +144,7 @@ one's work. The identity is an opaque string: a person, a machine, a script.
 $ VISSUE_AGENT=impl-1 vissue claim parser-3xq7
 claimed parser-3xq7 by impl-1 (TODO -> STARTED)
 
-$ VISSUE_AGENT=impl-2 vissue ready
+$ VISSUE_AGENT=impl-2 vissue ready --unclaimed
 # empty: the only open work is claimed
 #+end_src
 
@@ -159,9 +165,10 @@ Two writers do not last-write-wins. Name the generation you read, and a
 later write refuses if the corpus moved:
 
 #+begin_src console
-$ vissue gen
-7
-$ vissue update parser-3xq7 --state DONE --if-gen 7
+$ generation=$(vissue gen)
+$ printf '%s\n' "$generation"
+13
+$ vissue update parser-3xq7 --state DONE --if-gen "$generation"
 #+end_src
 
 =gen=, =events --since=, and =wait= are the log a second process polls.

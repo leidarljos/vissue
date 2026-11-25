@@ -227,6 +227,18 @@ fn hud_help_names_rofi_and_iced() {
 }
 
 #[test]
+fn update_help_explains_how_to_close_an_issue() {
+    let out = vissue(&["update", "--help"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = stdout(&out);
+    assert!(text.contains("close it with `--state DONE`"), "{text}");
+}
+
+#[test]
 fn iced_hud_without_binary_exits_127() {
     let out = vissue_cmd()
         .args(["--root", fixture_root().to_str().unwrap(), "hud"])

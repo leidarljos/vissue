@@ -39,6 +39,12 @@ Linux targets are aarch64-unknown-linux-gnu and x86_64-unknown-linux-gnu.
 `cargo install` takes the same names and builds from source.
 `vissue completions zsh` and `vissue man` come out of the binary.
 
+From a source checkout, install the CLI directly:
+
+```console
+$ cargo install --locked --path crates/vissue-cli
+```
+
 The leidarljos marketplace in
 [leidarljos/ljos](https://github.com/leidarljos/ljos) installs this MCP
 server as `vissue@leidarljos`. `vissue-mcp` stays on `PATH`.
@@ -46,11 +52,19 @@ server as `vissue@leidarljos`. `vissue-mcp` stays on `PATH`.
 ## A minute of it
 
 ```console
+$ mkdir -p /tmp/vissue-demo && cd /tmp/vissue-demo
+$ export VISSUE_ROOT=$PWD
+$ export VISSUE_NO_ROUTE=1
+
 $ vissue create --project parser "Reject a manifest with no header"
+project: parser
 parser-k29f  TODO  [#C]  Reject a manifest with no header
+file: /tmp/vissue-demo/Software/parser/issues.org
 
 $ vissue create --project parser --priority A "Publish the release notes"
+project: parser
 parser-3xq7  TODO  [#A]  Publish the release notes
+file: /tmp/vissue-demo/Software/parser/issues.org
 
 $ vissue update parser-3xq7 --block parser-k29f
 parser-3xq7: state TODO -> BLOCKED (auto on block), blocked_by += parser-k29f
@@ -62,8 +76,10 @@ parser-k29f            TODO      [#C]  Reject a manifest with no header
 The files land under `<root>/Software/<project>/issues.org`; the prefix
 is configurable and `<root>` comes from `--root`, `VISSUE_ROOT`, or a
 user-level route table that sends named projects to other checkouts.
-A write names the generation it read: `vissue update parser-3xq7 --state DONE --if-gen 7`.
-`vissue gen` prints that generation and `vissue events` is the log of writes.
+A write names the generation it read:
+`generation=$(vissue gen)` followed by
+`vissue update parser-3xq7 --state DONE --if-gen "$generation"`.
+`vissue events` is the log of writes.
 Agents never `Write` or `StrReplace` an `issues.org`.
 
 ## Documentation
