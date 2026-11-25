@@ -19,6 +19,64 @@ use crate::views::{
 pub(crate) const BODY_EXCERPT_MAX_LINES: usize = 40;
 pub(crate) const BODY_EXCERPT_MAX_CHARS: usize = 4000;
 
+/// An owned, reusable view of one tracker corpus.
+///
+/// Loading a snapshot reads every project once, shares parsed setup-file
+/// settings across those reads, and indexes live claims by issue id. Callers
+/// that perform several queries can keep this value for the lifetime of one
+/// operation instead of reloading the tracker or invoking the `vissue`
+/// executable to discover claims.
+#[derive(Debug)]
+pub struct CatalogSnapshot {
+    issues: Vec<IssueRec>,
+    claims: HashMap<String, String>,
+}
+
+impl CatalogSnapshot {
+    /// Load one tracker and build its claim index.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a project directory cannot be listed or an
+    /// `issues.org` cannot be read or parsed.
+    pub fn load(layout: &Layout) -> Result<Self> {
+        Ok(Self::from_recs(load_recs(layout)?))
+    }
+
+    /// Own records that a caller has already loaded and build their claim
+    /// index without touching the tracker.
+    #[must_use]
+    pub fn from_recs(issues: Vec<IssueRec>) -> Self {
+        let claims = issues
+            .iter()
+            .filter_map(|rec| {
+                rec.heading
+                    .claimed_by()
+                    .map(|holder| (rec.heading.id.clone(), holder.to_string()))
+            })
+            .collect();
+        Self { issues, claims }
+    }
+
+    /// Every parsed issue record, in project and file order.
+    #[must_use]
+    pub fn records(&self) -> &[IssueRec] {
+        &self.issues
+    }
+
+    /// The identity holding `id` in this snapshot, when it has a live claim.
+    #[must_use]
+    pub fn claimed_by(&self, id: &str) -> Option<&str> {
+        self.claims.get(id).map(String::as_str)
+    }
+
+    /// Read-only catalog queries over this snapshot.
+    #[must_use]
+    pub fn service(&self) -> CatalogService<'_> {
+        CatalogService::from_recs(&self.issues)
+    }
+}
+
 /// Snapshot every heading across every project, with the path `detail` and
 /// `excerpt` need.
 ///
@@ -30,28 +88,31 @@ pub fn load_recs(layout: &Layout) -> Result<Vec<IssueRec>> {
     // See `store::load_all`: one file per project, nothing shared, and the
     // collect keeps project order.
     use rayon::prelude::*;
+    let setup_files = crate::org::setup_file_cache();
     let per_project: Vec<Vec<IssueRec>> = list_projects(layout)?
         .into_par_iter()
         .map(|project| {
-            let path = layout.project_issues_path(&project);
-            let doc = IssueDoc::parse_file(&project, &path)?;
-            let tag_settings = doc.tag_settings.clone();
-            let files: Vec<std::path::PathBuf> = doc
-                .headings
-                .iter()
-                .map(|heading| doc.heading_path(&heading.id).to_path_buf())
-                .collect();
-            Ok(doc
-                .headings
-                .into_iter()
-                .zip(files)
-                .map(|(heading, file)| IssueRec {
-                    project: project.clone(),
-                    heading,
-                    path: file,
-                    tag_settings: tag_settings.clone(),
-                })
-                .collect())
+            crate::org::with_setup_file_cache(&setup_files, || {
+                let path = layout.project_issues_path(&project);
+                let doc = IssueDoc::parse_file(&project, &path)?;
+                let tag_settings = doc.tag_settings.clone();
+                let files: Vec<std::path::PathBuf> = doc
+                    .headings
+                    .iter()
+                    .map(|heading| doc.heading_path(&heading.id).to_path_buf())
+                    .collect();
+                Ok(doc
+                    .headings
+                    .into_iter()
+                    .zip(files)
+                    .map(|(heading, file)| IssueRec {
+                        project: project.clone(),
+                        heading,
+                        path: file,
+                        tag_settings: tag_settings.clone(),
+                    })
+                    .collect())
+            })
         })
         .collect::<Result<Vec<_>>>()?;
     Ok(per_project.into_iter().flatten().collect())
@@ -1541,5 +1602,27 @@ mod shared_corpus_tests {
         });
         let after = shared_recs(&layout).unwrap();
         assert!(!std::sync::Arc::ptr_eq(&outside_a, &after));
+    }
+
+    #[test]
+    fn snapshot_keeps_records_and_claims_from_the_same_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = Layout::new(dir.path(), "Software");
+        let path = dir.path().join("Software/acme/issues.org");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            "#+TODO: TODO STARTED | DONE\n\n* STARTED Work\n:PROPERTIES:\n:ID: acme-1a2b\n:CLAIMED_BY: alice\n:END:\n",
+        )
+        .unwrap();
+
+        let snapshot = CatalogSnapshot::load(&layout).unwrap();
+        assert_eq!(snapshot.records().len(), 1);
+        assert_eq!(snapshot.claimed_by("acme-1a2b"), Some("alice"));
+        assert_eq!(snapshot.claimed_by("missing"), None);
+        assert_eq!(
+            snapshot.service().detail("acme-1a2b").unwrap().id,
+            "acme-1a2b"
+        );
     }
 }

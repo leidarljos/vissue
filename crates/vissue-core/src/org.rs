@@ -10,6 +10,35 @@
 
 use crate::model::TODO_KEYWORDS;
 
+type SetupFileCache = std::sync::Arc<
+    std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, Option<std::sync::Arc<String>>>>,
+>;
+
+thread_local! {
+    static SETUP_FILE_CACHE: std::cell::RefCell<Option<SetupFileCache>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+pub(crate) fn setup_file_cache() -> SetupFileCache {
+    std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+pub(crate) fn with_setup_file_cache<R>(cache: &SetupFileCache, f: impl FnOnce() -> R) -> R {
+    struct Restore(Option<SetupFileCache>);
+
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            SETUP_FILE_CACHE.with(|slot| {
+                slot.replace(self.0.take());
+            });
+        }
+    }
+
+    let previous = SETUP_FILE_CACHE.with(|slot| slot.replace(Some(cache.clone())));
+    let _restore = Restore(previous);
+    f()
+}
+
 /// Keywords Org writes on the planning line, in the order Org writes them.
 pub const PLANNING_KEYS: &[&str] = &["CLOSED", "SCHEDULED", "DEADLINE"];
 
@@ -1210,20 +1239,40 @@ fn collect_setupfile_settings(
         if !seen.insert(key) {
             continue;
         }
-        let Ok(body) = std::fs::read_to_string(&path) else {
+        let Some(keywords) = setup_file_settings(&path) else {
             continue;
         };
-        let keywords: String = body
-            .lines()
-            .filter(|l| l.trim_start().starts_with("#+"))
-            .collect::<Vec<_>>()
-            .join("\n");
         if !keywords.is_empty() {
             out.push_str(&keywords);
             out.push('\n');
         }
         collect_setupfile_settings(&keywords, path.parent(), seen, depth + 1, out);
     }
+}
+
+fn setup_file_settings(path: &std::path::Path) -> Option<std::sync::Arc<String>> {
+    let read = || {
+        let body = std::fs::read_to_string(path).ok()?;
+        Some(std::sync::Arc::new(
+            body.lines()
+                .filter(|line| line.trim_start().starts_with("#+"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ))
+    };
+    let Some(cache) = SETUP_FILE_CACHE.with(|slot| slot.borrow().clone()) else {
+        return read();
+    };
+    let key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let mut entries = cache
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(settings) = entries.get(&key) {
+        return settings.clone();
+    }
+    let settings = read();
+    entries.insert(key, settings.clone());
+    settings
 }
 
 /// Whether the preamble already carries `#+NAME:`.
@@ -2545,6 +2594,25 @@ mod tests {
         assert!(merged.contains("#+CATEGORY: x"), "{merged}");
         assert!(!merged.contains("* not a keyword"), "{merged}");
         assert_eq!(priorities_from_preamble(&merged).lowest, 'D');
+    }
+
+    #[test]
+    fn setupfile_cache_reuses_settings_for_one_corpus_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let setup = dir.path().join("house.org");
+        std::fs::write(&setup, "#+TODO: TODO HOLD | DONE\n").unwrap();
+        let preamble = "#+SETUPFILE: house.org\n";
+        let cache = setup_file_cache();
+
+        with_setup_file_cache(&cache, || {
+            let first = merge_setupfile_settings(preamble, Some(dir.path()));
+            std::fs::write(&setup, "#+TODO: TODO WAIT | DONE\n").unwrap();
+            let second = merge_setupfile_settings(preamble, Some(dir.path()));
+            assert_eq!(second, first);
+        });
+
+        let fresh = merge_setupfile_settings(preamble, Some(dir.path()));
+        assert!(fresh.contains("WAIT"), "{fresh}");
     }
 
     #[test]
