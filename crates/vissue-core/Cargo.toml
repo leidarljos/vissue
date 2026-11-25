@@ -28,7 +28,7 @@ toml.workspace = true
 walkdir.workspace = true
 sha2.workspace = true
 xxhash-rust.workspace = true
-capnp = "0.27"
+capnp = "0.28"
 
 [features]
 # JSON Schema for the view types, for a caller that has to publish the shape it
