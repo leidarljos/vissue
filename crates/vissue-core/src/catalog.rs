@@ -64,6 +64,19 @@ impl CatalogSnapshot {
         &self.issues
     }
 
+    /// Consume the snapshot and return its records without cloning them.
+    #[must_use]
+    pub fn into_records(self) -> Vec<IssueRec> {
+        self.issues
+    }
+
+    /// Every live claim as `(issue id, holder)`, in unspecified order.
+    pub fn claims(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.claims
+            .iter()
+            .map(|(id, holder)| (id.as_str(), holder.as_str()))
+    }
+
     /// The identity holding `id` in this snapshot, when it has a live claim.
     #[must_use]
     pub fn claimed_by(&self, id: &str) -> Option<&str> {
@@ -1621,8 +1634,13 @@ mod shared_corpus_tests {
         assert_eq!(snapshot.claimed_by("acme-1a2b"), Some("alice"));
         assert_eq!(snapshot.claimed_by("missing"), None);
         assert_eq!(
+            snapshot.claims().collect::<Vec<_>>(),
+            vec![("acme-1a2b", "alice")]
+        );
+        assert_eq!(
             snapshot.service().detail("acme-1a2b").unwrap().id,
             "acme-1a2b"
         );
+        assert_eq!(snapshot.into_records().len(), 1);
     }
 }
