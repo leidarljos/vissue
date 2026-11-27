@@ -1687,14 +1687,15 @@ pub fn vote(layout: &Layout, id: &str, choice: Option<&str>, identity: &str) -> 
 /// revision the ballot judged.
 ///
 /// `used` is `none` or accession ids. `confidence` is a decimal in `(0, 1]`.
-/// `rev` is one token. All three are kept on the ballot line and are not part
-/// of the choice. With no choice, `rev` counts only ballots for that revision;
-/// without it the tally is every ballot.
+/// `rev` is one token, kept on the ballot line before the timestamp and not
+/// part of the choice. With no choice, `rev` counts only ballots for that
+/// revision; without it the tally is every ballot.
 ///
 /// # Errors
 ///
-/// Returns an error when `used`, `confidence`, or `rev` is not a single token,
-/// or `confidence` is outside `(0, 1]`. The errors from [`vote`] apply as well.
+/// Returns an error when `used` or `confidence` is not a single token,
+/// `confidence` is outside `(0, 1]`, or `rev` is empty, more than one token,
+/// or contains a control character. The errors from [`vote`] apply as well.
 pub fn vote_with(
     layout: &Layout,
     id: &str,
@@ -1864,9 +1865,14 @@ fn read_ballots(h: &IssueHeading) -> (Vec<Ballot>, Vec<String>) {
     (ballots, foreign)
 }
 
-/// `[date] agent: choice`. The choice may hold ": ", so the first one delimits
-/// and the agent may not contain it; [`vote`] refuses an identity that does.
+/// `[date] agent: choice`, or `[rev=TOKEN] [date] agent: choice`.
+///
+/// The choice may hold ": ", so the first one delimits and the agent may not
+/// contain it; [`vote`] refuses an identity that does. A revision is only the
+/// `[rev=TOKEN]` prefix. Choice text that contains ` rev=` stays the choice:
+/// a line written before revisions opens with the timestamp, never `[rev=`.
 pub(crate) fn parse_ballot(line: &str) -> Option<Ballot> {
+    let (line, rev) = peel_stored_rev(line);
     let (stamp, rest) = line.strip_prefix('[')?.split_once("] ")?;
     let (agent, choice) = rest.split_once(": ")?;
     let agent = agent.trim();
@@ -1874,7 +1880,7 @@ pub(crate) fn parse_ballot(line: &str) -> Option<Ballot> {
     if agent.is_empty() || choice.is_empty() {
         return None;
     }
-    let (choice, used, confidence, rev) = split_ballot_tail(choice);
+    let (choice, used, confidence) = split_ballot_tail(choice);
     if choice.is_empty() {
         return None;
     }
@@ -1913,11 +1919,28 @@ fn clean_confidence(confidence: Option<&str>) -> Result<Option<String>> {
     Ok(Some(confidence.to_string()))
 }
 
-/// `rev` is one token. A blank is the same as absent.
-fn clean_rev(rev: Option<&str>) -> Result<Option<String>> {
-    let Some(rev) = rev.map(str::trim).filter(|s| !s.is_empty()) else {
+/// `rev` is one token. `None` means the caller did not pass one.
+///
+/// Surrounding whitespace is trimmed, so a cast and a `--json` filter name
+/// the same revision. Empty or whitespace-only input is an error, not an
+/// absent revision. A control character is refused so the value cannot break
+/// the ballot line.
+///
+/// # Errors
+///
+/// Returns an error when `rev` is empty, whitespace-only, more than one
+/// token, or contains a control character.
+pub fn clean_rev(rev: Option<&str>) -> Result<Option<String>> {
+    let Some(rev) = rev else {
         return Ok(None);
     };
+    if rev.chars().any(char::is_control) {
+        return Err(anyhow!("--rev cannot contain a control character").into());
+    }
+    let rev = rev.trim();
+    if rev.is_empty() {
+        return Err(anyhow!("--rev is empty").into());
+    }
     if rev.contains(char::is_whitespace) {
         return Err(anyhow!("--rev is one token").into());
     }
@@ -1932,12 +1955,11 @@ fn select_rev(mut ballots: Vec<Ballot>, rev: Option<&str>) -> Vec<Ballot> {
     ballots
 }
 
-/// Split `ship used=none confidence=0.5 rev=r1` into the choice and the tails.
+/// Split `ship used=none confidence=0.5` into the choice and the two tails.
 ///
-/// `rev` is a final token. A line written before revisions existed has none,
-/// and comes back without one.
-fn split_ballot_tail(choice: &str) -> (&str, Option<String>, Option<String>, Option<String>) {
-    let (choice, rev) = peel_rev(choice);
+/// A revision is not one of these tails. It is a prefix, so choice text that
+/// contains ` rev=` is left as the choice.
+fn split_ballot_tail(choice: &str) -> (&str, Option<String>, Option<String>) {
     if let Some((choice, tail)) = choice.split_once(" used=") {
         let (used, confidence) = match tail.split_once(" confidence=") {
             Some((used, confidence)) => (used, Some(confidence.to_string())),
@@ -1948,38 +1970,55 @@ fn split_ballot_tail(choice: &str) -> (&str, Option<String>, Option<String>, Opt
         } else {
             Some(used.to_string())
         };
-        return (choice.trim(), used, confidence, rev);
+        return (choice.trim(), used, confidence);
     }
     if let Some((choice, confidence)) = choice.split_once(" confidence=") {
-        return (choice.trim(), None, Some(confidence.to_string()), rev);
+        return (choice.trim(), None, Some(confidence.to_string()));
     }
-    (choice, None, None, rev)
+    (choice, None, None)
 }
 
-/// Peel a final ` rev=TOKEN` off a ballot choice. A token with whitespace stays
-/// in the choice, so an older line is not reinterpreted.
-fn peel_rev(text: &str) -> (&str, Option<String>) {
-    let Some((head, tail)) = text.rsplit_once(" rev=") else {
-        return (text, None);
+/// Split a stored `[rev=TOKEN] ` prefix off a ballot line.
+///
+/// The base writer opens every ballot with an inactive timestamp
+/// `[YYYY-MM-DD Day]`, so a line it wrote never starts with `[rev=`. The
+/// choice, which may itself contain ` rev=`, sits after `: ` and is not read
+/// as a revision.
+fn peel_stored_rev(line: &str) -> (&str, Option<String>) {
+    let Some(rest) = line.strip_prefix("[rev=") else {
+        return (line, None);
     };
-    if tail.is_empty() || tail.contains(char::is_whitespace) {
-        return (text, None);
+    let Some((token, tail)) = rest.split_once("] ") else {
+        return (line, None);
+    };
+    if token.is_empty() || token.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return (line, None);
     }
-    (head.trim_end(), Some(tail.to_string()))
+    (tail, Some(token.to_string()))
 }
 
 /// One ballot as the drawer writes it. Absent tails are omitted, so a ballot
-/// with no revision is the line it was before the field existed.
+/// with no revision is the line it was before the field existed. A revision
+/// is a `[rev=TOKEN]` prefix, which those older lines do not start with.
 fn ballot_line(ballot: &Ballot) -> String {
-    let mut line = format!("{} {}: {}", ballot.stamp, ballot.agent, ballot.choice);
+    let mut line = String::new();
+    if let Some(rev) = &ballot.rev {
+        line.push_str("[rev=");
+        line.push_str(rev);
+        line.push_str("] ");
+    }
+    line.push_str(&ballot.stamp);
+    line.push(' ');
+    line.push_str(&ballot.agent);
+    line.push_str(": ");
+    line.push_str(&ballot.choice);
     if let Some(used) = &ballot.used {
-        line.push_str(&format!(" used={used}"));
+        line.push_str(" used=");
+        line.push_str(used);
     }
     if let Some(confidence) = &ballot.confidence {
-        line.push_str(&format!(" confidence={confidence}"));
-    }
-    if let Some(rev) = &ballot.rev {
-        line.push_str(&format!(" rev={rev}"));
+        line.push_str(" confidence=");
+        line.push_str(confidence);
     }
     line
 }

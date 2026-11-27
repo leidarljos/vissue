@@ -200,7 +200,7 @@ _arguments "${_arguments_options[@]}" : \
 '(--withdraw)--rev=[Revision this ballot judged. On a tally, count only ballots for it]:REV:_default' \
 '--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
 '--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
-'(--for)--json[The ballots as JSON rows of \`agent\`, \`choice\`, \`stamp\`, and \`rev\`; reads only]' \
+'(--for)--json[JSON rows of \`agent\`, \`choice\`, \`stamp\`, \`used\`, \`confidence\`, and \`rev\`; without \`--rev\`, every ballot; reads only]' \
 '(--for --json)--withdraw[Take back this identity'\''s ballot; the logbook keeps what it was]' \
 '--no-route[Ignore \`\$VISSUE_CONFIG\` / \`~/.config/vissue/config.toml\` and keep every verb on the process default layout]' \
 '-h[Print help (see more with '\''--help'\'')]' \
@@ -1177,7 +1177,7 @@ _vissue_commands() {
 'whoami:Print the identity this tracker would record on a claim' \
 'waiting-on:Issues waiting on this one' \
 'body-excerpt:The first lines of an issue'\''s file range' \
-'find:Issue whose property equals a value' \
+'find:Every match whose property equals a value, one id per line' \
 'search:Substring search over ids, titles, properties, and bodies' \
 'children:Issues whose \`\:PARENT\:\` matches this id' \
 'ancestors:Blockers transitively required by this issue' \
@@ -1353,7 +1353,7 @@ _vissue__subcmd__help_commands() {
 'whoami:Print the identity this tracker would record on a claim' \
 'waiting-on:Issues waiting on this one' \
 'body-excerpt:The first lines of an issue'\''s file range' \
-'find:Issue whose property equals a value' \
+'find:Every match whose property equals a value, one id per line' \
 'search:Substring search over ids, titles, properties, and bodies' \
 'children:Issues whose \`\:PARENT\:\` matches this id' \
 'ancestors:Blockers transitively required by this issue' \

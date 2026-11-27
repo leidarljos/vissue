@@ -284,7 +284,7 @@ enum Command {
         /// What to vote for. Omit to read the tally without casting.
         #[arg(long = "for", value_name = "CHOICE")]
         choice: Option<String>,
-        /// The ballots as JSON rows of `agent`, `choice`, `stamp`, and `rev`; reads only.
+        /// JSON rows of `agent`, `choice`, `stamp`, `used`, `confidence`, and `rev`; without `--rev`, every ballot; reads only.
         #[arg(long, conflicts_with = "choice")]
         json: bool,
         /// Deed accessions this ballot used, or `none`.
@@ -468,7 +468,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Issue whose property equals a value.
+    /// Every match whose property equals a value, one id per line.
     ///
     /// `list` and `search` do not answer an exact property match. The argument
     /// is the key, an equals sign, and the value.
@@ -1894,16 +1894,15 @@ fn run() -> Result<()> {
                 let who = vissue_core::config::identity(&found);
                 emit!("{}", ops::withdraw(&found, &id, &who)?)
             } else if json {
-                if rev
-                    .as_deref()
-                    .is_some_and(|r| r.contains(char::is_whitespace))
-                {
-                    bail!("--rev is one token");
-                }
-                let want = rev.as_deref().map(str::trim).filter(|s| !s.is_empty());
+                // Same trim and refusal as a cast: padding is not a different
+                // revision, and a blank or a control character is an error.
+                let want = ops::clean_rev(rev.as_deref())?;
                 let rows: Vec<serde_json::Value> = ops::ballots(&found, &id)?
                     .iter()
-                    .filter(|b| want.is_none_or(|want| b.rev.as_deref() == Some(want)))
+                    .filter(|b| {
+                        want.as_deref()
+                            .is_none_or(|want| b.rev.as_deref() == Some(want))
+                    })
                     .map(|b| {
                         serde_json::json!({
                             "agent": b.agent,

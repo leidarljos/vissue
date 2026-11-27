@@ -665,13 +665,13 @@ mod tests {
             "acme-1a2b",
             "TODO",
             &[],
-            &votes(&["[2026-09-27 Sun] alice: ship rev=r1"]),
+            &votes(&["[rev=r1] [2026-09-27 Sun] alice: ship"]),
         )]);
         let theirs = file(&[issue(
             "acme-1a2b",
             "TODO",
             &[],
-            &votes(&["[2026-09-28 Mon] bob: hold rev=r2"]),
+            &votes(&["[rev=r2] [2026-09-28 Mon] bob: hold"]),
         )]);
         let m = merge_tracker("acme", &base, &ours, &theirs).unwrap();
         assert_eq!(m.conflicts, 0);
