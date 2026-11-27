@@ -1,11 +1,12 @@
 //! Content-addressed operations and a pure fold into today's in-memory issues.
 //!
 //! The bytes are the canonical Cap'n Proto encoding of `schema/op.capnp`.
-//! The op id hashes the segment only: the segment table is redundant on a
-//! single segment, and the Cap'n Proto rule for signing leaves it out, so two
-//! machines hash the same op to the same id. Wall time is stored and is not
-//! part of the order. Org files stay the source of truth; nothing here writes
-//! one.
+//! Decode accepts a segment only when re-encoding it yields those same bytes,
+//! so an op id, the sha256 of that segment, is the hash of the bytes that were
+//! accepted. The segment table is redundant on a single segment and is not
+//! part of the hash. Wall time is stored and is not part of the order.
+//! Concurrent body edits always clash; fold does not merge them.
+//! Org files stay the source of truth; nothing here writes one.
 
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -123,7 +124,7 @@ pub enum OpKind {
         /// The other issue's short id.
         other: String,
     },
-    /// Replace the body. Concurrent bodies merge line by line when they can.
+    /// Replace the body. Concurrent body edits always clash.
     SetBody {
         /// Body text.
         body: String,
@@ -329,7 +330,9 @@ impl Op {
     ///
     /// # Errors
     ///
-    /// Returns an error when the bytes are not one canonical op.
+    /// Returns an error when the bytes are not the canonical encoding of one
+    /// op, the issue key is not [`IssueKey::derive`] of its project and id, or
+    /// a field name is not one the fold can write.
     pub fn from_message_bytes(bytes: &[u8]) -> Result<Self> {
         if bytes.len() < 8 || !bytes.len().is_multiple_of(8) {
             return Err(bad("op message is not a whole number of words"));
@@ -372,9 +375,11 @@ pub fn describe(project: &str, headings: &[IssueHeading]) -> Result<Vec<Op>> {
 /// Fold `ops` in topological order, ties broken by `(lamport, op id)`.
 ///
 /// The same set folds to the same issues whichever order it is passed in.
-/// A scalar written by two ops that are not ordered by the parent relation
+/// A property written by two ops that are not ordered by the parent relation
 /// stays in [`Folded::conflicts`], and the heading shows the value from the
-/// later `(lamport, op id)`.
+/// later `(lamport, op id)`. Concurrent body edits always clash. Two issues
+/// that share a short id both stay; the later one by `(lamport, op id)` is
+/// shown with a `~N` suffix.
 ///
 /// # Errors
 ///
@@ -477,12 +482,12 @@ struct Live {
     project: String,
     short_id: String,
     heading: IssueHeading,
-    deeds: BTreeSet<String>,
-    blockers: BTreeSet<String>,
     links: BTreeSet<(String, String)>,
     ballots: BTreeMap<String, String>,
     targets: BTreeMap<(String, String), String>,
     retarget: Option<String>,
+    born_lamport: u64,
+    born_id: OpId,
 }
 
 #[derive(Default)]
@@ -494,13 +499,15 @@ struct Writer {
     id: OpId,
     lamport: u64,
     value: String,
+    /// Set-union element (a deed or a link). Pure unions are not a clash.
+    unite: bool,
 }
 
 impl Mem {
     fn finish(self) -> Folded {
         let mut conflicts = Vec::new();
         for ((key, field), frontier) in &self.frontiers {
-            if frontier.writers.len() < 2 {
+            if frontier.writers.len() < 2 || frontier.writers.iter().all(|writer| writer.unite) {
                 continue;
             }
             let Some(live) = self.issues.get(key) else {
@@ -516,9 +523,51 @@ impl Mem {
             });
         }
         conflicts.sort_by(|a, b| (&a.project, &a.id, &a.field).cmp(&(&b.project, &b.id, &b.field)));
+        let mut lives: Vec<(IssueKey, Live)> = self.issues.into_iter().collect();
+        lives.sort_by(|a, b| {
+            (
+                &a.1.project,
+                &a.1.short_id,
+                a.1.born_lamport,
+                a.1.born_id,
+                a.0,
+            )
+                .cmp(&(
+                    &b.1.project,
+                    &b.1.short_id,
+                    b.1.born_lamport,
+                    b.1.born_id,
+                    b.0,
+                ))
+        });
         let mut issues = BTreeMap::new();
-        for live in self.issues.into_values() {
-            issues.insert((live.project, live.short_id), live.heading);
+        let mut index = 0;
+        while index < lives.len() {
+            let mut end = index + 1;
+            while end < lives.len()
+                && lives[end].1.project == lives[index].1.project
+                && lives[end].1.short_id == lives[index].1.short_id
+            {
+                end += 1;
+            }
+            for (rank, (_, live)) in lives[index..end].iter().enumerate() {
+                let shown = if rank == 0 {
+                    live.short_id.clone()
+                } else {
+                    format!("{}~{}", live.short_id, rank + 1)
+                };
+                let mut heading = live.heading.clone();
+                if rank > 0 {
+                    if heading.id == live.short_id {
+                        heading.id = shown.clone();
+                    }
+                    if heading.properties.get("ID").map(String::as_str) == Some(&live.short_id) {
+                        heading.properties.insert("ID".to_string(), shown.clone());
+                    }
+                }
+                issues.insert((live.project.clone(), shown), heading);
+            }
+            index = end;
         }
         Folded { issues, conflicts }
     }
@@ -540,25 +589,29 @@ fn apply(mem: &mut Mem, id: OpId, op: &Op) -> Result<()> {
         OpKind::AppendLog { entry } => append_log(mem, op, entry.clone()),
         OpKind::Ballot {
             voter,
+            rev,
             choice,
             stamp,
-            ..
         } => {
             let line = format!("{stamp} {voter}: {choice}");
-            write_named(mem, id, op, &format!("ballot:{voter}"), &line)
+            let slot = ballot_slot(voter, rev);
+            write_named(mem, id, op, &format!("ballot:{slot}"), &line)
         }
         OpKind::AddRevision { rev_id, summary } => {
             write_named(mem, id, op, &format!("revision:{rev_id}"), summary)
         }
         OpKind::SetTarget { target_id, fields } => {
+            if fields.is_empty() {
+                return write_named(mem, id, op, &format!("target:{target_id}:id"), target_id);
+            }
             for (name, value) in fields {
                 write_named(mem, id, op, &format!("target:{target_id}:{name}"), value)?;
             }
             Ok(())
         }
         OpKind::Retarget { target_id } => write_named(mem, id, op, "retarget", target_id),
-        OpKind::AddDeed { accession } => add_deed(mem, op, accession),
-        OpKind::Link { kind, other } => add_link(mem, op, kind, other),
+        OpKind::AddDeed { accession } => add_deed(mem, id, op, accession),
+        OpKind::Link { kind, other } => add_link(mem, id, op, kind, other),
         OpKind::Retire { reason } => {
             write_named(mem, id, op, "state", "CANCELLED")?;
             if !reason.is_empty() {
@@ -588,6 +641,7 @@ fn apply_create(
     state: &str,
     priority: &str,
 ) -> Result<()> {
+    require_derived(&op.project, short_id, op.issue)?;
     if mem.issues.contains_key(&op.issue) {
         return Err(bad("an issue is created twice"));
     }
@@ -595,11 +649,12 @@ fn apply_create(
     let heading = fresh_heading(short_id, title, state, priority);
     reseed(mem, op.issue, id, op.lamport, &heading);
     mem.issues
-        .insert(op.issue, Live::from_op(op, short_id, heading));
+        .insert(op.issue, Live::from_op(op, short_id, heading, id));
     Ok(())
 }
 
 fn apply_genesis(mem: &mut Mem, id: OpId, op: &Op, heading: &IssueHeading) -> Result<()> {
+    require_derived(&op.project, &heading.id, op.issue)?;
     let key = op.issue;
     let ancestors = mem.ancestors.get(&id).cloned().unwrap_or_default();
     let concurrent = mem
@@ -622,6 +677,7 @@ fn apply_genesis(mem: &mut Mem, id: OpId, op: &Op, heading: &IssueHeading) -> Re
         id,
         lamport: op.lamport,
         value: String::new(),
+        unite: false,
     });
     let winner = slot
         .writers
@@ -642,7 +698,7 @@ fn apply_genesis(mem: &mut Mem, id: OpId, op: &Op, heading: &IssueHeading) -> Re
     }
     reseed(mem, key, id, op.lamport, heading);
     mem.issues
-        .insert(key, Live::from_op(op, &heading.id, heading.clone()));
+        .insert(key, Live::from_op(op, &heading.id, heading.clone(), id));
     Ok(())
 }
 
@@ -685,23 +741,61 @@ fn reseed(mem: &mut Mem, key: IssueKey, id: OpId, lamport: u64, heading: &IssueH
         mem.frontiers.insert(
             (key, field),
             Frontier {
-                writers: vec![Writer { id, lamport, value }],
+                writers: vec![Writer {
+                    id,
+                    lamport,
+                    value,
+                    unite: false,
+                }],
+            },
+        );
+    }
+    for (slot, line) in load_votes(heading) {
+        mem.frontiers.insert(
+            (key, format!("ballot:{slot}")),
+            Frontier {
+                writers: vec![Writer {
+                    id,
+                    lamport,
+                    value: line,
+                    unite: false,
+                }],
             },
         );
     }
 }
 
 fn write_named(mem: &mut Mem, id: OpId, op: &Op, name: &str, value: &str) -> Result<()> {
+    write_field(mem, id, op, name, value, false)
+}
+
+fn write_union(mem: &mut Mem, id: OpId, op: &Op, name: &str, element: &str) -> Result<()> {
+    write_field(mem, id, op, name, element, true)
+}
+
+/// One path for every property write. A writer whose op is not an ancestor is
+/// concurrent: the fold keeps both and [`Mem::finish`] records a clash, except
+/// a pure set-union (deeds, links), which commutes.
+fn write_field(
+    mem: &mut Mem,
+    id: OpId,
+    op: &Op,
+    name: &str,
+    value: &str,
+    unite: bool,
+) -> Result<()> {
     let field = canonical_field(name)?;
     if field == "priority" {
         one_char(value)?;
+    }
+    if !mem.issues.contains_key(&op.issue) {
+        return Err(missing(op));
     }
     let ancestors = mem.ancestors.get(&id).cloned().unwrap_or_default();
     let slot = mem.frontiers.entry((op.issue, field.clone())).or_default();
     let mut base = String::new();
     let mut base_key = None;
     let mut concurrent = Vec::new();
-    let mut keep = Vec::new();
     for writer in slot.writers.drain(..) {
         if ancestors.contains(&writer.id) {
             let key = (writer.lamport, writer.id);
@@ -710,22 +804,30 @@ fn write_named(mem: &mut Mem, id: OpId, op: &Op, name: &str, value: &str) -> Res
                 base = writer.value;
             }
         } else {
-            concurrent.push(writer.value.clone());
-            keep.push(writer);
+            concurrent.push(writer);
         }
     }
-    let mut stored = value.to_string();
-    if field == "body"
-        && concurrent.len() == 1
-        && let Some(merged) = merge_lines(&base, &concurrent[0], &stored)
-    {
-        stored = merged;
-        keep.clear();
-    }
+    let absorb = unite && concurrent.iter().all(|writer| writer.unite);
+    let stored = if unite {
+        let mut parts = tokens(Some(base.as_str()));
+        if absorb {
+            for writer in &concurrent {
+                parts.extend(tokens(Some(writer.value.as_str())));
+            }
+        }
+        if !value.is_empty() {
+            parts.insert(value.to_string());
+        }
+        parts.into_iter().collect::<Vec<_>>().join(" ")
+    } else {
+        value.to_string()
+    };
+    let mut keep = concurrent;
     keep.push(Writer {
         id,
         lamport: op.lamport,
         value: stored,
+        unite,
     });
     let Some(display) = keep
         .iter()
@@ -747,12 +849,18 @@ fn canonical_field(name: &str) -> Result<String> {
     ) || name.starts_with("property:")
         || name.starts_with("ballot:")
         || name.starts_with("revision:")
-        || name.starts_with("target:")
+        || colon_name(name, "target:")
+        || colon_name(name, "link:")
     {
         Ok(name.to_string())
     } else {
         Err(bad("unknown field"))
     }
+}
+
+fn colon_name(name: &str, prefix: &str) -> bool {
+    name.strip_prefix(prefix)
+        .is_some_and(|rest| rest.contains(':'))
 }
 
 fn missing(op: &Op) -> Error {
@@ -799,6 +907,22 @@ fn project(live: &mut Live, field: &str, value: &str) {
                 live.targets
                     .insert((target.to_string(), key.to_string()), value.to_string());
                 rewrite_targets(live);
+            }
+        }
+        name if name.starts_with("link:") => {
+            let rest = &name["link:".len()..];
+            if let Some((kind, other)) = rest.split_once(':') {
+                if value.is_empty() {
+                    live.links.remove(&(kind.to_string(), other.to_string()));
+                } else {
+                    live.links.insert((kind.to_string(), other.to_string()));
+                }
+                let lines: Vec<String> = live
+                    .links
+                    .iter()
+                    .map(|(kind, other)| format!("{kind} {other}"))
+                    .collect();
+                replace_drawer(&mut live.heading, "LINKS", &lines);
             }
         }
         _ => {}
@@ -899,30 +1023,15 @@ fn log_order(a: &LogEntry, b: &LogEntry) -> Ordering {
         .then_with(|| a.render().cmp(&b.render()))
 }
 
-fn add_deed(mem: &mut Mem, op: &Op, accession: &str) -> Result<()> {
-    let live = mem.issues.get_mut(&op.issue).ok_or_else(|| missing(op))?;
-    live.deeds.insert(accession.to_string());
-    let value = live.deeds.iter().cloned().collect::<Vec<_>>().join(" ");
-    set_property(live, "DEEDS", &value);
-    Ok(())
+fn add_deed(mem: &mut Mem, id: OpId, op: &Op, accession: &str) -> Result<()> {
+    write_union(mem, id, op, "property:DEEDS", accession)
 }
 
-fn add_link(mem: &mut Mem, op: &Op, kind: &str, other: &str) -> Result<()> {
-    let live = mem.issues.get_mut(&op.issue).ok_or_else(|| missing(op))?;
+fn add_link(mem: &mut Mem, id: OpId, op: &Op, kind: &str, other: &str) -> Result<()> {
     if kind == "blocked-by" {
-        live.blockers.insert(other.to_string());
-        let value = live.blockers.iter().cloned().collect::<Vec<_>>().join(" ");
-        set_property(live, "BLOCKED_BY", &value);
-        return Ok(());
+        return write_union(mem, id, op, "property:BLOCKED_BY", other);
     }
-    live.links.insert((kind.to_string(), other.to_string()));
-    let lines: Vec<String> = live
-        .links
-        .iter()
-        .map(|(kind, other)| format!("{kind} {other}"))
-        .collect();
-    replace_drawer(&mut live.heading, "LINKS", &lines);
-    Ok(())
+    write_union(mem, id, op, &format!("link:{kind}:{other}"), other)
 }
 
 fn one_char(value: &str) -> Result<char> {
@@ -933,56 +1042,59 @@ fn one_char(value: &str) -> Result<char> {
     }
 }
 
-fn merge_lines(base: &str, left: &str, right: &str) -> Option<String> {
-    if left == right || right == base {
-        return Some(left.to_string());
+fn load_votes(heading: &IssueHeading) -> BTreeMap<String, String> {
+    let mut votes = BTreeMap::new();
+    for line in drawer_lines(heading, "VOTES") {
+        let key = crate::ops::parse_ballot(&line)
+            .map(|ballot| ballot_slot(&ballot.agent, ""))
+            .unwrap_or_else(|| format!("line:{line}"));
+        votes.insert(key, line);
     }
-    if left == base {
-        return Some(right.to_string());
-    }
-    let b = split_lines(base);
-    let l = split_lines(left);
-    let r = split_lines(right);
-    if b.len() != l.len() || l.len() != r.len() {
-        return None;
-    }
-    let mut out = Vec::with_capacity(b.len());
-    for i in 0..b.len() {
-        if l[i] == r[i] {
-            out.push(l[i]);
-        } else if l[i] == b[i] {
-            out.push(r[i]);
-        } else if r[i] == b[i] {
-            out.push(l[i]);
-        } else {
-            return None;
-        }
-    }
-    Some(out.join("\n"))
+    votes
 }
 
-fn split_lines(text: &str) -> Vec<&str> {
-    if text.is_empty() {
-        Vec::new()
+fn ballot_slot(voter: &str, rev: &str) -> String {
+    if rev.is_empty() {
+        voter.to_string()
     } else {
-        text.split('\n').collect()
+        format!("{voter}:{rev}")
+    }
+}
+
+fn require_derived(project: &str, short_id: &str, key: IssueKey) -> Result<()> {
+    if key != IssueKey::derive(project, short_id) {
+        return Err(bad("an issue key is not derived from its project and id"));
+    }
+    Ok(())
+}
+
+fn check_op(op: &Op) -> Result<()> {
+    match &op.kind {
+        OpKind::Create { short_id, .. } => require_derived(&op.project, short_id, op.issue),
+        OpKind::GenesisImport { heading, .. } => {
+            require_derived(&op.project, &heading.id, op.issue)
+        }
+        OpKind::SetField { name, .. } | OpKind::Resolve { field: name, .. } => {
+            canonical_field(name)?;
+            Ok(())
+        }
+        _ => Ok(()),
     }
 }
 
 impl Live {
-    fn from_op(op: &Op, short_id: &str, heading: IssueHeading) -> Self {
-        let deeds = tokens(heading.properties.get("DEEDS").map(String::as_str));
-        let blockers = tokens(heading.properties.get("BLOCKED_BY").map(String::as_str));
+    fn from_op(op: &Op, short_id: &str, heading: IssueHeading, id: OpId) -> Self {
+        let ballots = load_votes(&heading);
         Self {
             project: op.project.clone(),
             short_id: short_id.to_string(),
             heading,
-            deeds,
-            blockers,
             links: BTreeSet::new(),
-            ballots: BTreeMap::new(),
+            ballots,
             targets: BTreeMap::new(),
             retarget: None,
+            born_lamport: op.lamport,
+            born_id: id,
         }
     }
 }
@@ -1459,7 +1571,7 @@ fn decode_segment(bytes: &[u8]) -> Result<Op> {
         _ => return Err(bad("an op payload is not a struct")),
     };
     let kind = seg.kind(kind, &payload)?;
-    Ok(Op {
+    let op = Op {
         parents,
         lamport,
         seat,
@@ -1467,7 +1579,13 @@ fn decode_segment(bytes: &[u8]) -> Result<Op> {
         issue,
         kind,
         wall,
-    })
+    };
+    let again = encode_op(&op)?;
+    if again.as_slice() != bytes {
+        return Err(bad("op segment is not canonical"));
+    }
+    check_op(&op)?;
+    Ok(op)
 }
 
 struct Seg<'a> {
@@ -1735,9 +1853,7 @@ impl<'a> Seg<'a> {
         let priority = self.req_text(&st, 3)?;
         let properties_list = self.pairs(&st, 4)?;
         let mut properties = BTreeMap::new();
-        let mut property_order = Vec::new();
         for (key, value) in properties_list {
-            property_order.push(key.clone());
             properties.insert(key, value);
         }
         Ok(IssueHeading {
@@ -1748,14 +1864,7 @@ impl<'a> Seg<'a> {
             properties,
             org_tags: self.text_list(&st, 5)?,
             statistics: self.opt_text(&st, 6)?,
-            property_order: {
-                let stored = self.text_list(&st, 7)?;
-                if stored.is_empty() {
-                    property_order
-                } else {
-                    stored
-                }
-            },
+            property_order: self.text_list(&st, 7)?,
             extra_drawers: self.text_list(&st, 8)?,
             body: self.req_text(&st, 9)?,
             logbook: self.logs(&st)?,
@@ -1858,4 +1967,40 @@ fn sext30(raw: u64) -> i32 {
 fn target(idx: usize, offset: i32) -> Result<usize> {
     let at = idx as i64 + 1 + i64::from(offset);
     usize::try_from(at).map_err(|_| bad("an op pointer has a negative target"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn live(title: &str, lamport: u64) -> Live {
+        Live {
+            project: "proj".to_string(),
+            short_id: "shared".to_string(),
+            heading: fresh_heading("shared", title, "TODO", 'B'),
+            links: BTreeSet::new(),
+            ballots: BTreeMap::new(),
+            targets: BTreeMap::new(),
+            retarget: None,
+            born_lamport: lamport,
+            born_id: OpId([0; 32]),
+        }
+    }
+
+    #[test]
+    fn two_derived_keys_that_share_a_short_id_keep_both_headings() {
+        let alpha = IssueKey::derive("proj", "alpha");
+        let beta = IssueKey::derive("proj", "beta");
+        let mut mem = Mem::default();
+        mem.issues.insert(beta, live("Beta", 2));
+        mem.issues.insert(alpha, live("Alpha", 1));
+        let folded = mem.finish();
+        assert_eq!(folded.issues.len(), 2);
+        let plain = &folded.issues[&("proj".to_string(), "shared".to_string())];
+        let later = &folded.issues[&("proj".to_string(), "shared~2".to_string())];
+        assert_eq!(plain.title, "Alpha");
+        assert_eq!(plain.id, "shared");
+        assert_eq!(later.title, "Beta");
+        assert_eq!(later.id, "shared~2");
+    }
 }
