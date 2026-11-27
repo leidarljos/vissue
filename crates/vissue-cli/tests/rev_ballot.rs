@@ -29,6 +29,33 @@ fn run(root: &std::path::Path, agent: &str, args: &[&str]) -> String {
     stdout(&out)
 }
 
+fn git(dir: &std::path::Path, args: &[&str]) {
+    let hooks = format!("core.hooksPath={}", dir.join(".empty-hooks").display());
+    let out = Command::new("git")
+        .current_dir(dir)
+        .args([
+            "-c",
+            "user.name=brio",
+            "-c",
+            "user.email=brio@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "init.defaultBranch=main",
+            "-c",
+            &hooks,
+        ])
+        .args(args)
+        .output()
+        .expect("run git");
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 fn refused(out: &std::process::Output, needle: &str) {
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(
@@ -107,6 +134,9 @@ fn a_ballot_cast_for_a_rev_is_counted_only_for_that_rev() {
     let all: serde_json::Value =
         serde_json::from_str(&run(root, "alice", &["vote", id, "--json"])).unwrap();
     assert_eq!(all.as_array().unwrap().len(), 1, "{all}");
+
+    let shifted = run(root, "alice", &["vote", id, "--for", "hold", "--rev", "r3"]);
+    assert!(shifted.contains("changed rev r2 to r3"), "{shifted}");
 }
 
 /// `find --prop KEY=VALUE` returns the issue whose property equals the value.
@@ -333,4 +363,163 @@ fn a_blank_or_control_rev_is_refused_and_a_padded_rev_matches() {
     let exact: serde_json::Value =
         serde_json::from_str(&run(root, "bob", &["vote", id, "--json", "--rev", "r1"])).unwrap();
     assert_eq!(exact.as_array().unwrap().len(), 1);
+}
+
+/// Two same-day recasts by one voter, each naming a different revision, merge
+/// on a per-issue ledger. Both ballots stay readable. The file has neither a
+/// glued drawer nor conflict markers.
+#[test]
+fn same_day_recasts_with_different_revisions_merge_on_a_ledger() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let root = dir.path();
+    let id = run(root, "alice", &["create", "-p", "api", "Ship it?", "-q"]);
+    let id = id.trim();
+    run(root, "alice", &["migrate-ledger"]);
+    git(root, &["init", "-q"]);
+    // Install reads git's toplevel from the working directory.
+    let install = Command::new(env!("CARGO_BIN_EXE_vissue"))
+        .env("VISSUE_NO_ROUTE", "1")
+        .env("VISSUE_AGENT", "alice")
+        .current_dir(root)
+        .args([
+            "--root",
+            root.to_str().unwrap(),
+            "merge-driver",
+            "--install",
+        ])
+        .output()
+        .expect("run vissue");
+    assert!(
+        install.status.success(),
+        "{}",
+        String::from_utf8_lossy(&install.stderr)
+    );
+    git(root, &["add", "-A"]);
+    git(root, &["commit", "-q", "-m", "base"]);
+
+    git(root, &["checkout", "-q", "-b", "side"]);
+    run(
+        root,
+        "alice",
+        &["vote", id, "--for", "ship", "--rev", "aaa"],
+    );
+    git(root, &["add", "-A"]);
+    git(root, &["commit", "-q", "-m", "aaa"]);
+    git(root, &["checkout", "-q", "main"]);
+    run(
+        root,
+        "alice",
+        &["vote", id, "--for", "hold", "--rev", "zzz"],
+    );
+    git(root, &["add", "-A"]);
+    git(root, &["commit", "-q", "-m", "zzz"]);
+    git(root, &["merge", "-q", "--no-edit", "side"]);
+
+    let file = fs::read_to_string(root.join(format!("Software/api/issues/{id}.org"))).unwrap();
+    assert!(!file.contains("<<<<<<<"), "{file}");
+    assert!(!file.contains(":END::MERGE_CONFLICT:"), "{file}");
+    assert!(
+        file.lines()
+            .any(|line| line.starts_with("[rev=aaa] ") && line.contains("alice: ship")),
+        "{file}"
+    );
+    assert!(
+        file.lines()
+            .any(|line| line.starts_with("[rev=zzz] ") && line.contains("alice: hold")),
+        "{file}"
+    );
+
+    let json: serde_json::Value =
+        serde_json::from_str(&run(root, "carol", &["vote", id, "--json"])).unwrap();
+    let rows = json.as_array().unwrap();
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    let mut got: Vec<(&str, &str)> = rows
+        .iter()
+        .map(|row| {
+            (
+                row["rev"].as_str().unwrap(),
+                row["choice"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    got.sort_unstable();
+    assert_eq!(got, [("aaa", "ship"), ("zzz", "hold")]);
+}
+
+/// A ledger already holds `zzz/hold` and `aaa/ship` for one voter. Recasting
+/// `aaa` replaces that line and leaves `zzz`. The next read is what the
+/// command wrote.
+#[test]
+fn revmove_recast_targets_that_revision() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("Software")).unwrap();
+    let root = dir.path();
+    let id = run(root, "alice", &["create", "-p", "api", "Ship it?", "-q"]);
+    let id = id.trim();
+    run(root, "alice", &["migrate-ledger"]);
+    git(root, &["init", "-q"]);
+    let install = Command::new(env!("CARGO_BIN_EXE_vissue"))
+        .env("VISSUE_NO_ROUTE", "1")
+        .env("VISSUE_AGENT", "alice")
+        .current_dir(root)
+        .args([
+            "--root",
+            root.to_str().unwrap(),
+            "merge-driver",
+            "--install",
+        ])
+        .output()
+        .expect("run vissue");
+    assert!(
+        install.status.success(),
+        "{}",
+        String::from_utf8_lossy(&install.stderr)
+    );
+    git(root, &["add", "-A"]);
+    git(root, &["commit", "-q", "-m", "base"]);
+
+    git(root, &["checkout", "-q", "-b", "side"]);
+    run(
+        root,
+        "alice",
+        &["vote", id, "--for", "ship", "--rev", "aaa"],
+    );
+    git(root, &["add", "-A"]);
+    git(root, &["commit", "-q", "-m", "aaa"]);
+    git(root, &["checkout", "-q", "main"]);
+    run(
+        root,
+        "alice",
+        &["vote", id, "--for", "hold", "--rev", "zzz"],
+    );
+    git(root, &["add", "-A"]);
+    git(root, &["commit", "-q", "-m", "zzz"]);
+    git(root, &["merge", "-q", "--no-edit", "side"]);
+
+    let cast = run(
+        root,
+        "alice",
+        &["vote", id, "--for", "later", "--rev", "aaa"],
+    );
+    assert!(cast.contains("changed ship to later"), "{cast}");
+    let json: serde_json::Value =
+        serde_json::from_str(&run(root, "carol", &["vote", id, "--json"])).unwrap();
+    let mut got: Vec<(&str, &str)> = json
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| {
+            (
+                row["rev"].as_str().unwrap(),
+                row["choice"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    got.sort_unstable();
+    assert_eq!(got, [("aaa", "later"), ("zzz", "hold")]);
+    let aaa = run(root, "carol", &["vote", id, "--rev", "aaa"]);
+    assert!(aaa.contains("later"), "{aaa}");
+    let zzz = run(root, "carol", &["vote", id, "--rev", "zzz"]);
+    assert!(zzz.contains("hold"), "{zzz}");
 }

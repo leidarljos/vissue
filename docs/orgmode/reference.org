@@ -259,7 +259,7 @@ Usage: =vissue release [OPTIONS] --holder <HOLDER>=
 
 Cast this agent's vote on an issue, or show the tally with no =--for=.
 
-One ballot per identity and a recast replaces it, so several agents can disagree on the record and a reader sees whether they agree. =--rev= binds the ballot to a revision; on a tally it counts only that revision.
+One ballot per identity per revision, and a recast for the same revision replaces it, so several agents can disagree on the record and a reader sees whether they agree. =--rev= binds the ballot to a revision; on a tally it counts only that revision.
 
 Usage: =vissue vote [OPTIONS] <ID>=
 
@@ -1595,10 +1595,13 @@ again replaces the ballot, revision included. =vote ID --rev REV= and
 =--rev=, the tally counts every ballot and =vote ID --json= returns every
 ballot. A ballot written with no revision still reads and writes as it did.
 
-One ballot per identity. Casting again replaces it and says what changed, which
-keeps an agent that reconsiders from appearing twice. A drawer edited by hand into
-two lines for one name collapses to the last of them on the next read, because the
-tally counts on the invariant.
+One ballot per identity and revision. Casting again for that revision replaces
+the line and says what changed. A second revision is a second ballot. When the
+voter has one ballot, casting for another revision moves it. When the voter has
+several and none for the named revision, the cast adds a line. A drawer edited
+by hand into two lines for one identity and the same revision collapses to the
+last of them on the next read. Two lines for one name that name different
+revisions both stay.
 
 An identity may not contain a colon followed by a space. A choice may, which is
 why the line splits on the first one, and an identity holding one would be read

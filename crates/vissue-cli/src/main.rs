@@ -276,7 +276,7 @@ enum Command {
     },
     /// Cast this agent's vote on an issue, or show the tally with no `--for`.
     ///
-    /// One ballot per identity and a recast replaces it, so several agents can
+    /// One ballot per identity per revision, and a recast for the same revision replaces it, so several agents can
     /// disagree on the record and a reader sees whether they agree. `--rev`
     /// binds the ballot to a revision; on a tally it counts only that revision.
     Vote {
@@ -967,13 +967,20 @@ fn merge_driver(
         .unwrap_or("issues")
         .to_string();
     let ours_text = read(ours)?;
-    let merged = if vissue_core::ledger::is_ledger_text(&ours_text) {
+    let ledger = vissue_core::ledger::is_ledger_text(&ours_text);
+    let merged = if ledger {
         vissue_core::ledger::merge_file(&read(base)?, &ours_text, &read(theirs)?)
     } else {
         vissue_core::merge::merge_tracker(&project, &read(base)?, &ours_text, &read(theirs)?)
     };
     match merged {
         Ok(m) => {
+            if ledger && ledger_glued_or_marked(&m.text) {
+                eprintln!(
+                    "vissue merge: refusing a ledger that glues a drawer or carries conflict markers"
+                );
+                std::process::exit(1);
+            }
             std::fs::write(ours, &m.text).with_context(|| format!("write {}", ours.display()))?;
             if m.conflicts > 0 {
                 eprintln!(
@@ -985,10 +992,12 @@ fn merge_driver(
             Ok(())
         }
         Err(e) => {
-            eprintln!(
-                "vissue merge: {}; leaving git's text conflict",
-                vissue_core::error::chain_line(&anyhow::Error::from(e))
-            );
+            let line = vissue_core::error::chain_line(&anyhow::Error::from(e));
+            if ledger {
+                eprintln!("vissue merge: {line}");
+                std::process::exit(1);
+            }
+            eprintln!("vissue merge: {line}; leaving git's text conflict");
             let _ = std::process::Command::new("git")
                 .args(["merge-file", "-L", "ours", "-L", "base", "-L", "theirs"])
                 .arg(ours)
@@ -998,6 +1007,19 @@ fn merge_driver(
             std::process::exit(1);
         }
     }
+}
+
+/// A per-issue ledger must not leave the merge with a drawer closer glued to
+/// the next drawer name, or with git conflict markers. Either form fails to
+/// fold, and `vote --json` then reads no ballots.
+fn ledger_glued_or_marked(text: &str) -> bool {
+    text.lines().any(|line| {
+        let line = line.trim_end();
+        line.contains(":END::")
+            || line.starts_with("<<<<<<< ")
+            || line.starts_with(">>>>>>> ")
+            || line == "======="
+    })
 }
 
 /// Append each missing line to a git control file such as `.gitattributes`.

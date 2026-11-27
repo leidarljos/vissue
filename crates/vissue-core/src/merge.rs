@@ -9,7 +9,7 @@
 //! - a heading one side added is kept, theirs after ours where both added;
 //! - the logbook is the union of both sides' lines, newest first, less a
 //!   line one side removed;
-//! - ballots merge per voter;
+//! - ballots merge per voter and revision;
 //! - tags and properties merge per tag and per key.
 //!
 //! When both sides changed one field to different values, the merge keeps
@@ -361,7 +361,7 @@ fn merge_heading(
             );
             kept.push_str(&format!("{field}:\n{}\n", theirs_value.trim_end()));
         }
-        kept.push_str(":END:");
+        kept.push_str(":END:\n");
         h.extra_drawers
             .retain(|d| !drawer_name_is(d, CONFLICT_DRAWER));
         h.extra_drawers.push(kept);
@@ -486,72 +486,231 @@ fn merge_drawers(
     out
 }
 
-/// The votes drawer merged per voter: a ballot one side changed takes that
-/// side's; both changed it, the later stamp wins and a same-day tie keeps
-/// ours and says so.
+struct Cast {
+    agent: String,
+    stamp: String,
+    line: String,
+}
+
+fn vote_rows(drawer: Option<&str>) -> Vec<(String, String)> {
+    let mut rows: Vec<(String, String)> = Vec::new();
+    for line in drawer.unwrap_or("").lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty()
+            || trimmed.eq_ignore_ascii_case(":END:")
+            || trimmed.eq_ignore_ascii_case(&format!(":{VOTES_DRAWER}:"))
+        {
+            continue;
+        }
+        let key = match parse_ballot(trimmed) {
+            Some(ballot) => match ballot.rev.as_deref() {
+                Some(rev) => format!("voter {} rev {rev}", ballot.agent),
+                None => format!("voter {}", ballot.agent),
+            },
+            None => format!("line {trimmed}"),
+        };
+        match rows.iter_mut().find(|(existing, _)| *existing == key) {
+            Some(slot) => slot.1 = trimmed.to_string(),
+            None => rows.push((key, trimmed.to_string())),
+        }
+    }
+    rows
+}
+
+fn cast_map(rows: &[(String, String)]) -> BTreeMap<String, Cast> {
+    let mut map = BTreeMap::new();
+    for (key, line) in rows {
+        if let Some(ballot) = parse_ballot(line) {
+            map.insert(
+                key.clone(),
+                Cast {
+                    agent: ballot.agent,
+                    stamp: ballot.stamp,
+                    line: line.clone(),
+                },
+            );
+        }
+    }
+    map
+}
+
+/// Stamp of a line this side wrote for `agent` that the base did not have.
+fn fresh_stamp(
+    base: &BTreeMap<String, Cast>,
+    side: &BTreeMap<String, Cast>,
+    agent: &str,
+) -> Option<String> {
+    let mut best: Option<String> = None;
+    for (key, cast) in side {
+        if cast.agent != agent || base.contains_key(key) {
+            continue;
+        }
+        if best.as_ref().is_none_or(|have| &cast.stamp > have) {
+            best = Some(cast.stamp.clone());
+        }
+    }
+    best
+}
+
+fn dropped_base_key(
+    base: &BTreeMap<String, Cast>,
+    side: &BTreeMap<String, Cast>,
+    agent: &str,
+) -> bool {
+    base.iter()
+        .any(|(key, cast)| cast.agent == agent && !side.contains_key(key))
+}
+
+/// Voters who dropped a revision and wrote a new line, each dated by that line.
+fn move_stamps(
+    base: &BTreeMap<String, Cast>,
+    side: &BTreeMap<String, Cast>,
+    agents: &BTreeSet<String>,
+) -> BTreeMap<String, String> {
+    let mut stamps = BTreeMap::new();
+    for agent in agents {
+        if dropped_base_key(base, side, agent)
+            && let Some(stamp) = fresh_stamp(base, side, agent)
+        {
+            stamps.insert(agent.clone(), stamp);
+        }
+    }
+    stamps
+}
+
+/// The line to keep when `holder` still has `key` and the other side moved it.
+///
+/// `Some` is the recast when it is later than the move or the same day, and
+/// absent when the move is later. `None` means this key is not that move.
+fn recast_against_move<'a>(
+    key: &str,
+    holder: &'a BTreeMap<String, Cast>,
+    other: &BTreeMap<String, Cast>,
+    base: &BTreeMap<String, Cast>,
+    moves: &BTreeMap<String, String>,
+) -> Option<Option<&'a str>> {
+    let cast = holder.get(key)?;
+    let stamp = moves.get(&cast.agent)?;
+    if other.contains_key(key) || !base.contains_key(key) {
+        return None;
+    }
+    if cast.stamp.as_str() >= stamp.as_str() {
+        Some(Some(cast.line.as_str()))
+    } else {
+        Some(None)
+    }
+}
+
+fn kept_ballot(
+    key: &str,
+    base: &BTreeMap<String, String>,
+    ours: &BTreeMap<String, String>,
+    theirs: &BTreeMap<String, String>,
+    clashes: &mut Vec<(String, String)>,
+) -> Option<String> {
+    let (line, clash) = pick(
+        &base.get(key).cloned(),
+        &ours.get(key).cloned(),
+        &theirs.get(key).cloned(),
+    );
+    if !clash {
+        return line;
+    }
+    let stamp = |side: &BTreeMap<String, String>| {
+        side.get(key)
+            .and_then(|text| parse_ballot(text))
+            .map(|ballot| ballot.stamp)
+    };
+    match (stamp(ours), stamp(theirs)) {
+        (Some(ours_stamp), Some(theirs_stamp)) if theirs_stamp > ours_stamp => {
+            theirs.get(key).cloned()
+        }
+        (Some(ours_stamp), Some(theirs_stamp)) if ours_stamp > theirs_stamp => {
+            ours.get(key).cloned()
+        }
+        _ => {
+            clashes.push((
+                format!("ballot of {}", key.trim_start_matches("voter ")),
+                theirs.get(key).cloned().unwrap_or_default(),
+            ));
+            ours.get(key).cloned()
+        }
+    }
+}
+
+/// The votes drawer, merged by voter and then by revision.
+///
+/// A ballot one side changed takes that side's. Both sides still holding one
+/// revision: the later stamp wins, and a same-day tie keeps ours and says so.
+/// A side that drops a revision and writes a new line has moved, dated by
+/// that new line. The other side's recast of the old key stays when its
+/// stamp is later or the same day, and goes when it is earlier. The votes
+/// text is the same whichever side is ours when a move is in the merge.
 fn merge_votes(
     base: Option<&str>,
     ours: Option<&str>,
     theirs: Option<&str>,
     clashes: &mut Vec<(String, String)>,
 ) -> Option<String> {
-    let lines = |d: Option<&str>| -> Vec<(String, String)> {
-        let mut m: Vec<(String, String)> = Vec::new();
-        for l in d.unwrap_or("").lines() {
-            let t = l.trim();
-            if t.is_empty()
-                || t.eq_ignore_ascii_case(":END:")
-                || t.eq_ignore_ascii_case(&format!(":{VOTES_DRAWER}:"))
-            {
-                continue;
-            }
-            let key = parse_ballot(t)
-                .map_or_else(|| format!("line {t}"), |b| format!("voter {}", b.agent));
-            match m.iter_mut().find(|(k, _)| *k == key) {
-                Some(slot) => slot.1 = t.to_string(),
-                None => m.push((key, t.to_string())),
-            }
-        }
-        m
-    };
-    let as_map =
-        |v: &[(String, String)]| -> BTreeMap<String, String> { v.iter().cloned().collect() };
-    let (ov, av, bv) = (lines(base), lines(ours), lines(theirs));
-    let (o, a, b) = (as_map(&ov), as_map(&av), as_map(&bv));
-    // Ours' order, then theirs' new voters, then any the base alone held.
+    let (base_rows, ours_rows, theirs_rows) = (vote_rows(base), vote_rows(ours), vote_rows(theirs));
+    let (base_lines, ours_lines, theirs_lines) = (
+        base_rows.iter().cloned().collect::<BTreeMap<_, _>>(),
+        ours_rows.iter().cloned().collect::<BTreeMap<_, _>>(),
+        theirs_rows.iter().cloned().collect::<BTreeMap<_, _>>(),
+    );
+    let (base_casts, ours_casts, theirs_casts) = (
+        cast_map(&base_rows),
+        cast_map(&ours_rows),
+        cast_map(&theirs_rows),
+    );
+    let mut agents = BTreeSet::new();
+    for cast in base_casts
+        .values()
+        .chain(ours_casts.values())
+        .chain(theirs_casts.values())
+    {
+        agents.insert(cast.agent.clone());
+    }
+    let ours_moves = move_stamps(&base_casts, &ours_casts, &agents);
+    let theirs_moves = move_stamps(&base_casts, &theirs_casts, &agents);
+    let moved = !ours_moves.is_empty() || !theirs_moves.is_empty();
+
+    // Ours' order, then theirs' new ballots, then any the base alone held.
     let mut keys: Vec<&String> = Vec::new();
-    for (k, _) in av.iter().chain(&bv).chain(&ov) {
-        if !keys.contains(&k) {
-            keys.push(k);
+    for (key, _) in ours_rows.iter().chain(&theirs_rows).chain(&base_rows) {
+        if !keys.contains(&key) {
+            keys.push(key);
         }
     }
     let mut kept = Vec::new();
-    for k in keys {
-        let (v, clash) = pick(&o.get(k).cloned(), &a.get(k).cloned(), &b.get(k).cloned());
-        let v = if clash {
-            let stamp = |s: &Option<String>| s.as_deref().and_then(parse_ballot).map(|x| x.stamp);
-            match (stamp(&a.get(k).cloned()), stamp(&b.get(k).cloned())) {
-                (Some(sa), Some(sb)) if sb > sa => b.get(k).cloned(),
-                (Some(sa), Some(sb)) if sa > sb => a.get(k).cloned(),
-                _ => {
-                    clashes.push((
-                        format!("ballot of {}", k.trim_start_matches("voter ")),
-                        b.get(k).cloned().unwrap_or_default(),
-                    ));
-                    a.get(k).cloned()
-                }
+    for key in keys {
+        if let Some(line) =
+            recast_against_move(key, &ours_casts, &theirs_casts, &base_casts, &theirs_moves)
+        {
+            if let Some(line) = line {
+                kept.push(line.to_string());
             }
-        } else {
-            v
-        };
-        if let Some(v) = v {
-            kept.push(v);
+            continue;
         }
+        if let Some(line) =
+            recast_against_move(key, &theirs_casts, &ours_casts, &base_casts, &ours_moves)
+        {
+            if let Some(line) = line {
+                kept.push(line.to_string());
+            }
+            continue;
+        }
+        if let Some(line) = kept_ballot(key, &base_lines, &ours_lines, &theirs_lines, clashes) {
+            kept.push(line);
+        }
+    }
+    if moved {
+        kept.sort();
     }
     if kept.is_empty() {
         return None;
     }
-    Some(format!(":{VOTES_DRAWER}:\n{}\n:END:", kept.join("\n")))
+    Some(format!(":{VOTES_DRAWER}:\n{}\n:END:\n", kept.join("\n")))
 }
 
 #[cfg(test)]
@@ -818,5 +977,141 @@ mod tests {
         let base = file(&[issue("acme-1a2b", "TODO", &[], "")]);
         let broken = format!("{HEAD}* TODO [#A] no id here\n");
         assert!(merge_tracker("acme", &base, &broken, &base).is_err());
+    }
+
+    fn votes(lines: &[&str]) -> String {
+        format!(":VOTES:\n{}\n:END:\n", lines.join("\n"))
+    }
+
+    fn board(lines: &[&str]) -> String {
+        file(&[issue("acme-1a2b", "TODO", &[], &votes(lines))])
+    }
+
+    fn ledger_text(lines: &[&str]) -> String {
+        let body = issue("acme-1a2b", "TODO", &[], &votes(lines));
+        format!(
+            "#+TODO: TODO STARTED BLOCKED | DONE CANCELLED\n\n#+VISSUE_LEDGER:\n#+VISSUE_LINES: 4 24\n{body}#+VISSUE_LEDGER_LOG:\n"
+        )
+    }
+
+    fn board_votes(text: &str) -> String {
+        heading(text, "acme-1a2b")
+            .extra_drawers
+            .into_iter()
+            .find(|drawer| drawer_name_is(drawer, VOTES_DRAWER))
+            .unwrap_or_default()
+    }
+
+    fn ledger_votes(text: &str) -> String {
+        let dir = tempfile::tempdir().unwrap();
+        let issues = dir.path().join("issues");
+        std::fs::create_dir_all(&issues).unwrap();
+        std::fs::write(issues.join("acme-1a2b.org"), text).unwrap();
+        let doc = crate::ledger::load("acme", &dir.path().join("issues.org")).unwrap();
+        let heading = doc
+            .headings
+            .iter()
+            .find(|heading| heading.id == "acme-1a2b")
+            .unwrap();
+        assert!(
+            heading
+                .extra_drawers
+                .iter()
+                .all(|drawer| !drawer_name_is(drawer, CONFLICT_DRAWER)),
+            "a move left a ballot in the conflict drawer: {text}"
+        );
+        heading
+            .extra_drawers
+            .iter()
+            .find(|drawer| drawer_name_is(drawer, VOTES_DRAWER))
+            .unwrap()
+            .clone()
+    }
+
+    /// Both directions write the same votes drawer, on a board and a ledger.
+    fn assert_rev_move(base: &[&str], left: &[&str], right: &[&str], expect: &[&str]) {
+        let want = votes(expect);
+        let base_board = board(base);
+        let left_board = board(left);
+        let right_board = board(right);
+        let forward = merge_tracker("acme", &base_board, &left_board, &right_board).unwrap();
+        let reverse = merge_tracker("acme", &base_board, &right_board, &left_board).unwrap();
+        let forward_votes = board_votes(&forward.text);
+        let reverse_votes = board_votes(&reverse.text);
+        assert_eq!(forward_votes, want, "tracker forward\n{}", forward.text);
+        assert_eq!(reverse_votes, want, "tracker reverse\n{}", reverse.text);
+        assert_eq!(forward.conflicts, 0);
+        assert_eq!(reverse.conflicts, 0);
+        assert!(!forward.text.contains("<<<<<<<"));
+        assert!(!reverse.text.contains("<<<<<<<"));
+        assert!(!forward.text.contains(":END::"));
+        assert!(!reverse.text.contains(":END::"));
+
+        let forward_ledger =
+            crate::ledger::merge_file(&ledger_text(base), &ledger_text(left), &ledger_text(right))
+                .unwrap();
+        let reverse_ledger =
+            crate::ledger::merge_file(&ledger_text(base), &ledger_text(right), &ledger_text(left))
+                .unwrap();
+        assert_eq!(
+            ledger_votes(&forward_ledger.text),
+            want,
+            "{}",
+            forward_ledger.text
+        );
+        assert_eq!(
+            ledger_votes(&reverse_ledger.text),
+            want,
+            "{}",
+            reverse_ledger.text
+        );
+        assert_eq!(forward_ledger.conflicts, 0);
+        assert_eq!(reverse_ledger.conflicts, 0);
+        assert!(!forward_ledger.text.contains("<<<<<<<"));
+        assert!(!reverse_ledger.text.contains("<<<<<<<"));
+        assert!(!forward_ledger.text.contains(":END::MERGE_CONFLICT:"));
+        assert!(!reverse_ledger.text.contains(":END::MERGE_CONFLICT:"));
+    }
+
+    /// Base has no revision. One side adds `--rev r1`, the other recasts the
+    /// no-rev line the same day. Both ballots stay, either way around.
+    #[test]
+    fn revmove_same_day_keeps_both_either_way() {
+        assert_rev_move(
+            &["[2026-09-27 Sun] alice: ship"],
+            &["[rev=r1] [2026-09-27 Sun] alice: hold"],
+            &["[2026-09-27 Sun] alice: later"],
+            &[
+                "[2026-09-27 Sun] alice: later",
+                "[rev=r1] [2026-09-27 Sun] alice: hold",
+            ],
+        );
+    }
+
+    /// One side moves r1 to r2. The other recasts r1 a day later. That later
+    /// r1 line stays live, so a `--rev r1` read counts it, either way around.
+    #[test]
+    fn revmove_later_recast_stays_either_way() {
+        assert_rev_move(
+            &["[rev=r1] [2026-09-01 Thu] alice: ship"],
+            &["[rev=r2] [2026-09-27 Sun] alice: hold"],
+            &["[rev=r1] [2026-09-28 Mon] alice: wait"],
+            &[
+                "[rev=r1] [2026-09-28 Mon] alice: wait",
+                "[rev=r2] [2026-09-27 Sun] alice: hold",
+            ],
+        );
+    }
+
+    /// The r1 recast is 20 Nov and the move to r2 is 1 Dec. The later move
+    /// wins, so only the r2 line remains, either way around.
+    #[test]
+    fn revmove_later_move_drops_the_earlier_recast() {
+        assert_rev_move(
+            &["[rev=r1] [2026-11-01 Sun] alice: ship"],
+            &["[rev=r1] [2026-11-20 Fri] alice: nope"],
+            &["[rev=r2] [2026-12-01 Tue] alice: hold"],
+            &["[rev=r2] [2026-12-01 Tue] alice: hold"],
+        );
     }
 }

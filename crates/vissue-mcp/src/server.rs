@@ -417,7 +417,7 @@ impl VissueServer {
     }
 
     #[tool(
-        description = "Cast this agent's vote on an issue, or read the tally when no choice is given. One ballot per identity: voting again replaces your own ballot and never another agent's. Pass rev to bind the ballot to a revision; when no choice is given, rev counts only ballots for that revision. The tally separates a majority from a plurality and from a tie, so consult it before acting on what looks like agreement.",
+        description = "Cast this agent's vote on an issue, or read the tally when no choice is given. One ballot per identity per revision: voting again for the same revision replaces your own ballot and never another agent's. Pass rev to bind the ballot to a revision; when no choice is given, rev counts only ballots for that revision. The tally separates a majority from a plurality and from a tie, so consult it before acting on what looks like agreement.",
         annotations(
             title = "Cast a ballot",
             read_only_hint = false,

@@ -1671,9 +1671,31 @@ pub struct Ballot {
     pub rev: Option<String>,
 }
 
+/// The line a recast replaces: the voter's line for `rev`, or their only line
+/// when they have one ballot and it is a different revision. Several ballots
+/// and none for `rev` is a new line.
+fn recast_at(ballots: &[Ballot], identity: &str, rev: &Option<String>) -> Option<usize> {
+    if let Some(index) = ballots
+        .iter()
+        .position(|ballot| ballot.agent == identity && &ballot.rev == rev)
+    {
+        return Some(index);
+    }
+    let mut only = None;
+    let mut count = 0usize;
+    for (index, ballot) in ballots.iter().enumerate() {
+        if ballot.agent == identity {
+            count += 1;
+            only = Some(index);
+        }
+    }
+    if count == 1 { only } else { None }
+}
+
 /// Cast or change one agent's vote, or read the tally when `choice` is `None`.
-/// One ballot per identity, a recast replaces it, and the read-modify-write
-/// runs under the file lock. Stored as a `:VOTES:` drawer on the heading.
+/// One ballot per identity and revision. A recast replaces that line, and the
+/// read-modify-write runs under the file lock. Stored as a `:VOTES:` drawer
+/// on the heading.
 ///
 /// # Errors
 ///
@@ -1688,8 +1710,10 @@ pub fn vote(layout: &Layout, id: &str, choice: Option<&str>, identity: &str) -> 
 ///
 /// `used` is `none` or accession ids. `confidence` is a decimal in `(0, 1]`.
 /// `rev` is one token, kept on the ballot line before the timestamp and not
-/// part of the choice. With no choice, `rev` counts only ballots for that
-/// revision; without it the tally is every ballot.
+/// part of the choice. A recast replaces the line for this voter and revision.
+/// One existing ballot moves onto a different revision; several ballots, with
+/// none for it, gain a line. With no choice, `rev` counts only ballots for
+/// that revision; without it the tally is every ballot.
 ///
 /// # Errors
 ///
@@ -1749,15 +1773,15 @@ pub fn vote_with(
             .ok_or_else(|| Error::IssueNotFound { id: id.to_string() })?;
         let (mut ballots, foreign) = read_ballots(h);
         let stamp = today_inactive_bracket();
-        let previous = ballots.iter().position(|b| b.agent == identity);
-        let changed_from = previous.map(|i| ballots[i].choice.clone());
+        let previous = recast_at(&ballots, identity, &rev);
+        let prior = previous.map(|i| ballots[i].clone());
         let ballot = Ballot {
             agent: identity.to_string(),
             choice: choice.to_string(),
             stamp,
             used,
             confidence,
-            rev,
+            rev: rev.clone(),
         };
         match previous {
             Some(i) => ballots[i] = ballot,
@@ -1765,9 +1789,18 @@ pub fn vote_with(
         }
         write_ballots(h, &ballots, &foreign);
         doc.write()?;
-        let mut out = match changed_from {
-            Some(old) if old == choice => format!("{id}: {identity} already voted {choice}\n"),
-            Some(old) => format!("{id}: {identity} changed {old} to {choice}\n"),
+        // A same choice with a new revision did replace the ballot. Saying
+        // "already voted" describes a no-op that did not happen.
+        let mut out = match &prior {
+            Some(old) if old.choice == choice && old.rev == rev => {
+                format!("{id}: {identity} already voted {choice}\n")
+            }
+            Some(old) if old.choice == choice => format!(
+                "{id}: {identity} changed rev {} to {}\n",
+                old.rev.as_deref().unwrap_or("none"),
+                rev.as_deref().unwrap_or("none")
+            ),
+            Some(old) => format!("{id}: {identity} changed {} to {choice}\n", old.choice),
             None => format!("{id}: {identity} voted {choice}\n"),
         };
         out.push_str(&tally_text(id, &ballots));
@@ -1853,9 +1886,13 @@ fn read_ballots(h: &IssueHeading) -> (Vec<Ballot>, Vec<String>) {
             continue;
         }
         match parse_ballot(trimmed) {
-            // One ballot per agent: a hand-edited duplicate collapses on read,
-            // last line winning.
-            Some(b) => match ballots.iter_mut().find(|x| x.agent == b.agent) {
+            // One ballot per agent and revision: a hand-edited duplicate of
+            // that pair collapses on read, last line winning. A second
+            // revision of the same agent is a different ballot.
+            Some(b) => match ballots
+                .iter_mut()
+                .find(|x| x.agent == b.agent && x.rev == b.rev)
+            {
                 Some(existing) => *existing = b,
                 None => ballots.push(b),
             },
