@@ -691,3 +691,200 @@ fn a_clash_on_a_land_field_keeps_both_values() {
     assert!(again.contains("seats-eight"), "{again}");
     assert!(again.contains("seat:ada"), "{again}");
 }
+
+/// A value that ends in `:` and a value that is `:END:` are still those
+/// bytes after three merges.
+#[test]
+fn a_colon_clash_value_survives_three_merges() {
+    let dir = tracker();
+    let root = dir.path();
+    let issue = run(root, &["create", "-p", "api", "Land the kit", "-q"]);
+    let issue = issue.trim();
+    let board = root.join("Software/api/issues.org");
+    let base = dir.path().join("base.org");
+    fs::copy(&board, &base).unwrap();
+    run(
+        root,
+        &[
+            "target",
+            issue,
+            "--quorum",
+            "kept-ours",
+            "--landers",
+            "kept-ours",
+        ],
+    );
+    let ours = dir.path().join("ours.org");
+    fs::copy(&board, &ours).unwrap();
+    fs::copy(&base, &board).unwrap();
+    run(
+        root,
+        &["target", issue, "--quorum", "lost:", "--landers", ":END:"],
+    );
+    let theirs = dir.path().join("theirs.org");
+    fs::copy(&board, &theirs).unwrap();
+
+    let once = merge_sides(root, dir.path(), &base, &ours, &theirs, "1");
+    let twice = merge_self(root, dir.path(), &once, "2");
+    let thrice = merge_self(root, dir.path(), &twice, "3");
+    assert_eq!(
+        (
+            clash_value(&thrice, "property QUORUM"),
+            clash_value(&thrice, "property LANDERS"),
+        ),
+        ("lost:".to_string(), ":END:".to_string()),
+        "{thrice}"
+    );
+}
+
+/// The same target ids in opposite order merge to one line, either way.
+#[test]
+fn targets_order_is_the_same_either_way() {
+    let dir = tracker();
+    let root = dir.path();
+    let issue = run(root, &["create", "-p", "api", "Land the kit", "-q"]);
+    let issue = issue.trim();
+    let first = run(
+        root,
+        &[
+            "target",
+            "--repo",
+            "github:acme/widgets",
+            "--branch",
+            "alpha",
+        ],
+    );
+    let second = run(
+        root,
+        &[
+            "target",
+            "--repo",
+            "github:acme/widgets",
+            "--branch",
+            "beta",
+        ],
+    );
+    let first = first.trim();
+    let second = second.trim();
+    let board = root.join("Software/api/issues.org");
+    let base = dir.path().join("base.org");
+    fs::copy(&board, &base).unwrap();
+    run(root, &["target", issue, "--add", first]);
+    run(root, &["target", issue, "--add", second]);
+    let ab = dir.path().join("ab.org");
+    fs::copy(&board, &ab).unwrap();
+    fs::copy(&base, &board).unwrap();
+    run(root, &["target", issue, "--add", second]);
+    run(root, &["target", issue, "--add", first]);
+    let ba = dir.path().join("ba.org");
+    fs::copy(&board, &ba).unwrap();
+
+    let into_ba = merge_sides(root, dir.path(), &base, &ba, &ab, "into-ba");
+    let into_ab = merge_sides(root, dir.path(), &base, &ab, &ba, "into-ab");
+    let line = |text: &str| {
+        text.lines()
+            .find(|line| line.contains(":TARGETS:"))
+            .unwrap_or("")
+            .to_string()
+    };
+    assert_eq!(line(&into_ba), line(&into_ab), "{into_ba}\n{into_ab}");
+}
+
+/// An unknown id still runs the field check, as `issue/target` does.
+#[test]
+fn an_unknown_id_is_checked_before_not_found() {
+    let dir = tracker();
+    let root = dir.path();
+    let socket = root.join("control.sock");
+    let _serve = Serve::start(root, &socket);
+    let mut rpc = Rpc::connect(&socket);
+    let mut mcp = Mcp::start(root);
+    let out = vissue(root, &["target", "no-such-issue", "--lease", "not-a-rule"]);
+    let cli = String::from_utf8(out.stderr).unwrap();
+    let sock = rpc
+        .call(
+            "issue/target",
+            json!({"id": "no-such-issue", "lease": "not-a-rule"}),
+        )
+        .expect_err("socket accepted an unknown lease");
+    let reply = mcp.call(json!({"issue_id": "no-such-issue", "lease": "not-a-rule"}));
+    let needle = "unknown lease rule: not-a-rule";
+    assert!(
+        cli.contains(needle)
+            && sock["message"].as_str().unwrap_or("").contains(needle)
+            && reply["error"]["message"]
+                .as_str()
+                .unwrap_or("")
+                .contains(needle),
+        "cli={cli} socket={sock} mcp={reply}"
+    );
+}
+
+fn merge_sides(
+    root: &Path,
+    scratch: &Path,
+    base: &Path,
+    ours: &Path,
+    theirs: &Path,
+    tag: &str,
+) -> String {
+    let work = scratch.join(format!("work-{tag}.org"));
+    fs::copy(ours, &work).unwrap();
+    let out = vissue(
+        root,
+        &[
+            "merge-driver",
+            base.to_str().unwrap(),
+            work.to_str().unwrap(),
+            theirs.to_str().unwrap(),
+            "api/issues.org",
+        ],
+    );
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "{err}");
+    fs::read_to_string(&work).unwrap()
+}
+
+fn merge_self(root: &Path, scratch: &Path, text: &str, tag: &str) -> String {
+    let side = scratch.join(format!("side-{tag}.org"));
+    fs::write(&side, text).unwrap();
+    merge_sides(root, scratch, &side, &side, &side, tag)
+}
+
+fn clash_value(text: &str, field: &str) -> String {
+    let mut inside = false;
+    let mut current: Option<String> = None;
+    let mut lines: Vec<String> = Vec::new();
+    let mut found = String::new();
+    for line in text.lines() {
+        if !inside {
+            if line.trim().eq_ignore_ascii_case(":MERGE_CONFLICT:") {
+                inside = true;
+            }
+            continue;
+        }
+        if line.eq_ignore_ascii_case(":END:") {
+            break;
+        }
+        if let Some(value) = line.strip_prefix('%') {
+            if current.as_deref() == Some(field) {
+                lines.push(value.to_string());
+            }
+            continue;
+        }
+        if let Some(name) = line.strip_suffix(':')
+            && !name.is_empty()
+            && !line.starts_with(':')
+        {
+            if current.as_deref() == Some(field) {
+                found = lines.join("\n");
+            }
+            current = Some(name.to_string());
+            lines.clear();
+        }
+    }
+    if current.as_deref() == Some(field) {
+        found = lines.join("\n");
+    }
+    found
+}

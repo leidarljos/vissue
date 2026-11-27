@@ -292,6 +292,21 @@ fn merge_heading(
             }
             continue;
         }
+        // Same ids in two orders are one list. Both sides changed the order:
+        // write it once, so either side can merge first. A one-sided reorder
+        // keeps that side's text.
+        if k == crate::props::TARGETS
+            && let Some(value) = same_target_list(
+                o.properties.get(k).map(String::as_str),
+                a.properties.get(k).map(String::as_str),
+                b.properties.get(k).map(String::as_str),
+            )
+        {
+            if let Some(v) = value {
+                props.insert(k.clone(), v);
+            }
+            continue;
+        }
         let (v, clash) = pick(
             &o.properties.get(k).cloned(),
             &a.properties.get(k).cloned(),
@@ -659,49 +674,137 @@ fn kept_ballot(
 fn conflict_entries(drawer: &str) -> Vec<(String, String)> {
     let mut entries = Vec::new();
     let mut field: Option<String> = None;
-    let mut value = String::new();
+    let mut lines: Vec<String> = Vec::new();
     for line in drawer.lines() {
-        let trimmed = line.trim();
-        if trimmed.eq_ignore_ascii_case(&format!(":{CONFLICT_DRAWER}:"))
-            || trimmed.eq_ignore_ascii_case(":END:")
+        if line.eq_ignore_ascii_case(&format!(":{CONFLICT_DRAWER}:"))
+            || line.eq_ignore_ascii_case(":END:")
         {
             continue;
         }
-        if let Some(name) = conflict_header(trimmed) {
-            if let Some(have) = field.take() {
-                entries.push((have, std::mem::take(&mut value).trim_end().to_string()));
+        if let Some(text) = decode_clash_line(line) {
+            if field.is_some() {
+                lines.push(text);
             }
-            field = Some(name.to_string());
             continue;
         }
-        if field.is_some() {
-            if !value.is_empty() {
-                value.push('\n');
-            }
-            value.push_str(line);
+        if let Some(name) = conflict_header(line) {
+            finish_clash(&mut entries, &mut field, &mut lines);
+            field = Some(name.to_string());
         }
     }
-    if let Some(have) = field {
-        entries.push((have, value.trim_end().to_string()));
-    }
+    finish_clash(&mut entries, &mut field, &mut lines);
     entries
 }
 
+fn finish_clash(
+    entries: &mut Vec<(String, String)>,
+    field: &mut Option<String>,
+    lines: &mut Vec<String>,
+) {
+    if let Some(have) = field.take() {
+        entries.push((have, std::mem::take(lines).join("\n")));
+    }
+}
+
 fn conflict_header(line: &str) -> Option<&str> {
-    if line.starts_with(':') {
+    if line.starts_with(':') || line.starts_with(CLASH_MARK) {
         return None;
     }
     let name = line.strip_suffix(':')?;
     if name.is_empty() { None } else { Some(name) }
 }
 
+/// Quote mark for one stored line of a clash value.
+///
+/// A space is not enough: the org reader trims before it looks for `:END:`,
+/// so a padded `:END:` still closes the drawer. `%` is not whitespace, and
+/// every value line carries one, so the text cannot be a field line
+/// (`name:`), a drawer name (`:NAME:`), or `:END:`.
+const CLASH_MARK: char = '%';
+
+/// Each line of `value` prefixed with [`CLASH_MARK`]. A trailing newline is
+/// its own quoted line, so the bytes come back unchanged.
+fn encode_clash_value(value: &str) -> String {
+    let mut out = String::new();
+    let mut rest = value;
+    if value.is_empty() {
+        return format!("{CLASH_MARK}\n");
+    }
+    loop {
+        match rest.split_once('\n') {
+            Some((line, "")) => {
+                out.push(CLASH_MARK);
+                out.push_str(line);
+                out.push('\n');
+                out.push(CLASH_MARK);
+                out.push('\n');
+                break;
+            }
+            Some((line, after)) => {
+                out.push(CLASH_MARK);
+                out.push_str(line);
+                out.push('\n');
+                rest = after;
+            }
+            None => {
+                out.push(CLASH_MARK);
+                out.push_str(rest);
+                out.push('\n');
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// The value text of one quoted line, or `None` when `line` is not one.
+fn decode_clash_line(line: &str) -> Option<String> {
+    line.strip_prefix(CLASH_MARK).map(str::to_string)
+}
+
 fn render_conflict_drawer(entries: &[(String, String)]) -> String {
     let mut kept = format!(":{CONFLICT_DRAWER}:\n");
     for (field, value) in entries {
-        kept.push_str(&format!("{field}:\n{}\n", value.trim_end()));
+        kept.push_str(field);
+        kept.push_str(":\n");
+        kept.push_str(&encode_clash_value(value));
     }
     kept.push_str(":END:\n");
     kept
+}
+
+/// `Some` when both sides name the same target ids.
+///
+/// The inner `Option` is the list to write. Both orders differ from base:
+/// lexicographic, so the merge does not depend on which side is ours. One
+/// side still holds base's text: the other side's order stands.
+fn same_target_list(
+    base: Option<&str>,
+    ours: Option<&str>,
+    theirs: Option<&str>,
+) -> Option<Option<String>> {
+    let ids = |raw: Option<&str>| -> BTreeSet<String> {
+        raw.unwrap_or("")
+            .split_whitespace()
+            .map(str::to_string)
+            .collect()
+    };
+    let (ours_ids, theirs_ids) = (ids(ours), ids(theirs));
+    if ours_ids != theirs_ids {
+        return None;
+    }
+    let (base, ours, theirs) = (base.unwrap_or(""), ours.unwrap_or(""), theirs.unwrap_or(""));
+    if ours == theirs {
+        return Some((!ours.is_empty()).then(|| ours.to_string()));
+    }
+    if ours == base {
+        return Some((!theirs.is_empty()).then(|| theirs.to_string()));
+    }
+    if theirs == base {
+        return Some((!ours.is_empty()).then(|| ours.to_string()));
+    }
+    let list: Vec<String> = ours_ids.into_iter().collect();
+    Some((!list.is_empty()).then(|| list.join(" ")))
 }
 
 /// Ours' and theirs' clash entries, deduplicated, in a stable order.

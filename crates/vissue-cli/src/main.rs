@@ -1226,6 +1226,28 @@ fn layout_for_id(router: &Router, id: &str) -> Result<Layout> {
     Ok(router.find_by_id(id)?.layout)
 }
 
+/// The layout that holds `id`, or the default when the id is unknown.
+///
+/// An unknown id still goes through `target::apply`, so a bad field is
+/// reported before not-found, as on the socket.
+fn layout_for_target(router: &Router, layout: Layout, id: Option<&str>) -> Result<Layout> {
+    let Some(id) = id else {
+        return Ok(layout);
+    };
+    match layout_for_id(router, id) {
+        Ok(found) => Ok(found),
+        Err(err)
+            if matches!(
+                err.downcast_ref::<Error>(),
+                Some(Error::IssueNotFound { .. })
+            ) =>
+        {
+            Ok(layout)
+        }
+        Err(err) => Err(err),
+    }
+}
+
 /// Where a `reject` should put its successor.
 struct RejectDest {
     layout: Layout,
@@ -1904,10 +1926,7 @@ fn run() -> Result<()> {
             land_target,
             org,
         } => {
-            let found = match &id {
-                Some(id) => layout_for_id(&router, id)?,
-                None => layout,
-            };
+            let found = layout_for_target(&router, layout, id.as_deref())?;
             emit!(
                 "{}",
                 vissue_core::target::apply(

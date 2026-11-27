@@ -504,6 +504,27 @@ fn validate_given(edit: &TargetEdit) -> Result<()> {
     Ok(())
 }
 
+/// Mode, lease, and owned are always written (defaults when the edit omits
+/// them). Every other field the edit does not name stays as stored.
+fn keep_unnamed(existing: &Target, edit: &TargetEdit, mut written: Target) -> Target {
+    if edit.quorum.is_none() {
+        written.quorum = existing.quorum.clone();
+    }
+    if edit.landers.is_none() {
+        written.landers = existing.landers.clone();
+    }
+    if edit.checks.is_empty() {
+        written.checks = existing.checks.clone();
+    }
+    if edit.fork.is_none() {
+        written.fork = existing.fork.clone();
+    }
+    if edit.mirrors.is_empty() {
+        written.mirrors = existing.mirrors.clone();
+    }
+    written
+}
+
 fn write_record(layout: &Layout, edit: &TargetEdit) -> Result<String> {
     let repo = edit
         .repo
@@ -532,7 +553,7 @@ fn write_record(layout: &Layout, edit: &TargetEdit) -> Result<String> {
             Err(_) => Vec::new(),
         };
         if let Some(slot) = targets.iter_mut().find(|have| have.id == target.id) {
-            *slot = target.clone();
+            *slot = keep_unnamed(slot, edit, target.clone());
         } else {
             targets.push(target.clone());
         }
@@ -1030,6 +1051,29 @@ mod tests {
             fs::read_to_string(targets_path(&hand_layout)).expect("unchanged"),
             hand,
             "a refused read rewrote the file"
+        );
+    }
+
+    #[test]
+    fn a_partial_record_write_keeps_quorum_and_landers() {
+        let (_dir, layout) = temp_layout();
+        let edit = record("github:acme/widgets", "develop", "strict-base");
+        apply(&layout, &edit).expect("write");
+        apply(
+            &layout,
+            &TargetEdit {
+                repo: edit.repo.clone(),
+                branch: edit.branch.clone(),
+                mode: Some("merge".to_string()),
+                lease: Some("strict-base".to_string()),
+                ..TargetEdit::default()
+            },
+        )
+        .expect("restate");
+        let text = fs::read_to_string(targets_path(&layout)).expect("read");
+        assert!(
+            text.contains("8 seats") && text.contains("seat:reviewer"),
+            "{text}"
         );
     }
 }

@@ -505,10 +505,16 @@ impl VissueServer {
             org: args.org.unwrap_or(false),
         };
         let layout = match &edit.issue {
-            Some(id) => self.layout_for_id(id),
-            None => Ok(self.layout.clone()),
+            Some(id) => match self.layout_for_id(id) {
+                Ok(layout) => layout,
+                // apply checks the fields before it reports a missing issue,
+                // which is the order issue/target uses.
+                Err(Error::IssueNotFound { .. }) => self.layout.clone(),
+                Err(err) => return target_result(Err(err)),
+            },
+            None => self.layout.clone(),
         };
-        target_result(layout.and_then(|layout| target::apply(&layout, &edit)))
+        target_result(target::apply(&layout, &edit))
     }
 
     #[tool(
