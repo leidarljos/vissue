@@ -39,3 +39,6 @@ schema = ["dep:schemars"]
 
 [dev-dependencies]
 tempfile.workspace = true
+
+[[example]]
+name = "parse_cost"

@@ -1,0 +1,31 @@
+#+TITLE: Store choice
+
+The question is one point: can several processes on one machine open the store
+for read and write at once. Each engine was opened by a holder process that
+wrote key =a=, kept the store open, and a joiner process that opened the same
+store, wrote key =b=, and read =a=. The holder then read =b=. A second pass
+held a read open in the holder while the joiner wrote.
+
+| engine       | holder | joiner | what the processes did |
+|--------------+--------+--------+------------------------|
+| LMDB         |      0 |      0 | holder saw =2=, joiner saw =1= |
+| redb         |      1 |      1 | joiner: =Database already open. Cannot acquire lock.= Holder timed out waiting for the joiner |
+| fjall 2.11.2 |      0 |      0 | joiner saw =1=. Holder, still open, did not see =b=. A later process saw =a=1= and =b=2= |
+| SQLite       |      0 |      0 | holder saw =2=, joiner saw =1= |
+
+With a read kept open in the holder:
+
+| engine | holder | joiner | what the processes did |
+|--------+--------+--------+------------------------|
+| LMDB   |      0 |      0 | joiner wrote and saw =1= while the holder kept its read |
+| SQLite |      1 |      1 | joiner: =database is locked.= Holder timed out waiting for the joiner |
+
+* Recommendation
+
+LMDB. Several processes open it for read and write, each sees the other's
+committed write, and a write completes while another process holds a read.
+
+redb does not open a second process. fjall opens a second process, and the
+process that already has the store open does not see the other process's
+write. SQLite opens several processes for read and write, and a held read
+makes the other process's write fail with =database is locked=.

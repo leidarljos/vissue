@@ -19,6 +19,7 @@ pub mod ledger;
 pub mod merge;
 pub mod mirror;
 pub mod model;
+pub mod oplog;
 pub mod ops;
 pub mod org;
 pub mod process_env;
