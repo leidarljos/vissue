@@ -18,7 +18,7 @@ With a read kept open in the holder:
 | engine | holder | joiner | what the processes did |
 |--------+--------+--------+------------------------|
 | LMDB   |      0 |      0 | joiner wrote and saw =1= while the holder kept its read |
-| SQLite |      1 |      1 | joiner: =database is locked.= Holder timed out waiting for the joiner |
+| SQLite |      1 |      1 | joiner: =database is locked=. Holder timed out waiting for the joiner |
 
 * Recommendation
 

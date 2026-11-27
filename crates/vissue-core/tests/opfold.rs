@@ -403,3 +403,181 @@ fn votes_merge_per_voter_and_a_recast_replaces_one_line() {
     assert!(text.contains("agent-b: hold"), "{text}");
     assert!(!text.contains("agent-b: ship"), "{text}");
 }
+
+fn plain_heading(id: &str, title: &str) -> IssueHeading {
+    let mut properties = BTreeMap::new();
+    properties.insert("ID".to_string(), id.to_string());
+    IssueHeading {
+        id: id.to_string(),
+        title: title.to_string(),
+        state: "TODO".to_string(),
+        priority: 'B',
+        properties,
+        org_tags: Vec::new(),
+        statistics: None,
+        property_order: vec!["ID".to_string()],
+        extra_drawers: Vec::new(),
+        body: String::new(),
+        logbook: Vec::new(),
+        line_start: 1,
+        line_end: 4,
+    }
+}
+
+fn folded_bytes(folded: &vissue_core::oplog::Folded) -> Vec<u8> {
+    let mut buf = Vec::new();
+    for ((project, id), heading) in &folded.issues {
+        buf.extend(project.as_bytes());
+        buf.push(0);
+        buf.extend(id.as_bytes());
+        buf.push(0);
+        buf.extend(heading.render().as_bytes());
+        buf.extend(format!("{:?}", heading.property_order).as_bytes());
+        buf.extend(format!("{:?}", heading.extra_drawers).as_bytes());
+    }
+    for clash in &folded.conflicts {
+        buf.extend(format!("{} {} {} ", clash.project, clash.id, clash.field).as_bytes());
+        for op in &clash.ops {
+            buf.extend(op.as_bytes());
+        }
+        buf.push(0);
+    }
+    buf
+}
+
+fn permute(ops: &mut [Op], start: usize, visit: &mut impl FnMut(&[Op])) {
+    if start == ops.len() {
+        visit(ops);
+        return;
+    }
+    for index in start..ops.len() {
+        ops.swap(start, index);
+        permute(ops, start + 1, visit);
+        ops.swap(start, index);
+    }
+}
+
+#[test]
+fn concurrent_ops_fold_to_the_same_bytes_in_every_order() {
+    let create = wire(&Op::create("proj", "proj-1", "Created", "seat").unwrap());
+    let genesis = wire(
+        &describe("proj", &[plain_heading("proj-1", "Genesis")])
+            .unwrap()
+            .pop()
+            .unwrap(),
+    );
+    let owner = wire(&spawned(
+        &create,
+        OpKind::SetField {
+            name: "property:OWNER".to_string(),
+            value: "ada".to_string(),
+        },
+        1,
+    ));
+    let area = wire(&spawned(
+        &create,
+        OpKind::SetField {
+            name: "property:AREA".to_string(),
+            value: "9".to_string(),
+        },
+        2,
+    ));
+    let spaced = wire(&spawned(
+        &create,
+        OpKind::AddDeed {
+            accession: "a  b".to_string(),
+        },
+        3,
+    ));
+    let other_deed = wire(&spawned(
+        &create,
+        OpKind::AddDeed {
+            accession: "c".to_string(),
+        },
+        4,
+    ));
+    let ballot = wire(&spawned(
+        &create,
+        OpKind::Ballot {
+            voter: "ann".to_string(),
+            rev: String::new(),
+            choice: "yes".to_string(),
+            stamp: "[2026-04-01 Wed]".to_string(),
+        },
+        5,
+    ));
+    let wide = wire(&spawned(
+        &create,
+        OpKind::AddRevision {
+            rev_id: "1".to_string(),
+            summary: "2 3".to_string(),
+        },
+        6,
+    ));
+    let nested = wire(&spawned(
+        &create,
+        OpKind::AddRevision {
+            rev_id: "1 2".to_string(),
+            summary: "x".to_string(),
+        },
+        7,
+    ));
+    let create_id = create.id().unwrap();
+    let genesis_id = genesis.id().unwrap();
+    let later_title = if (create.lamport, create_id) > (genesis.lamport, genesis_id) {
+        "Created"
+    } else {
+        "Genesis"
+    };
+    let mut ops = vec![
+        create, genesis, owner, area, spaced, other_deed, ballot, wide, nested,
+    ];
+    let mut seen = 0usize;
+    let mut expected: Option<Vec<u8>> = None;
+    permute(&mut ops, 0, &mut |order| {
+        let folded = fold(order).expect("the concurrent set folds");
+        let heading = &folded.issues[&("proj".to_string(), "proj-1".to_string())];
+        assert_eq!(heading.title, later_title);
+        assert_eq!(
+            heading.property_order,
+            ["ID", "AREA", "DEEDS", "OWNER"]
+                .into_iter()
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            heading.properties.get("DEEDS").map(String::as_str),
+            Some("a  b c")
+        );
+        assert_eq!(
+            heading.properties.get("OWNER").map(String::as_str),
+            Some("ada")
+        );
+        assert_eq!(
+            heading.properties.get("AREA").map(String::as_str),
+            Some("9")
+        );
+        let drawers = heading.extra_drawers.concat();
+        let revisions = drawers.find(":REVISIONS:").expect("revisions drawer");
+        let votes = drawers.find(":VOTES:").expect("votes drawer");
+        assert!(revisions < votes, "{drawers}");
+        assert!(drawers.contains("1 2 3"), "{drawers}");
+        assert!(drawers.contains("1 2 x"), "{drawers}");
+        assert!(drawers.contains("[2026-04-01 Wed] ann: yes"), "{drawers}");
+        let mut sorted = heading.extra_drawers.clone();
+        sorted.sort();
+        assert_eq!(heading.extra_drawers, sorted);
+        assert_eq!(folded.conflicts.len(), 1, "{:?}", folded.conflicts);
+        let clash = &folded.conflicts[0];
+        assert!(clash.ops.contains(&create_id));
+        assert!(clash.ops.contains(&genesis_id));
+        assert_eq!(clash.ops.len(), 2);
+        let bytes = folded_bytes(&folded);
+        match &expected {
+            None => expected = Some(bytes),
+            Some(first) => assert_eq!(first, &bytes),
+        }
+        seen += 1;
+    });
+    assert_eq!(seen, 362_880);
+}
