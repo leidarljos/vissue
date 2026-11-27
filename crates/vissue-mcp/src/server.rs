@@ -47,6 +47,32 @@ struct RejectDest {
     extra_id_paths: Vec<PathBuf>,
 }
 
+fn target_result(result: vissue_core::Result<String>) -> Result<CallToolResult, McpError> {
+    match result {
+        Ok(text) => Ok(CallToolResult::success(vec![ContentBlock::text(text)])),
+        Err(Error::LeaseRewriteOnMain { branch }) => Err(McpError::new(
+            rmcp::model::ErrorCode(-32010),
+            format!("lease-rewrite is refused on a main ref: {branch}"),
+            Some(serde_json::json!({
+                "code": "lease_rewrite_on_main",
+                "branch": branch,
+            })),
+        )),
+        Err(Error::InvalidBranch { branch }) => Err(McpError::invalid_params(
+            format!("invalid branch: {branch}"),
+            Some(serde_json::json!({
+                "code": "invalid_branch",
+                "branch": branch,
+            })),
+        )),
+        Err(Error::RetargetNeedsBoth) => Err(McpError::invalid_params(
+            "retarget needs --from and --to",
+            Some(serde_json::json!({ "code": "retarget_needs_both" })),
+        )),
+        Err(err) => Err(McpError::internal_error(format!("{err}"), None)),
+    }
+}
+
 fn text<E: std::fmt::Display>(result: Result<String, E>) -> Result<CallToolResult, McpError> {
     match result {
         Ok(s) => Ok(CallToolResult::success(vec![ContentBlock::text(s)])),
@@ -482,7 +508,7 @@ impl VissueServer {
             Some(id) => self.layout_for_id(id),
             None => Ok(self.layout.clone()),
         };
-        text(layout.and_then(|layout| target::apply(&layout, &edit)))
+        target_result(layout.and_then(|layout| target::apply(&layout, &edit)))
     }
 
     #[tool(

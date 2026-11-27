@@ -323,6 +323,19 @@ pub fn error_from_core(err: &CoreError) -> JsonRpcError {
                 "branch": branch,
             })),
         },
+        CoreError::InvalidBranch { branch } => JsonRpcError {
+            code: INVALID_PARAMS,
+            message: err.to_string(),
+            data: Some(json!({
+                "code": "invalid_branch",
+                "branch": branch,
+            })),
+        },
+        CoreError::RetargetNeedsBoth => JsonRpcError {
+            code: INVALID_PARAMS,
+            message: err.to_string(),
+            data: Some(json!({ "code": "retarget_needs_both" })),
+        },
         CoreError::TerminalConflict {
             id,
             held,

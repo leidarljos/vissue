@@ -351,7 +351,12 @@ fn merge_heading(
     }
 
     if !clashes.is_empty() {
-        let mut kept = format!(":{CONFLICT_DRAWER}:\n");
+        let mut entries = h
+            .extra_drawers
+            .iter()
+            .find(|drawer| drawer_name_is(drawer, CONFLICT_DRAWER))
+            .map(|drawer| conflict_entries(drawer))
+            .unwrap_or_default();
         for (field, theirs_value) in &clashes {
             conflict_note(
                 &mut h,
@@ -359,12 +364,17 @@ fn merge_heading(
                     "{field} changed on both sides; kept ours, theirs is in the {CONFLICT_DRAWER} drawer"
                 ),
             );
-            kept.push_str(&format!("{field}:\n{}\n", theirs_value.trim_end()));
+            let value = theirs_value.trim_end().to_string();
+            if !entries
+                .iter()
+                .any(|(have_field, have_value)| have_field == field && have_value == &value)
+            {
+                entries.push((field.clone(), value));
+            }
         }
-        kept.push_str(":END:\n");
         h.extra_drawers
-            .retain(|d| !drawer_name_is(d, CONFLICT_DRAWER));
-        h.extra_drawers.push(kept);
+            .retain(|drawer| !drawer_name_is(drawer, CONFLICT_DRAWER));
+        h.extra_drawers.push(render_conflict_drawer(&entries));
         *conflicts += clashes.len();
     }
     (h, tail)
@@ -483,9 +493,12 @@ fn merge_drawers(
             out.push(v);
         }
     }
-    // A clash drawer ours already carried stays until someone settles it.
-    if let Some(d) = find(ours, CONFLICT_DRAWER) {
-        out.push(d);
+    // Earlier clash values live only in this drawer. Keep both sides.
+    if let Some(drawer) = union_conflict_drawers(
+        find(ours, CONFLICT_DRAWER).as_deref(),
+        find(theirs, CONFLICT_DRAWER).as_deref(),
+    ) {
+        out.push(drawer);
     }
     out
 }
@@ -639,6 +652,73 @@ fn kept_ballot(
             ));
             ours.get(key).cloned()
         }
+    }
+}
+
+/// Entries already in a `:MERGE_CONFLICT:` drawer, in file order.
+fn conflict_entries(drawer: &str) -> Vec<(String, String)> {
+    let mut entries = Vec::new();
+    let mut field: Option<String> = None;
+    let mut value = String::new();
+    for line in drawer.lines() {
+        let trimmed = line.trim();
+        if trimmed.eq_ignore_ascii_case(&format!(":{CONFLICT_DRAWER}:"))
+            || trimmed.eq_ignore_ascii_case(":END:")
+        {
+            continue;
+        }
+        if let Some(name) = conflict_header(trimmed) {
+            if let Some(have) = field.take() {
+                entries.push((have, std::mem::take(&mut value).trim_end().to_string()));
+            }
+            field = Some(name.to_string());
+            continue;
+        }
+        if field.is_some() {
+            if !value.is_empty() {
+                value.push('\n');
+            }
+            value.push_str(line);
+        }
+    }
+    if let Some(have) = field {
+        entries.push((have, value.trim_end().to_string()));
+    }
+    entries
+}
+
+fn conflict_header(line: &str) -> Option<&str> {
+    if line.starts_with(':') {
+        return None;
+    }
+    let name = line.strip_suffix(':')?;
+    if name.is_empty() { None } else { Some(name) }
+}
+
+fn render_conflict_drawer(entries: &[(String, String)]) -> String {
+    let mut kept = format!(":{CONFLICT_DRAWER}:\n");
+    for (field, value) in entries {
+        kept.push_str(&format!("{field}:\n{}\n", value.trim_end()));
+    }
+    kept.push_str(":END:\n");
+    kept
+}
+
+/// Ours' and theirs' clash entries, deduplicated, in a stable order.
+fn union_conflict_drawers(ours: Option<&str>, theirs: Option<&str>) -> Option<String> {
+    let mut entries = Vec::new();
+    for drawer in [ours, theirs].into_iter().flatten() {
+        for entry in conflict_entries(drawer) {
+            if !entries.contains(&entry) {
+                entries.push(entry);
+            }
+        }
+    }
+    if entries.is_empty() {
+        None
+    } else {
+        entries.sort();
+        Some(render_conflict_drawer(&entries))
     }
 }
 

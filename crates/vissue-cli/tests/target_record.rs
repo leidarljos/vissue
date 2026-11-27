@@ -2,9 +2,14 @@
 
 #![allow(missing_docs)]
 
-use std::fs;
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader, Write};
+use std::os::unix::net::UnixStream;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Child, Command, Stdio};
+use std::time::{Duration, Instant};
+
+use serde_json::{Value, json};
 
 fn vissue(root: &Path, args: &[&str]) -> std::process::Output {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_vissue"));
@@ -171,27 +176,219 @@ fn a_target_and_a_change_target_list_round_trip_byte_for_byte() {
 fn lease_rewrite_on_a_main_ref_is_refused() {
     let dir = tracker();
     let root = dir.path();
+    head_points_at_main(root);
     let path = root.join("Software/targets.org");
-    for branch in ["main", "refs/heads/main"] {
-        let out = vissue(
-            root,
-            &[
-                "target",
-                "--repo",
-                "github:acme/widgets",
-                "--branch",
-                branch,
-                "--lease",
-                "lease-rewrite",
-            ],
-        );
-        refused(
-            &out,
-            &format!("lease-rewrite is refused on a main ref: {branch}"),
-        );
-        assert!(!path.exists(), "a refused main ref was stored");
-    }
+    let socket = root.join("control.sock");
+    let _serve = Serve::start(root, &socket);
+    let mut rpc = Rpc::connect(&socket);
+    let mut mcp = Mcp::start(root);
 
+    // `main` and `refs/heads/main`, plus every other spelling that is a main
+    // ref or not a branch name. Symbolic `HEAD` is included while this
+    // tracker's `HEAD` points at `refs/heads/main`.
+    for branch in [
+        "main",
+        "refs/heads/main",
+        "MAIN",
+        "Main",
+        "master",
+        "refs/heads/MAIN",
+        "Refs/Heads/main",
+        "HEAD",
+        "head",
+        "@",
+        "refs/HEAD",
+        "refs/heads/HEAD",
+        "heads/main",
+    ] {
+        refuse_lease(
+            root,
+            &mut rpc,
+            &mut mcp,
+            branch,
+            &format!("lease-rewrite is refused on a main ref: {branch}"),
+            -32010,
+            "lease_rewrite_on_main",
+        );
+    }
+    for branch in ["main/", "refs/heads//main"] {
+        refuse_lease(
+            root,
+            &mut rpc,
+            &mut mcp,
+            branch,
+            &format!("invalid branch: {branch}"),
+            -32602,
+            "invalid_branch",
+        );
+    }
+    assert!(!path.exists(), "a refused branch was stored");
+
+    run(
+        root,
+        &[
+            "target",
+            "--repo",
+            "github:acme/widgets",
+            "--branch",
+            "MAIN",
+            "--lease",
+            "strict-base",
+        ],
+    );
+    let edited = fs::read_to_string(&path)
+        .unwrap()
+        .replace("strict-base", "lease-rewrite");
+    fs::write(&path, &edited).unwrap();
+    refuse_read(root, &mut rpc, &mut mcp, "MAIN");
+    fs::remove_file(&path).unwrap();
+
+    for branch in ["develop", "mainline"] {
+        accept_lease(root, &mut rpc, &mut mcp, branch);
+    }
+    let text = fs::read_to_string(&path).unwrap();
+    let branches: Vec<&str> = text
+        .lines()
+        .filter(|line| line.contains(":BRANCH:"))
+        .collect();
+    assert_eq!(branches.len(), 2, "{text}");
+    assert!(
+        branches.iter().any(|line| line.ends_with("develop")),
+        "{text}"
+    );
+    assert!(
+        branches.iter().any(|line| line.ends_with("mainline")),
+        "{text}"
+    );
+    assert!(text.contains("lease-rewrite"), "{text}");
+}
+
+fn head_points_at_main(root: &Path) {
+    let out = Command::new("git")
+        .args(["-C", root.to_str().unwrap(), "init", "-q", "-b", "main"])
+        .output()
+        .expect("git init");
+    assert!(
+        out.status.success(),
+        "git init: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let out = Command::new("git")
+        .args(["-C", root.to_str().unwrap(), "symbolic-ref", "HEAD"])
+        .output()
+        .expect("symbolic-ref");
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        "refs/heads/main",
+        "symbolic HEAD is not main"
+    );
+}
+
+fn refuse_lease(
+    root: &Path,
+    rpc: &mut Rpc,
+    mcp: &mut Mcp,
+    branch: &str,
+    needle: &str,
+    code: i64,
+    data_code: &str,
+) {
+    let path = root.join("Software/targets.org");
+    let out = vissue(
+        root,
+        &[
+            "target",
+            "--repo",
+            "github:acme/widgets",
+            "--branch",
+            branch,
+            "--lease",
+            "lease-rewrite",
+        ],
+    );
+    refused(&out, needle);
+    let err = rpc
+        .call(
+            "issue/target",
+            json!({
+                "repo": "github:acme/widgets",
+                "branch": branch,
+                "lease": "lease-rewrite",
+            }),
+        )
+        .expect_err("socket stored a refused branch");
+    assert_eq!(err["code"].as_i64(), Some(code), "{branch} socket {err}");
+    assert_eq!(err["data"]["code"].as_str(), Some(data_code), "{err}");
+    assert_eq!(err["data"]["branch"].as_str(), Some(branch), "{err}");
+    assert!(
+        err["message"].as_str().unwrap_or("").contains(needle),
+        "{err}"
+    );
+    let reply = mcp.call(json!({
+        "repo": "github:acme/widgets",
+        "branch": branch,
+        "lease": "lease-rewrite",
+    }));
+    let err = reply
+        .get("error")
+        .unwrap_or_else(|| panic!("mcp stored {branch}: {reply}"));
+    assert_eq!(err["code"].as_i64(), Some(code), "{branch} mcp {err}");
+    assert_eq!(err["data"]["code"].as_str(), Some(data_code), "{err}");
+    assert_eq!(err["data"]["branch"].as_str(), Some(branch), "{err}");
+    assert!(
+        err["message"].as_str().unwrap_or("").contains(needle),
+        "{err}"
+    );
+    assert!(!path.exists(), "a refused branch was stored: {branch}");
+}
+
+fn refuse_read(root: &Path, rpc: &mut Rpc, mcp: &mut Mcp, branch: &str) {
+    let needle = format!("lease-rewrite is refused on a main ref: {branch}");
+    let out = vissue(
+        root,
+        &[
+            "target",
+            "--org",
+            "--repo",
+            "github:acme/widgets",
+            "--branch",
+            branch,
+        ],
+    );
+    refused(&out, &needle);
+    let err = rpc
+        .call(
+            "issue/target",
+            json!({
+                "org": true,
+                "repo": "github:acme/widgets",
+                "branch": branch,
+            }),
+        )
+        .expect_err("socket read a main ref");
+    assert_eq!(err["code"].as_i64(), Some(-32010), "{err}");
+    assert_eq!(
+        err["data"]["code"].as_str(),
+        Some("lease_rewrite_on_main"),
+        "{err}"
+    );
+    let reply = mcp.call(json!({
+        "org": true,
+        "repo": "github:acme/widgets",
+        "branch": branch,
+    }));
+    let err = reply
+        .get("error")
+        .unwrap_or_else(|| panic!("mcp read a main ref: {reply}"));
+    assert_eq!(err["code"].as_i64(), Some(-32010), "{err}");
+    assert_eq!(
+        err["data"]["code"].as_str(),
+        Some("lease_rewrite_on_main"),
+        "{err}"
+    );
+}
+
+fn accept_lease(root: &Path, rpc: &mut Rpc, mcp: &mut Mcp, branch: &str) {
     let id = run(
         root,
         &[
@@ -199,15 +396,223 @@ fn lease_rewrite_on_a_main_ref_is_refused() {
             "--repo",
             "github:acme/widgets",
             "--branch",
-            "develop",
+            branch,
             "--lease",
             "lease-rewrite",
         ],
     );
-    assert!(id.trim().starts_with("sha256:"), "{id}");
-    let text = fs::read_to_string(&path).unwrap();
-    assert!(text.contains("lease-rewrite"), "{text}");
-    assert!(text.contains("develop"), "{text}");
+    let id = id.trim();
+    assert!(id.starts_with("sha256:"), "{id}");
+    let got = rpc
+        .call(
+            "issue/target",
+            json!({
+                "repo": "github:acme/widgets",
+                "branch": branch,
+                "lease": "lease-rewrite",
+            }),
+        )
+        .unwrap_or_else(|err| panic!("socket refused {branch}: {err}"));
+    assert!(
+        got["report"].as_str().unwrap_or("").contains(id),
+        "{branch} socket {got}"
+    );
+    let reply = mcp.call(json!({
+        "repo": "github:acme/widgets",
+        "branch": branch,
+        "lease": "lease-rewrite",
+    }));
+    assert!(reply.get("error").is_none(), "{branch} mcp {reply}");
+    let text = reply["result"]["content"][0]["text"].as_str().unwrap_or("");
+    assert!(text.contains(id), "{branch} mcp {reply}");
+}
+
+struct Serve {
+    child: Child,
+}
+
+impl Serve {
+    fn start(root: &Path, socket: &Path) -> Self {
+        let err_path = root.join("serve.err");
+        let err = File::create(&err_path).unwrap();
+        let mut child = Command::new(env!("CARGO_BIN_EXE_vissue"))
+            .args([
+                "--root",
+                root.to_str().unwrap(),
+                "serve",
+                "--foreground",
+                "-s",
+                socket.to_str().unwrap(),
+            ])
+            .env("VISSUE_NO_ROUTE", "1")
+            .env("VISSUE_AGENT", "ada")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::from(err))
+            .spawn()
+            .expect("spawn serve");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut accepted = false;
+        while Instant::now() < deadline {
+            if UnixStream::connect(socket).is_ok() {
+                accepted = true;
+                break;
+            }
+            if let Some(status) = child.try_wait().expect("serve status") {
+                let err = fs::read_to_string(&err_path).unwrap_or_default();
+                panic!("serve exited {status}: {err}");
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        if !accepted {
+            let _ = child.kill();
+            let _ = child.wait();
+            let err = fs::read_to_string(&err_path).unwrap_or_default();
+            panic!("serve did not accept: {err}");
+        }
+        Self { child }
+    }
+}
+
+impl Drop for Serve {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+struct Rpc {
+    writer: UnixStream,
+    reader: BufReader<UnixStream>,
+    next_id: i64,
+}
+
+impl Rpc {
+    fn connect(socket: &Path) -> Self {
+        let stream = UnixStream::connect(socket).expect("connect");
+        let reader = BufReader::new(stream.try_clone().expect("clone"));
+        Self {
+            writer: stream,
+            reader,
+            next_id: 0,
+        }
+    }
+
+    fn call(&mut self, method: &str, params: Value) -> Result<Value, Value> {
+        self.next_id += 1;
+        let id = self.next_id;
+        writeln!(
+            self.writer,
+            "{}",
+            json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params})
+        )
+        .expect("write");
+        self.writer.flush().expect("flush");
+        loop {
+            let mut line = String::new();
+            let read = self.reader.read_line(&mut line).expect("read");
+            assert!(read > 0, "{method}: the socket closed");
+            let value: Value = serde_json::from_str(&line).unwrap_or_else(|err| {
+                panic!("{method}: not JSON: {err}: {line}");
+            });
+            if value.get("method").is_some() && value.get("id").is_none() {
+                continue;
+            }
+            if value.get("id").and_then(Value::as_i64) != Some(id) {
+                continue;
+            }
+            if let Some(err) = value.get("error") {
+                return Err(err.clone());
+            }
+            return Ok(value.get("result").cloned().unwrap_or(Value::Null));
+        }
+    }
+}
+
+struct Mcp {
+    child: Child,
+    stdin: std::process::ChildStdin,
+    stdout: BufReader<std::process::ChildStdout>,
+    next_id: i64,
+}
+
+impl Mcp {
+    fn start(root: &Path) -> Self {
+        let bin = Path::new(env!("CARGO_BIN_EXE_vissue"))
+            .parent()
+            .expect("bin dir")
+            .join("vissue-mcp");
+        assert!(bin.is_file(), "build vissue-mcp before this test");
+        let mut child = Command::new(&bin)
+            .env("VISSUE_ROOT", root)
+            .env("VISSUE_PREFIX", "Software")
+            .env("VISSUE_NO_ROUTE", "1")
+            .env("VISSUE_AGENT", "ada")
+            .env_remove("VISSUE_CONFIG")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn vissue-mcp");
+        let stdin = child.stdin.take().expect("stdin");
+        let stdout = BufReader::new(child.stdout.take().expect("stdout"));
+        let mut mcp = Self {
+            child,
+            stdin,
+            stdout,
+            next_id: 0,
+        };
+        let init = mcp.request(
+            "initialize",
+            json!({
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "target-record", "version": "0"},
+            }),
+        );
+        assert!(init.get("error").is_none(), "{init}");
+        mcp.write(&json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized",
+        }));
+        mcp
+    }
+
+    fn write(&mut self, msg: &Value) {
+        writeln!(self.stdin, "{msg}").expect("write");
+        self.stdin.flush().expect("flush");
+    }
+
+    fn request(&mut self, method: &str, params: Value) -> Value {
+        self.next_id += 1;
+        let id = self.next_id;
+        self.write(&json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}));
+        loop {
+            let mut line = String::new();
+            let read = self.stdout.read_line(&mut line).expect("read");
+            assert!(read > 0, "{method}: the server closed the pipe");
+            let value: Value = serde_json::from_str(&line).unwrap_or_else(|err| {
+                panic!("{method}: not JSON: {err}: {line}");
+            });
+            if value.get("id").and_then(Value::as_i64) == Some(id) {
+                return value;
+            }
+        }
+    }
+
+    fn call(&mut self, arguments: Value) -> Value {
+        self.request(
+            "tools/call",
+            json!({"name": "vissue_target", "arguments": arguments}),
+        )
+    }
+}
+
+impl Drop for Mcp {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
 }
 
 /// Two writers setting a land field to different values keep both, and the
@@ -248,4 +653,41 @@ fn a_clash_on_a_land_field_keeps_both_values() {
     assert!(merged.contains("seats-five"), "{merged}");
     assert!(merged.contains(":MERGE_CONFLICT:"), "{merged}");
     assert!(merged.contains("QUORUM"), "{merged}");
+
+    let carried = dir.path().join("carried.org");
+    fs::copy(&ours, &carried).unwrap();
+    fs::copy(&carried, &board).unwrap();
+    run(root, &["target", issue, "--landers", "seat:ada"]);
+    let ours2 = dir.path().join("ours2.org");
+    fs::copy(&board, &ours2).unwrap();
+    fs::copy(&carried, &board).unwrap();
+    run(root, &["target", issue, "--landers", "seat:bob"]);
+    let theirs2 = dir.path().join("theirs2.org");
+    fs::copy(&board, &theirs2).unwrap();
+
+    let out = vissue(
+        root,
+        &[
+            "merge-driver",
+            carried.to_str().unwrap(),
+            ours2.to_str().unwrap(),
+            theirs2.to_str().unwrap(),
+            "api/issues.org",
+        ],
+    );
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "{err}");
+    assert!(err.contains("clash"), "{err}");
+    let again = fs::read_to_string(&ours2).unwrap();
+    let drawer = again.split(":MERGE_CONFLICT:").nth(1).unwrap_or("");
+    assert!(
+        drawer.contains("seats-five"),
+        "the first clash value was dropped: {again}"
+    );
+    assert!(
+        drawer.contains("seat:bob"),
+        "the second clash value was dropped: {again}"
+    );
+    assert!(again.contains("seats-eight"), "{again}");
+    assert!(again.contains("seat:ada"), "{again}");
 }

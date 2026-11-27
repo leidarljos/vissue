@@ -213,12 +213,138 @@ pub fn target_id(repo: &str, branch: &str) -> String {
 
 /// Whether `branch` is a main ref.
 ///
-/// `main` and `refs/heads/main` are main. Any other branch is not.
+/// One leading `refs/heads/` or `heads/` is stripped, ignoring case, and the
+/// remainder is `main` or `master`, ignoring case. `HEAD`, `@`, and any
+/// `HEAD` component name no concrete branch: they may resolve to main, so
+/// they count as a main ref too. The check uses this form; the stored branch
+/// stays the text that was written.
 #[must_use]
 pub fn is_main_ref(branch: &str) -> bool {
     let branch = branch.trim();
-    let short = branch.strip_prefix("refs/heads/").unwrap_or(branch);
-    short == "main"
+    if is_symbolic_ref(branch) {
+        return true;
+    }
+    let short = strip_one_prefix(branch);
+    if short != branch && is_symbolic_ref(short) {
+        return true;
+    }
+    short.eq_ignore_ascii_case("main") || short.eq_ignore_ascii_case("master")
+}
+
+fn is_symbolic_ref(branch: &str) -> bool {
+    if branch == "@" || branch.eq_ignore_ascii_case("refs/@") {
+        return true;
+    }
+    branch
+        .split('/')
+        .any(|part| part.eq_ignore_ascii_case("HEAD"))
+}
+
+fn strip_one_prefix(branch: &str) -> &str {
+    for prefix in ["refs/heads/", "heads/"] {
+        if branch.len() >= prefix.len() && branch[..prefix.len()].eq_ignore_ascii_case(prefix) {
+            return &branch[prefix.len()..];
+        }
+    }
+    branch
+}
+
+/// `git check-ref-format --branch` rules, without calling git.
+///
+/// A branch name is `refs/heads/` plus the name, and it must not start with
+/// `-` or be `HEAD`. `@{` is refused rather than expanded.
+fn is_valid_branch_name(name: &str) -> bool {
+    if name.is_empty() || name.as_bytes()[0] == b'-' || name == "HEAD" {
+        return false;
+    }
+    refname_ok(&format!("refs/heads/{name}"))
+}
+
+fn refname_ok(name: &str) -> bool {
+    if name == "@" {
+        return false;
+    }
+    let bytes = name.as_bytes();
+    let mut index = 0;
+    let mut components = 0usize;
+    while index < bytes.len() {
+        let Some(len) = component_len(&bytes[index..]) else {
+            return false;
+        };
+        if len == 0 {
+            return false;
+        }
+        let component = &bytes[index..index + len];
+        if component[0] == b'.' || component.ends_with(b".lock") {
+            return false;
+        }
+        components += 1;
+        index += len;
+        if index == bytes.len() {
+            break;
+        }
+        if bytes[index] != b'/' {
+            return false;
+        }
+        index += 1;
+        if index == bytes.len() {
+            return false;
+        }
+    }
+    components >= 2 && bytes.last() != Some(&b'.')
+}
+
+fn component_len(bytes: &[u8]) -> Option<usize> {
+    let mut last = 0u8;
+    for (index, &byte) in bytes.iter().enumerate() {
+        match byte_class(byte) {
+            ByteClass::End => return (index > 0).then_some(index),
+            ByteClass::Dot if last == b'.' => return None,
+            ByteClass::Brace if last == b'@' => return None,
+            ByteClass::Bad => return None,
+            ByteClass::Ok | ByteClass::Dot | ByteClass::Brace => {}
+        }
+        last = byte;
+    }
+    if bytes.is_empty() {
+        None
+    } else {
+        Some(bytes.len())
+    }
+}
+
+enum ByteClass {
+    Ok,
+    End,
+    Dot,
+    Brace,
+    Bad,
+}
+
+fn byte_class(byte: u8) -> ByteClass {
+    // git's `refname_disposition` for bytes 0..=127. Higher bytes are allowed.
+    const CLASS: [u8; 128] = [
+        1, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, //
+        4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, //
+        4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 2, 1, //
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 4, //
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 4, 0, 4, 0, //
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 4, 4,
+    ];
+    let class = if usize::from(byte) < CLASS.len() {
+        CLASS[usize::from(byte)]
+    } else {
+        0
+    };
+    match class {
+        1 => ByteClass::End,
+        2 => ByteClass::Dot,
+        3 => ByteClass::Brace,
+        4 | 5 => ByteClass::Bad,
+        _ => ByteClass::Ok,
+    }
 }
 
 impl Target {
@@ -226,8 +352,9 @@ impl Target {
     ///
     /// # Errors
     ///
-    /// Returns an error if a field is empty or not in its closed set, or the
-    /// lease is `lease-rewrite` on a main ref.
+    /// Returns an error if a field is empty or not in its closed set, the
+    /// branch is not a valid branch name, or the lease is `lease-rewrite` on
+    /// a main ref.
     #[allow(clippy::too_many_arguments)]
     pub fn try_new(
         repo: &str,
@@ -246,6 +373,9 @@ impl Target {
         let lease = LeaseRule::parse(lease)?;
         if lease == LeaseRule::LeaseRewrite && is_main_ref(&branch) {
             return Err(Error::LeaseRewriteOnMain { branch });
+        }
+        if !is_valid_branch_name(&branch) {
+            return Err(Error::InvalidBranch { branch });
         }
         let checks = tokens("check", checks)?;
         let mirrors = tokens("mirror", mirrors)?;
@@ -294,10 +424,11 @@ impl Target {
 /// # Errors
 ///
 /// Returns an error if the tracker is missing, a field is not in its closed
-/// set, `lease-rewrite` is asked for on a main ref, or the named issue or
-/// target is not in the corpus.
+/// set, the branch is not a valid branch name, `lease-rewrite` is asked for
+/// on a main ref, or the named issue or target is not in the corpus.
 pub fn apply(layout: &Layout, edit: &TargetEdit) -> Result<String> {
     layout.require_tracker()?;
+    validate_given(edit)?;
     if edit.org {
         return read(layout, edit);
     }
@@ -330,6 +461,9 @@ fn read(layout: &Layout, edit: &TargetEdit) -> Result<String> {
     if let (Some(repo), Some(branch)) = (edit.repo.as_deref(), edit.branch.as_deref()) {
         let repo = token("repo", repo)?;
         let branch = token("branch", branch)?;
+        if !is_valid_branch_name(&branch) {
+            return Err(Error::InvalidBranch { branch });
+        }
         let id = target_id(&repo, &branch);
         let text = read_file(&targets_path(layout))?;
         let found = parse_file(&text)?;
@@ -341,7 +475,33 @@ fn read(layout: &Layout, edit: &TargetEdit) -> Result<String> {
     if let Some(id) = edit.issue.as_deref() {
         return issue_text(layout, id);
     }
-    read_file(&targets_path(layout))
+    let text = read_file(&targets_path(layout))?;
+    parse_file(&text)?;
+    Ok(text)
+}
+
+fn validate_given(edit: &TargetEdit) -> Result<()> {
+    if let Some(mode) = edit.mode.as_deref() {
+        Mode::parse(mode)?;
+    }
+    if let Some(lease) = edit.lease.as_deref() {
+        LeaseRule::parse(lease)?;
+    }
+    if let Some(owned) = edit.owned.as_deref() {
+        Owned::parse(owned)?;
+    }
+    if let Some(fork) = edit.fork.as_deref() {
+        token("fork", fork)?;
+    }
+    tokens("check", &edit.checks)?;
+    tokens("mirror", &edit.mirrors)?;
+    if let Some(quorum) = edit.quorum.as_deref() {
+        optional_line("quorum", Some(quorum))?;
+    }
+    if let Some(landers) = edit.landers.as_deref() {
+        optional_line("landers", Some(landers))?;
+    }
+    Ok(())
 }
 
 fn write_record(layout: &Layout, edit: &TargetEdit) -> Result<String> {
@@ -399,7 +559,7 @@ fn write_issue(layout: &Layout, id: &str, edit: &TargetEdit) -> Result<String> {
 
 fn retarget(layout: &Layout, id: &str, edit: &TargetEdit) -> Result<String> {
     let (Some(from), Some(to)) = (edit.from.as_deref(), edit.to.as_deref()) else {
-        return Err(anyhow!("retarget needs --from and --to").into());
+        return Err(Error::RetargetNeedsBoth);
     };
     let from = token("from", from)?;
     let to = token("to", to)?;
@@ -728,7 +888,7 @@ fn optional_line(label: &str, raw: Option<&str>) -> Result<String> {
 mod tests {
     use super::*;
 
-    fn layout() -> (tempfile::TempDir, Layout) {
+    fn temp_layout() -> (tempfile::TempDir, Layout) {
         let dir = tempfile::tempdir().expect("tempdir");
         let layout = Layout::new(dir.path(), "Software");
         fs::create_dir_all(layout.projects_dir()).expect("projects");
@@ -753,7 +913,7 @@ mod tests {
 
     #[test]
     fn a_target_rewrites_to_the_same_bytes() {
-        let (_dir, layout) = layout();
+        let (_dir, layout) = temp_layout();
         let edit = record("github:acme/widgets", "develop", "strict-base");
         apply(&layout, &edit).expect("write");
         let path = targets_path(&layout);
@@ -778,17 +938,98 @@ mod tests {
 
     #[test]
     fn lease_rewrite_on_a_main_ref_is_refused() {
-        let (_dir, layout) = layout();
-        let err = apply(
+        for branch in [
+            "main",
+            "refs/heads/main",
+            "MAIN",
+            "Main",
+            "master",
+            "refs/heads/MAIN",
+            "Refs/Heads/main",
+            "HEAD",
+            "head",
+            "@",
+            "refs/HEAD",
+            "refs/heads/HEAD",
+            "heads/main",
+        ] {
+            assert!(is_main_ref(branch), "{branch} is a main ref");
+            let (_dir, layout) = temp_layout();
+            let err = apply(
+                &layout,
+                &record("github:acme/widgets", branch, "lease-rewrite"),
+            )
+            .expect_err(branch);
+            assert!(
+                err.to_string()
+                    .contains(&format!("lease-rewrite is refused on a main ref: {branch}")),
+                "{branch}: {err}"
+            );
+            assert!(!targets_path(&layout).exists(), "{branch}");
+        }
+        for branch in ["main/", "refs/heads//main", "foo.lock", "-topic", "a//b"] {
+            assert!(!is_main_ref(branch), "{branch}");
+            let (_dir, layout) = temp_layout();
+            let err = apply(
+                &layout,
+                &record("github:acme/widgets", branch, "lease-rewrite"),
+            )
+            .expect_err(branch);
+            assert!(
+                err.to_string()
+                    .contains(&format!("invalid branch: {branch}")),
+                "{branch}: {err}"
+            );
+            assert!(!targets_path(&layout).exists(), "{branch}");
+        }
+
+        let (_dir, layout) = temp_layout();
+        for branch in ["develop", "mainline", "refs/heads/topic"] {
+            assert!(!is_main_ref(branch), "{branch}");
+            apply(
+                &layout,
+                &record("github:acme/widgets", branch, "lease-rewrite"),
+            )
+            .expect(branch);
+        }
+        let text = fs::read_to_string(targets_path(&layout)).expect("read");
+        assert!(text.contains(":BRANCH:     develop\n"), "{text}");
+        assert!(text.contains(":BRANCH:     mainline\n"), "{text}");
+        assert!(text.contains(":BRANCH:     refs/heads/topic\n"), "{text}");
+        assert!(text.contains("lease-rewrite"), "{text}");
+
+        let main = apply(
             &layout,
-            &record("github:acme/widgets", "main", "lease-rewrite"),
+            &record("github:acme/widgets", "main", "strict-base"),
         )
-        .expect_err("main");
+        .expect("strict-base on main");
+        assert!(main.starts_with("sha256:"), "{main}");
+
+        let repo = "github:acme/widgets";
+        let branch = "MAIN";
+        let id = target_id(repo, branch);
+        let hand = format!(
+            "#+TITLE: targets\n\n* {id}\n:PROPERTIES:\n:REPO:       {repo}\n:BRANCH:     {branch}\n:MODE:       merge\n:LEASE:      lease-rewrite\n:OWNED:      yes\n:END:\n"
+        );
+        let (_hand, hand_layout) = temp_layout();
+        fs::write(targets_path(&hand_layout), &hand).expect("hand edit");
+        let err = apply(
+            &hand_layout,
+            &TargetEdit {
+                org: true,
+                ..TargetEdit::default()
+            },
+        )
+        .expect_err("hand-edited main spelling");
         assert!(
             err.to_string()
-                .contains("lease-rewrite is refused on a main ref"),
+                .contains("lease-rewrite is refused on a main ref: MAIN"),
             "{err}"
         );
-        assert!(!targets_path(&layout).exists());
+        assert_eq!(
+            fs::read_to_string(targets_path(&hand_layout)).expect("unchanged"),
+            hand,
+            "a refused read rewrote the file"
+        );
     }
 }
