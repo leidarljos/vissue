@@ -820,6 +820,210 @@ fn an_unknown_id_is_checked_before_not_found() {
     );
 }
 
+/// A drawer in the shape develop writes (bare value lines, one of them
+/// ending in `:`, inside a ledger) still has every value after three merges.
+#[test]
+fn a_caff198_clash_drawer_survives_three_merges() {
+    let dir = tracker();
+    let root = dir.path();
+    // `{field}:\n{value}\n`, the bytes caff198a merge.rs writes. `Their title`
+    // is only in the drawer. `lost:` is a value, not a field name.
+    let ledger = "\
+#+TODO: TODO | DONE CANCELLED
+
+#+VISSUE_LEDGER:
+#+VISSUE_LINES: 4 22
+* TODO [#B] Land the kit
+:PROPERTIES:
+:ID:         kit-aaaa
+:END:
+:MERGE_CONFLICT:
+property QUORUM:
+seats-five
+property LANDERS:
+seat:bob
+property TARGET:
+tgt-theirs
+state:
+CANCELLED
+title:
+Their title
+ballot of ada:
+[X] rev 1 ada
+body:
+DONE
+drawer NOTES:
+theirs-title-ONLY-IN-DRAWER
+priority:
+lost:
+:END:
+#+VISSUE_LEDGER_LOG:
+";
+    let once = merge_self(root, dir.path(), ledger, "legacy-1");
+    let twice = merge_self(root, dir.path(), &once, "legacy-2");
+    let thrice = merge_self(root, dir.path(), &twice, "legacy-3");
+    let want = [
+        "seats-five",
+        "seat:bob",
+        "tgt-theirs",
+        "CANCELLED",
+        "Their title",
+        "[X] rev 1 ada",
+        "DONE",
+        "theirs-title-ONLY-IN-DRAWER",
+        "lost:",
+    ];
+    let fields = [
+        "property QUORUM",
+        "property LANDERS",
+        "property TARGET",
+        "state",
+        "title",
+        "ballot of ada",
+        "body",
+        "drawer NOTES",
+        "priority",
+    ];
+    let live = |text: &str| {
+        let start = text.rfind(":MERGE_CONFLICT:").expect("clash drawer");
+        let rest = &text[start..];
+        let end = rest.find(":END:").expect("drawer end");
+        let drawer = &rest[..end + ":END:".len()];
+        let values: Vec<String> = fields
+            .iter()
+            .map(|field| clash_value(drawer, field))
+            .collect();
+        let emptied = drawer.lines().any(|line| line == "%" || line == "lost:");
+        (values, emptied)
+    };
+    assert_eq!(
+        (live(&once), live(&twice), live(&thrice)),
+        (
+            (vec_of(want), false),
+            (vec_of(want), false),
+            (vec_of(want), false),
+        ),
+        "{thrice}"
+    );
+}
+
+fn vec_of<const N: usize>(rows: [&str; N]) -> Vec<String> {
+    rows.iter().map(|row| (*row).to_string()).collect()
+}
+
+/// `--from` without `--to` checks the lease, then the pair, as the socket does.
+#[test]
+fn from_without_to_uses_the_socket_error() {
+    let dir = tracker();
+    let root = dir.path();
+    let socket = root.join("control.sock");
+    let _serve = Serve::start(root, &socket);
+    let mut rpc = Rpc::connect(&socket);
+    let mut mcp = Mcp::start(root);
+    let bad = vissue(
+        root,
+        &[
+            "target",
+            "no-such-issue",
+            "--from",
+            "sha256:abc",
+            "--lease",
+            "not-a-rule",
+        ],
+    );
+    let bad_cli = String::from_utf8(bad.stderr).unwrap();
+    let bad_sock = rpc
+        .call(
+            "issue/target",
+            json!({"id": "no-such-issue", "from": "sha256:abc", "lease": "not-a-rule"}),
+        )
+        .expect_err("socket accepted an unknown lease");
+    let bad_mcp =
+        mcp.call(json!({"issue_id": "no-such-issue", "from": "sha256:abc", "lease": "not-a-rule"}));
+    let pair = vissue(
+        root,
+        &[
+            "target",
+            "no-such-issue",
+            "--from",
+            "sha256:abc",
+            "--lease",
+            "strict-base",
+        ],
+    );
+    let pair_cli = String::from_utf8(pair.stderr).unwrap();
+    let pair_sock = rpc
+        .call(
+            "issue/target",
+            json!({"id": "no-such-issue", "from": "sha256:abc", "lease": "strict-base"}),
+        )
+        .expect_err("socket accepted a one-sided retarget");
+    let pair_mcp = mcp
+        .call(json!({"issue_id": "no-such-issue", "from": "sha256:abc", "lease": "strict-base"}));
+    let lease = "unknown lease rule: not-a-rule";
+    let both = "retarget needs --from and --to";
+    assert!(
+        bad.status.code() == Some(1)
+            && bad_cli.contains(lease)
+            && !bad_cli.contains(both)
+            && bad_sock["code"].as_i64() == Some(-32603)
+            && bad_sock["message"].as_str().unwrap_or("").contains(lease)
+            && bad_mcp["error"]["code"].as_i64() == Some(-32603)
+            && bad_mcp["error"]["message"]
+                .as_str()
+                .unwrap_or("")
+                .contains(lease)
+            && pair.status.code() == Some(1)
+            && pair_cli.contains(both)
+            && !pair_cli.contains(lease)
+            && pair_sock["code"].as_i64() == Some(-32602)
+            && pair_sock["data"]["code"].as_str() == Some("retarget_needs_both")
+            && pair_sock["message"].as_str().unwrap_or("").contains(both)
+            && pair_mcp["error"]["code"].as_i64() == Some(-32602)
+            && pair_mcp["error"]["data"]["code"].as_str() == Some("retarget_needs_both")
+            && pair_mcp["error"]["message"]
+                .as_str()
+                .unwrap_or("")
+                .contains(both)
+            && !root.join("Software/targets.org").exists(),
+        "bad cli={bad_cli} sock={bad_sock} mcp={bad_mcp} pair cli={pair_cli} sock={pair_sock} mcp={pair_mcp}"
+    );
+}
+
+/// A missing issue is `-32004` `not_found` on the socket and on MCP.
+#[test]
+fn a_missing_issue_is_not_found() {
+    let dir = tracker();
+    let root = dir.path();
+    let socket = root.join("control.sock");
+    let _serve = Serve::start(root, &socket);
+    let mut rpc = Rpc::connect(&socket);
+    let mut mcp = Mcp::start(root);
+    let out = vissue(root, &["target", "no-such-issue"]);
+    let cli = String::from_utf8(out.stderr).unwrap();
+    let sock = rpc
+        .call("issue/target", json!({"id": "no-such-issue"}))
+        .expect_err("socket found a missing issue");
+    let reply = mcp.call(json!({"issue_id": "no-such-issue"}));
+    let needle = "issue no-such-issue not found";
+    assert!(
+        out.status.code() == Some(1)
+            && cli.contains(needle)
+            && sock["code"].as_i64() == Some(-32004)
+            && sock["data"]["code"].as_str() == Some("not_found")
+            && sock["data"]["id"].as_str() == Some("no-such-issue")
+            && sock["message"].as_str().unwrap_or("").contains(needle)
+            && reply["error"]["code"].as_i64() == Some(-32004)
+            && reply["error"]["data"]["code"].as_str() == Some("not_found")
+            && reply["error"]["data"]["id"].as_str() == Some("no-such-issue")
+            && reply["error"]["message"]
+                .as_str()
+                .unwrap_or("")
+                .contains(needle),
+        "cli={cli} socket={sock} mcp={reply}"
+    );
+}
+
 fn merge_sides(
     root: &Path,
     scratch: &Path,

@@ -690,6 +690,12 @@ fn conflict_entries(drawer: &str) -> Vec<(String, String)> {
         if let Some(name) = conflict_header(line) {
             finish_clash(&mut entries, &mut field, &mut lines);
             field = Some(name.to_string());
+            continue;
+        }
+        // Develop wrote the value on the next line with no mark. Keep it
+        // byte-exact. A field header was taken above; this is not a key.
+        if field.is_some() {
+            lines.push(line.to_string());
         }
     }
     finish_clash(&mut entries, &mut field, &mut lines);
@@ -711,7 +717,27 @@ fn conflict_header(line: &str) -> Option<&str> {
         return None;
     }
     let name = line.strip_suffix(':')?;
-    if name.is_empty() { None } else { Some(name) }
+    clash_field(name).then_some(name)
+}
+
+/// A field name the clash writer emits.
+///
+/// `title`, `state`, `body`, `priority`, `statistics`, `the org after the
+/// heading`, `property QUORUM`, `drawer NOTES`, `ballot of ada`. A value
+/// that merely ends in `:` (`lost:`) is not one of these.
+fn clash_field(name: &str) -> bool {
+    matches!(
+        name,
+        "title" | "state" | "body" | "priority" | "statistics" | "the org after the heading"
+    ) || name
+        .strip_prefix("property ")
+        .is_some_and(|rest| !rest.is_empty())
+        || name
+            .strip_prefix("drawer ")
+            .is_some_and(|rest| !rest.is_empty())
+        || name
+            .strip_prefix("ballot of ")
+            .is_some_and(|rest| !rest.is_empty())
 }
 
 /// Quote mark for one stored line of a clash value.

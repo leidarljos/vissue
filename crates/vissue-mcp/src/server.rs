@@ -69,6 +69,11 @@ fn target_result(result: vissue_core::Result<String>) -> Result<CallToolResult, 
             "retarget needs --from and --to",
             Some(serde_json::json!({ "code": "retarget_needs_both" })),
         )),
+        Err(Error::IssueNotFound { id }) => Err(McpError::new(
+            rmcp::model::ErrorCode(-32004),
+            format!("issue {id} not found"),
+            Some(serde_json::json!({ "code": "not_found", "id": id })),
+        )),
         Err(err) => Err(McpError::internal_error(format!("{err}"), None)),
     }
 }

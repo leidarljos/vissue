@@ -347,10 +347,10 @@ enum Command {
         #[arg(long = "remove")]
         remove: Vec<String>,
         /// Target id this issue leaves. Requires `--to`.
-        #[arg(long, requires = "to")]
+        #[arg(long)]
         from: Option<String>,
         /// Target id this issue moves to. Requires `--from`.
-        #[arg(long, requires = "from")]
+        #[arg(long)]
         to: Option<String>,
         /// Land-field target id on this issue.
         #[arg(long)]
