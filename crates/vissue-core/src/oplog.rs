@@ -383,7 +383,8 @@ pub fn describe(project: &str, headings: &[IssueHeading]) -> Result<Vec<Op>> {
 /// field write, log line, or retire note that sorts before the first birth
 /// is merged when that birth is applied. Concurrent body edits always clash.
 /// Two issues that share a short id both stay; the later one by
-/// `(lamport, op id)` is shown with a `~N` suffix.
+/// `(lamport, op id)` is shown with the smallest `~N` that no real
+/// or already-assigned id uses.
 ///
 /// # Errors
 ///
@@ -696,6 +697,10 @@ impl Mem {
                     b.0,
                 ))
         });
+        let real: BTreeSet<(String, String)> = lives
+            .iter()
+            .map(|(_, live)| (live.project.clone(), live.short_id.clone()))
+            .collect();
         let mut issues = BTreeMap::new();
         let mut index = 0;
         while index < lives.len() {
@@ -707,13 +712,16 @@ impl Mem {
                 end += 1;
             }
             for (rank, (_, live)) in lives[index..end].iter().enumerate() {
-                let shown = if rank == 0 {
+                let mut shown = if rank == 0 {
                     live.short_id.clone()
                 } else {
-                    format!("{}~{}", live.short_id, rank + 1)
+                    free_suffix(&live.project, &live.short_id, &real, &issues)
                 };
+                if issues.contains_key(&(live.project.clone(), shown.clone())) {
+                    shown = free_suffix(&live.project, &live.short_id, &real, &issues);
+                }
                 let mut heading = live.heading.clone();
-                if rank > 0 {
+                if shown != live.short_id {
                     if heading.id == live.short_id {
                         heading.id = shown.clone();
                     }
@@ -726,6 +734,25 @@ impl Mem {
             index = end;
         }
         Folded { issues, conflicts }
+    }
+}
+
+/// Smallest `short_id~N`, from 2 up, that is not a real short id and not
+/// already a key in `issues`.
+fn free_suffix(
+    project: &str,
+    short_id: &str,
+    real: &BTreeSet<(String, String)>,
+    issues: &BTreeMap<(String, String), IssueHeading>,
+) -> String {
+    let mut n = 2u64;
+    loop {
+        let shown = format!("{short_id}~{n}");
+        let key = (project.to_string(), shown.clone());
+        if !real.contains(&key) && !issues.contains_key(&key) {
+            return shown;
+        }
+        n += 1;
     }
 }
 

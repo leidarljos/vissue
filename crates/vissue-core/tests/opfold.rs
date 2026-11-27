@@ -1280,8 +1280,42 @@ fn check_descendant(
     }
 }
 
+/// A generated `~N` never takes a real short id. Two births of `proj-1`
+/// and a real `proj-1~2` all stay, and every input order folds to the
+/// same bytes. The later birth takes the smallest free suffix, `~3`.
+fn a_generated_suffix_does_not_replace_a_real_id() {
+    let alpha = wire(&Op::create("proj", "proj-1", "Alpha", "seat").unwrap());
+    let beta = wire(&Op::create("proj", "proj-1", "Beta", "seat").unwrap());
+    let real = wire(&Op::create("proj", "proj-1~2", "Real", "seat").unwrap());
+    let alpha_key = (alpha.lamport, alpha.id().unwrap());
+    let beta_key = (beta.lamport, beta.id().unwrap());
+    let (earlier, later) = if alpha_key < beta_key {
+        ("Alpha", "Beta")
+    } else {
+        ("Beta", "Alpha")
+    };
+    let mut ops = vec![alpha, beta, real];
+    assert_folds_same(&mut ops, |folded| {
+        assert_eq!(folded.issues.len(), 3, "{:?}", folded.issues.keys());
+        let mut titles = BTreeMap::new();
+        for ((project, id), heading) in &folded.issues {
+            assert_eq!(project, "proj");
+            assert_eq!(heading.id, *id);
+            assert_eq!(
+                heading.properties.get("ID").map(String::as_str),
+                Some(id.as_str())
+            );
+            titles.insert(heading.title.clone(), id.clone());
+        }
+        assert_eq!(titles[earlier], "proj-1");
+        assert_eq!(titles["Real"], "proj-1~2");
+        assert_eq!(titles[later], "proj-1~3");
+    });
+}
+
 #[test]
 fn concurrent_ops_fold_to_the_same_bytes_in_every_order() {
+    a_generated_suffix_does_not_replace_a_real_id();
     duplicate_births_keep_both_headings();
     a_log_and_a_retire_note_wait_for_the_birth();
     a_descendant_of_a_concurrent_add_stays_removed();
