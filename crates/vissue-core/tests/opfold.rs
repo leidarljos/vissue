@@ -1015,8 +1015,276 @@ fn scalar_on_a_set_keeps_the_union() {
     }
 }
 
+fn headed(id: &str, title: &str, body: &str, owner: &str) -> IssueHeading {
+    let mut heading = plain_heading(id, title);
+    heading.body = body.to_string();
+    heading
+        .properties
+        .insert("OWNER".to_string(), owner.to_string());
+    heading.property_order.push("OWNER".to_string());
+    heading
+}
+
+/// Two births of one short id both stay. The later birth by `(lamport, op id)`
+/// is shown as `id~2`, and each heading keeps its own body and owner.
+fn duplicate_births_keep_both_headings() {
+    let first = headed("proj-dup", "First", "body-one", "ada");
+    let second = headed("proj-dup", "Second", "body-two", "bo");
+    let mut ops: Vec<Op> = describe("proj", &[first, second])
+        .unwrap()
+        .iter()
+        .map(wire)
+        .collect();
+    let first_id = ops[0].id().unwrap();
+    let second_id = ops[1].id().unwrap();
+    let earlier_title = if (ops[0].lamport, first_id) < (ops[1].lamport, second_id) {
+        "First"
+    } else {
+        "Second"
+    };
+    assert_folds_same(&mut ops, |folded| {
+        assert_eq!(folded.issues.len(), 2, "{:?}", folded.issues.keys());
+        let mut by_title = BTreeMap::new();
+        for ((project, id), heading) in &folded.issues {
+            assert_eq!(project, "proj");
+            by_title.insert(
+                heading.title.clone(),
+                (
+                    id.clone(),
+                    heading.body.clone(),
+                    heading.properties.get("OWNER").cloned(),
+                ),
+            );
+        }
+        assert_eq!(by_title["First"].1, "body-one");
+        assert_eq!(by_title["First"].2.as_deref(), Some("ada"));
+        assert_eq!(by_title["Second"].1, "body-two");
+        assert_eq!(by_title["Second"].2.as_deref(), Some("bo"));
+        assert_ne!(by_title["First"].0, by_title["Second"].0);
+        assert_eq!(by_title[earlier_title].0, "proj-dup");
+        assert!(
+            by_title.values().any(|row| row.0 == "proj-dup~2"),
+            "{by_title:?}"
+        );
+        let clash = clash_ids(folded, "issue");
+        assert!(clash.contains(&first_id) && clash.contains(&second_id));
+        assert_eq!(clash.len(), 2, "{clash:?}");
+    });
+
+    let left = wire(&Op::create("proj", "proj-same", "Left", "seat").unwrap());
+    let right = wire(&Op::create("proj", "proj-same", "Right", "seat").unwrap());
+    let left_id = left.id().unwrap();
+    let right_id = right.id().unwrap();
+    let earlier = if (left.lamport, left_id) < (right.lamport, right_id) {
+        "Left"
+    } else {
+        "Right"
+    };
+    let mut ops = vec![left, right];
+    assert_folds_same(&mut ops, |folded| {
+        assert_eq!(folded.issues.len(), 2, "{:?}", folded.issues.keys());
+        let mut titles = BTreeMap::new();
+        for ((_, id), heading) in &folded.issues {
+            titles.insert(heading.title.clone(), id.clone());
+        }
+        assert_eq!(titles[earlier], "proj-same");
+        assert!(titles.values().any(|id| id == "proj-same~2"), "{titles:?}");
+        let clash = clash_ids(folded, "issue");
+        assert!(clash.contains(&left_id) && clash.contains(&right_id));
+        assert_eq!(clash.len(), 2, "{clash:?}");
+    });
+}
+
+/// A log line and a retire note that sort before a concurrent create are kept.
+/// The same ops fold to the same bytes in every input order.
+fn a_log_and_a_retire_note_wait_for_the_birth() {
+    let anchor = wire(&Op::create("proj", "proj-0", "Other", "seat").unwrap());
+    let template = Op::create("proj", "proj-1", "Created", "seat").unwrap();
+    let birth_kind = template.kind.clone();
+    let log_kind = OpKind::AppendLog {
+        entry: note("keep-log", "[2026-05-01 Fri]"),
+    };
+    let retire_kind = OpKind::Retire {
+        reason: "done".to_string(),
+    };
+    for kind in [log_kind, retire_kind] {
+        let mut early = None;
+        let mut late = None;
+        for birth_wall in 0..24 {
+            for other_wall in 0..24 {
+                let birth = child(&[&anchor], &template, birth_kind.clone(), birth_wall);
+                let other = child(&[&anchor], &template, kind.clone(), other_wall);
+                let birth_key = (birth.lamport, birth.id().unwrap());
+                let other_key = (other.lamport, other.id().unwrap());
+                if other_key < birth_key && early.is_none() {
+                    early = Some((birth, other));
+                } else if birth_key < other_key && late.is_none() {
+                    late = Some((birth, other));
+                }
+            }
+        }
+        let note_text = if matches!(kind, OpKind::Retire { .. }) {
+            "done"
+        } else {
+            "keep-log"
+        };
+        for (birth, other) in [
+            early.expect("the note sorts before the birth"),
+            late.expect("the birth sorts before the note"),
+        ] {
+            let birth_id = birth.id().unwrap();
+            let other_id = other.id().unwrap();
+            let expect_state = if matches!(kind, OpKind::Retire { .. })
+                && (other.lamport, other_id) > (birth.lamport, birth_id)
+            {
+                "CANCELLED"
+            } else {
+                "TODO"
+            };
+            let mut ops = vec![anchor.clone(), birth, other];
+            assert_folds_same(&mut ops, |folded| {
+                let heading = &folded.issues[&("proj".to_string(), "proj-1".to_string())];
+                assert!(
+                    heading
+                        .logbook
+                        .iter()
+                        .any(|entry| entry.note.as_deref() == Some(note_text)),
+                    "{:?} {}",
+                    heading.logbook,
+                    heading.state
+                );
+                assert_eq!(heading.state, expect_state);
+                assert!(
+                    folded
+                        .issues
+                        .contains_key(&("proj".to_string(), "proj-0".to_string()))
+                );
+            });
+        }
+    }
+}
+
+/// A child of an add that is concurrent with a removal must not copy the
+/// removed element back. Deeds, blocked-by links, and resolve agree.
+fn a_descendant_of_a_concurrent_add_stays_removed() {
+    let root = wire(&Op::create("proj", "proj-1", "Title", "seat").unwrap());
+    check_descendant(
+        &root,
+        OpKind::AddDeed {
+            accession: "old".to_string(),
+        },
+        OpKind::AddDeed {
+            accession: "mid".to_string(),
+        },
+        OpKind::SetField {
+            name: "property:DEEDS".to_string(),
+            value: "S".to_string(),
+        },
+        OpKind::AddDeed {
+            accession: "d".to_string(),
+        },
+        deeds,
+    );
+    check_descendant(
+        &root,
+        OpKind::AddDeed {
+            accession: "old".to_string(),
+        },
+        OpKind::AddDeed {
+            accession: "mid".to_string(),
+        },
+        OpKind::Resolve {
+            field: "property:DEEDS".to_string(),
+            value: "S".to_string(),
+        },
+        OpKind::AddDeed {
+            accession: "d".to_string(),
+        },
+        deeds,
+    );
+    check_descendant(
+        &root,
+        OpKind::Link {
+            kind: "blocked-by".to_string(),
+            other: "old".to_string(),
+        },
+        OpKind::Link {
+            kind: "blocked-by".to_string(),
+            other: "mid".to_string(),
+        },
+        OpKind::SetField {
+            name: "property:BLOCKED_BY".to_string(),
+            value: "S".to_string(),
+        },
+        OpKind::Link {
+            kind: "blocked-by".to_string(),
+            other: "d".to_string(),
+        },
+        blocked,
+    );
+    check_descendant(
+        &root,
+        OpKind::Link {
+            kind: "blocked-by".to_string(),
+            other: "old".to_string(),
+        },
+        OpKind::Link {
+            kind: "blocked-by".to_string(),
+            other: "mid".to_string(),
+        },
+        OpKind::Resolve {
+            field: "property:BLOCKED_BY".to_string(),
+            value: "S".to_string(),
+        },
+        OpKind::Link {
+            kind: "blocked-by".to_string(),
+            other: "d".to_string(),
+        },
+        blocked,
+    );
+}
+
+fn check_descendant(
+    root: &Op,
+    old_kind: OpKind,
+    mid_kind: OpKind,
+    set_kind: OpKind,
+    child_kind: OpKind,
+    read: fn(&Folded) -> Option<String>,
+) {
+    let old = child(&[root], root, old_kind, 0);
+    let mut mid_first = None;
+    let mut set_first = None;
+    for mid_wall in 0..24 {
+        for set_wall in 0..24 {
+            let mid = child(&[&old], root, mid_kind.clone(), mid_wall);
+            let set = child(&[&old], root, set_kind.clone(), set_wall);
+            let mid_id = mid.id().unwrap();
+            let set_id = set.id().unwrap();
+            if mid_id < set_id && mid_first.is_none() {
+                mid_first = Some((mid, set));
+            } else if set_id < mid_id && set_first.is_none() {
+                set_first = Some((mid, set));
+            }
+        }
+    }
+    for (mid, set) in [
+        mid_first.expect("the add sorts before the removal"),
+        set_first.expect("the removal sorts before the add"),
+    ] {
+        let descendant = child(&[&mid], root, child_kind.clone(), 1);
+        let mut ops = vec![root.clone(), old.clone(), mid, set, descendant];
+        assert_folds_same(&mut ops, |folded| {
+            assert_eq!(read(folded).as_deref(), Some("S d mid"), "{folded:?}");
+        });
+    }
+}
+
 #[test]
 fn concurrent_ops_fold_to_the_same_bytes_in_every_order() {
+    duplicate_births_keep_both_headings();
+    a_log_and_a_retire_note_wait_for_the_birth();
+    a_descendant_of_a_concurrent_add_stays_removed();
     a_removal_drops_elements_it_saw();
     a_write_before_the_first_birth_is_kept();
     earlier_writes_survive_a_later_birth();
@@ -1086,11 +1354,9 @@ fn concurrent_ops_fold_to_the_same_bytes_in_every_order() {
     ));
     let create_id = create.id().unwrap();
     let genesis_id = genesis.id().unwrap();
-    let later_title = if (create.lamport, create_id) > (genesis.lamport, genesis_id) {
-        "Created"
-    } else {
-        "Genesis"
-    };
+    let create_earlier = (create.lamport, create_id) < (genesis.lamport, genesis_id);
+    let create_shown = if create_earlier { "proj-1" } else { "proj-1~2" };
+    let genesis_shown = if create_earlier { "proj-1~2" } else { "proj-1" };
     let mut ops = vec![
         create, genesis, owner, area, spaced, other_deed, ballot, wide, nested,
     ];
@@ -1098,8 +1364,11 @@ fn concurrent_ops_fold_to_the_same_bytes_in_every_order() {
     let mut expected: Option<Vec<u8>> = None;
     permute(&mut ops, 0, &mut |order| {
         let folded = fold(order).expect("the concurrent set folds");
-        let heading = &folded.issues[&("proj".to_string(), "proj-1".to_string())];
-        assert_eq!(heading.title, later_title);
+        assert_eq!(folded.issues.len(), 2, "{:?}", folded.issues.keys());
+        let heading = &folded.issues[&("proj".to_string(), create_shown.to_string())];
+        let generated = &folded.issues[&("proj".to_string(), genesis_shown.to_string())];
+        assert_eq!(heading.title, "Created");
+        assert_eq!(generated.title, "Genesis");
         assert_eq!(
             heading.property_order,
             ["ID", "AREA", "DEEDS", "OWNER"]

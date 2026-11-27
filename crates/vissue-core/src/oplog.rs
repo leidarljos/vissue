@@ -380,10 +380,10 @@ pub fn describe(project: &str, headings: &[IssueHeading]) -> Result<Vec<Op>> {
 /// later `(lamport, op id)`. A scalar write concurrent with union adds on a
 /// set field shows the union of those writes and still clashes. The
 /// replacement drops elements it observed; an add it did not see stays. A
-/// field write that sorts before the first birth is merged when that birth
-/// is applied. Concurrent
-/// body edits always clash. Two issues that share a short id both stay; the
-/// later one by `(lamport, op id)` is shown with a `~N` suffix.
+/// field write, log line, or retire note that sorts before the first birth
+/// is merged when that birth is applied. Concurrent body edits always clash.
+/// Two issues that share a short id both stay; the later one by
+/// `(lamport, op id)` is shown with a `~N` suffix.
 ///
 /// # Errors
 ///
@@ -404,12 +404,18 @@ pub fn fold(ops: &[Op]) -> Result<Folded> {
 }
 
 fn require_created(mem: &Mem) -> Result<()> {
-    let mut keys: Vec<&IssueKey> = mem
-        .frontiers
+    let mut keys: Vec<IssueKey> = mem
+        .pending
         .keys()
         .filter(|(key, _)| !mem.issues.contains_key(key))
-        .map(|(key, _)| key)
+        .map(|(key, _)| *key)
         .collect();
+    keys.extend(
+        mem.pending_logs
+            .keys()
+            .filter(|key| !mem.issues.contains_key(key))
+            .copied(),
+    );
     keys.sort();
     keys.dedup();
     if let Some(key) = keys.first() {
@@ -505,9 +511,15 @@ fn ancestor_set(op: &Op, mem: &Mem) -> HashSet<OpId> {
 
 #[derive(Default)]
 struct Mem {
-    issues: HashMap<IssueKey, Live>,
+    issues: HashMap<IssueKey, Vec<Live>>,
     ancestors: HashMap<OpId, HashSet<OpId>>,
-    frontiers: HashMap<(IssueKey, String), Frontier>,
+    /// Field writers for one birth. Keyed by the birth op.
+    frontiers: HashMap<(OpId, String), Frontier>,
+    /// Field writes that have not seen a birth of their issue yet.
+    pending: HashMap<(IssueKey, String), Frontier>,
+    /// Births of one short id. Two writers here are the short-id clash.
+    issue_frontier: HashMap<IssueKey, Frontier>,
+    pending_logs: HashMap<IssueKey, Vec<LogEntry>>,
 }
 
 struct Live {
@@ -525,7 +537,7 @@ struct Live {
     order_fixed: usize,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Frontier {
     writers: Vec<Writer>,
 }
@@ -584,6 +596,7 @@ impl UnionSet {
     }
 }
 
+#[derive(Clone)]
 struct Writer {
     id: OpId,
     lamport: u64,
@@ -617,27 +630,56 @@ fn removed_by(writers: &[Writer]) -> HashSet<OpId> {
     removed
 }
 
+fn push_conflict(
+    conflicts: &mut Vec<Conflict>,
+    frontier: &Frontier,
+    live: Option<&Live>,
+    field: &str,
+) {
+    if frontier.writers.len() < 2 || frontier.writers.iter().all(|writer| writer.unite) {
+        return;
+    }
+    let Some(live) = live else {
+        return;
+    };
+    let mut writers = frontier.writers.iter().collect::<Vec<_>>();
+    writers.sort_by_key(|writer| (writer.lamport, writer.id));
+    conflicts.push(Conflict {
+        project: live.project.clone(),
+        id: live.short_id.clone(),
+        field: field.to_string(),
+        ops: writers.into_iter().map(|writer| writer.id).collect(),
+    });
+}
+
 impl Mem {
     fn finish(self) -> Folded {
         let mut conflicts = Vec::new();
-        for ((key, field), frontier) in &self.frontiers {
-            if frontier.writers.len() < 2 || frontier.writers.iter().all(|writer| writer.unite) {
-                continue;
-            }
-            let Some(live) = self.issues.get(key) else {
-                continue;
-            };
-            let mut writers = frontier.writers.iter().collect::<Vec<_>>();
-            writers.sort_by_key(|writer| (writer.lamport, writer.id));
-            conflicts.push(Conflict {
-                project: live.project.clone(),
-                id: live.short_id.clone(),
-                field: field.clone(),
-                ops: writers.into_iter().map(|writer| writer.id).collect(),
-            });
+        for (key, frontier) in &self.issue_frontier {
+            push_conflict(
+                &mut conflicts,
+                frontier,
+                self.issues.get(key).and_then(|lives| lives.first()),
+                "issue",
+            );
         }
-        conflicts.sort_by(|a, b| (&a.project, &a.id, &a.field).cmp(&(&b.project, &b.id, &b.field)));
-        let mut lives: Vec<(IssueKey, Live)> = self.issues.into_iter().collect();
+        for ((birth, field), frontier) in &self.frontiers {
+            let live = self
+                .issues
+                .values()
+                .flatten()
+                .find(|live| live.born_id == *birth);
+            push_conflict(&mut conflicts, frontier, live, field);
+        }
+        conflicts.sort_by(|a, b| {
+            (&a.project, &a.id, &a.field, &a.ops).cmp(&(&b.project, &b.id, &b.field, &b.ops))
+        });
+        let mut lives: Vec<(IssueKey, Live)> = Vec::new();
+        for (key, group) in self.issues {
+            for live in group {
+                lives.push((key, live));
+            }
+        }
         lives.sort_by(|a, b| {
             (
                 &a.1.project,
@@ -700,7 +742,7 @@ fn apply(mem: &mut Mem, id: OpId, op: &Op) -> Result<()> {
             write_named(mem, id, op, name, value)
         }
         OpKind::SetBody { body } => write_named(mem, id, op, "body", body),
-        OpKind::AppendLog { entry } => append_log(mem, op, entry.clone()),
+        OpKind::AppendLog { entry } => append_log(mem, id, op, entry.clone()),
         OpKind::Ballot {
             voter,
             rev,
@@ -731,6 +773,7 @@ fn apply(mem: &mut Mem, id: OpId, op: &Op) -> Result<()> {
             if !reason.is_empty() {
                 append_log(
                     mem,
+                    id,
                     op,
                     LogEntry {
                         timestamp: String::new(),
@@ -764,11 +807,10 @@ fn apply_genesis(mem: &mut Mem, id: OpId, op: &Op, heading: &IssueHeading) -> Re
     install_issue(mem, id, op, &heading.id, heading)
 }
 
-/// Create and genesis are two writes of one field. Concurrent births clash
-/// and keep both op ids; a causal second create is still an error.
-/// A later birth merges into the frontiers already on the key. A field it
-/// does not write keeps its frontier. A field it writes keeps a concurrent
-/// writer and clashes through the same path as any other write.
+/// Concurrent births of one short id are two issues. A causal second create,
+/// one that saw the earlier birth and no concurrent birth, is still an error.
+/// Each birth keeps the heading it carried. Writes that had not seen a birth
+/// are merged in when that birth is applied.
 fn install_issue(
     mem: &mut Mem,
     id: OpId,
@@ -778,94 +820,76 @@ fn install_issue(
 ) -> Result<()> {
     require_derived(&op.project, short_id, op.issue)?;
     let key = op.issue;
-    let field = "issue".to_string();
     let ancestors = mem.ancestors.get(&id).cloned().unwrap_or_default();
-    let born = mem.frontiers.get(&(key, field.clone()));
-    let causal = born.is_some_and(|frontier| {
-        frontier
-            .writers
-            .iter()
-            .any(|writer| ancestors.contains(&writer.id))
-    });
-    let concurrent = born.is_some_and(|frontier| {
-        frontier
-            .writers
-            .iter()
-            .any(|writer| !ancestors.contains(&writer.id))
-    });
-    if mem.issues.contains_key(&key) && causal && !concurrent {
+    let existing: Vec<OpId> = mem
+        .issues
+        .get(&key)
+        .map(|lives| lives.iter().map(|live| live.born_id).collect())
+        .unwrap_or_default();
+    let causal = existing.iter().any(|birth| ancestors.contains(birth));
+    let concurrent = existing.iter().any(|birth| !ancestors.contains(birth));
+    if !existing.is_empty() && causal && !concurrent {
         return Err(bad("an issue is created twice"));
     }
     {
-        let slot = mem.frontiers.entry((key, field.clone())).or_default();
+        let slot = mem.issue_frontier.entry(key).or_default();
         converge(slot, &ancestors, id, op.lamport, &heading.title, false);
     }
-    if mem.issues.contains_key(&key) {
-        drop_birth_snapshots(mem, key);
-    }
-    merge_birth_fields(mem, key, id, op.lamport, &ancestors, heading);
     let mut live = Live::from_op(op, short_id, heading.clone(), id);
-    for (name, value) in concurrent_displays(mem, key, id) {
-        project(&mut live, &name, &value);
+    let fields = heading_writes(heading);
+    let written: HashSet<String> = fields.iter().map(|(name, _)| name.clone()).collect();
+    for (field, value) in &fields {
+        let mut slot = mem
+            .pending
+            .get(&(key, field.clone()))
+            .cloned()
+            .unwrap_or_default();
+        let display = converge(&mut slot, &ancestors, id, op.lamport, value, false);
+        if slot.writers.iter().any(|writer| writer.id != id) {
+            project(&mut live, field, &display);
+        }
+        mem.frontiers.insert((id, field.clone()), slot);
     }
-    mem.issues.insert(key, live);
+    absorb_pending(mem, key, id, &mut live, &written);
+    absorb_logs(mem, key, &mut live);
+    mem.issues.entry(key).or_default().push(live);
     Ok(())
 }
 
-fn drop_birth_snapshots(mem: &mut Mem, key: IssueKey) {
-    let birth_ids: HashSet<OpId> = mem
-        .frontiers
-        .get(&(key, "issue".to_string()))
-        .map(|frontier| frontier.writers.iter().map(|writer| writer.id).collect())
-        .unwrap_or_default();
-    let names: Vec<String> = mem
-        .frontiers
-        .keys()
-        .filter(|(issue, name)| *issue == key && name != "issue")
-        .map(|(_, name)| name.clone())
-        .collect();
-    for name in names {
-        let empty = {
-            let Some(slot) = mem.frontiers.get_mut(&(key, name.clone())) else {
-                continue;
-            };
-            slot.writers
-                .retain(|writer| !birth_ids.contains(&writer.id));
-            slot.writers.is_empty()
-        };
-        if empty {
-            mem.frontiers.remove(&(key, name));
-        }
-    }
-}
-
-fn merge_birth_fields(
+fn absorb_pending(
     mem: &mut Mem,
     key: IssueKey,
     id: OpId,
-    lamport: u64,
-    ancestors: &HashSet<OpId>,
-    heading: &IssueHeading,
+    live: &mut Live,
+    written: &HashSet<String>,
 ) {
-    for (field, value) in heading_writes(heading) {
-        let slot = mem.frontiers.entry((key, field)).or_default();
-        converge(slot, ancestors, id, lamport, &value, false);
+    let names: Vec<String> = mem
+        .pending
+        .keys()
+        .filter(|(issue, name)| *issue == key && !written.contains(name))
+        .map(|(_, name)| name.clone())
+        .collect();
+    for name in names {
+        let Some(slot) = mem.pending.get(&(key, name.clone())).cloned() else {
+            continue;
+        };
+        project(live, &name, &frontier_display(&slot));
+        mem.frontiers.insert((id, name), slot);
     }
 }
 
-fn concurrent_displays(mem: &Mem, key: IssueKey, id: OpId) -> Vec<(String, String)> {
-    let mut fields: Vec<(String, String)> = mem
-        .frontiers
-        .iter()
-        .filter(|((issue, name), frontier)| {
-            *issue == key
-                && name != "issue"
-                && frontier.writers.iter().any(|writer| writer.id != id)
-        })
-        .map(|((_, name), frontier)| (name.clone(), frontier_display(frontier)))
-        .collect();
-    fields.sort();
-    fields
+fn absorb_logs(mem: &Mem, key: IssueKey, live: &mut Live) {
+    let Some(entries) = mem.pending_logs.get(&key) else {
+        return;
+    };
+    for entry in entries {
+        if !live.heading.logbook.iter().any(|have| have == entry) {
+            live.heading.logbook.push(entry.clone());
+        }
+    }
+    if !entries.is_empty() {
+        live.heading.logbook.sort_by(log_order);
+    }
 }
 
 fn frontier_display(frontier: &Frontier) -> String {
@@ -946,10 +970,31 @@ fn write_field(
         one_char(value)?;
     }
     let ancestors = mem.ancestors.get(&id).cloned().unwrap_or_default();
-    let slot = mem.frontiers.entry((op.issue, field.clone())).or_default();
-    let display = converge(slot, &ancestors, id, op.lamport, value, unite);
-    if let Some(live) = mem.issues.get_mut(&op.issue) {
-        project(live, &field, &display);
+    let births: Vec<OpId> = mem
+        .issues
+        .get(&op.issue)
+        .map(|lives| lives.iter().map(|live| live.born_id).collect())
+        .unwrap_or_default();
+    let causal: Vec<OpId> = births
+        .iter()
+        .copied()
+        .filter(|birth| ancestors.contains(birth))
+        .collect();
+    if causal.is_empty() {
+        let slot = mem.pending.entry((op.issue, field.clone())).or_default();
+        converge(slot, &ancestors, id, op.lamport, value, unite);
+    }
+    let targets = if causal.is_empty() { births } else { causal };
+    for birth in targets {
+        let display = {
+            let slot = mem.frontiers.entry((birth, field.clone())).or_default();
+            converge(slot, &ancestors, id, op.lamport, value, unite)
+        };
+        if let Some(lives) = mem.issues.get_mut(&op.issue)
+            && let Some(live) = lives.iter_mut().find(|live| live.born_id == birth)
+        {
+            project(live, &field, &display);
+        }
     }
     Ok(())
 }
@@ -975,26 +1020,29 @@ fn converge(
         && (causal.iter().any(|writer| writer.unite || writer.owned)
             || concurrent.iter().any(|writer| writer.unite || writer.owned));
     let (stored, union, owned, removed) = if unite {
-        // Own element plus tags from adds this op observed. Concurrent
-        // snapshots stay on those writers so a removed element cannot ride
-        // back in on a sibling.
-        let removed = removed_by(&causal);
+        // Tags this op observed, minus every tombstone already in the
+        // frontier. A remover this op did not see still drops the tag it
+        // observed, so a descendant cannot copy that tag back. A concurrent
+        // add keeps the tag it introduced.
+        let mut tombstones = removed_by(&causal);
+        tombstones.extend(removed_by(&concurrent));
         let mut union = UnionSet::default();
         for writer in &causal {
-            union.extend_set(&carried(writer, &removed));
+            union.extend_set(&carried(writer, &tombstones));
         }
         union.insert(id, value);
         let mut display = union.clone();
         for writer in &concurrent {
-            display.extend_set(&carried(writer, ancestors));
+            display.extend_set(&carried(writer, &tombstones));
         }
-        (display.canonical(), union, false, removed)
+        (display.canonical(), union, false, removed_by(&causal))
     } else if replacing {
         let mut removed = ancestors.clone();
         removed.extend(removed_by(&causal));
+        removed.extend(removed_by(&concurrent));
         let mut display = UnionSet::default();
         for writer in &concurrent {
-            display.extend_set(&carried(writer, ancestors));
+            display.extend_set(&carried(writer, &removed));
         }
         let own = UnionSet::from_scalar(id, value);
         display.extend_set(&own);
@@ -1045,12 +1093,6 @@ fn canonical_field(name: &str) -> Result<String> {
 fn colon_name(name: &str, prefix: &str) -> bool {
     name.strip_prefix(prefix)
         .is_some_and(|rest| rest.contains(':'))
-}
-
-fn missing(op: &Op) -> Error {
-    Error::IssueNotFound {
-        id: hex16(&op.issue.0),
-    }
 }
 
 fn project(live: &mut Live, field: &str, value: &str) {
@@ -1210,12 +1252,35 @@ fn drawer_named(drawer: &str, name: &str) -> bool {
         .is_some_and(|line| line.trim().eq_ignore_ascii_case(&format!(":{name}:")))
 }
 
-fn append_log(mem: &mut Mem, op: &Op, entry: LogEntry) -> Result<()> {
-    let live = mem.issues.get_mut(&op.issue).ok_or_else(|| missing(op))?;
-    if !live.heading.logbook.iter().any(|have| have == &entry) {
-        live.heading.logbook.push(entry);
+fn append_log(mem: &mut Mem, id: OpId, op: &Op, entry: LogEntry) -> Result<()> {
+    let ancestors = mem.ancestors.get(&id).cloned().unwrap_or_default();
+    let births: Vec<OpId> = mem
+        .issues
+        .get(&op.issue)
+        .map(|lives| lives.iter().map(|live| live.born_id).collect())
+        .unwrap_or_default();
+    let causal: Vec<OpId> = births
+        .iter()
+        .copied()
+        .filter(|birth| ancestors.contains(birth))
+        .collect();
+    if causal.is_empty() {
+        mem.pending_logs
+            .entry(op.issue)
+            .or_default()
+            .push(entry.clone());
     }
-    live.heading.logbook.sort_by(log_order);
+    let targets = if causal.is_empty() { births } else { causal };
+    for birth in targets {
+        if let Some(lives) = mem.issues.get_mut(&op.issue)
+            && let Some(live) = lives.iter_mut().find(|live| live.born_id == birth)
+        {
+            if !live.heading.logbook.iter().any(|have| have == &entry) {
+                live.heading.logbook.push(entry.clone());
+            }
+            live.heading.logbook.sort_by(log_order);
+        }
+    }
     Ok(())
 }
 
@@ -2209,8 +2274,8 @@ mod tests {
         let alpha = IssueKey::derive("proj", "alpha");
         let beta = IssueKey::derive("proj", "beta");
         let mut mem = Mem::default();
-        mem.issues.insert(beta, live("Beta", 2));
-        mem.issues.insert(alpha, live("Alpha", 1));
+        mem.issues.entry(beta).or_default().push(live("Beta", 2));
+        mem.issues.entry(alpha).or_default().push(live("Alpha", 1));
         let folded = mem.finish();
         assert_eq!(folded.issues.len(), 2);
         let plain = &folded.issues[&("proj".to_string(), "shared".to_string())];
