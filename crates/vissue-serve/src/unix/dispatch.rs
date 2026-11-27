@@ -11,9 +11,9 @@ use vissue_control::rpc::{
     IssueListParams, IssueListResult, IssueSelected, JsonRpcError, JsonRpcRequest, JsonRpcResponse,
     MirrorCheckParams, MutResult, NormalizeParams, NoteParams, Notification, PROTOCOL_VERSION,
     PingParams, ProjectFilterParams, ProjectListResult, RecallParams, RefileParams, RejectParams,
-    RelatedParams, ReleaseParams, ResolveParams, SearchParams, StaleParams, TreeParams, TreeResult,
-    UpdateParams, VoteParams, WaitParams, WalkParams, error_from_core, internal_error,
-    invalid_params, method_not_found, parse_initialize_params,
+    RelatedParams, ReleaseParams, ResolveParams, SearchParams, StaleParams, TargetParams,
+    TreeParams, TreeResult, UpdateParams, VoteParams, WaitParams, WalkParams, error_from_core,
+    internal_error, invalid_params, method_not_found, parse_initialize_params,
 };
 use vissue_core::catalog::{CatalogService, load_recs, tree_text_from};
 use vissue_core::config::Layout;
@@ -22,6 +22,7 @@ use vissue_core::events;
 use vissue_core::ops::{self, CreateOpts};
 use vissue_core::report;
 use vissue_core::store::find_by_id;
+use vissue_core::target::{self, TargetEdit};
 use vissue_core::views::{IssueDetail, ListQuery};
 
 use super::catalog::{INITIAL_REVISION, load_project_recs};
@@ -67,6 +68,7 @@ pub fn dispatch_ex(state: &OwnerState, session: &mut Session, req: &JsonRpcReque
         "issue/release" => dispatch_release(state, session, req.params.as_ref()),
         "issue/vote" => dispatch_vote(state, session, req.params.as_ref()),
         "issue/deed" => dispatch_deed(state, req.params.as_ref()),
+        "issue/target" => dispatch_target(state, req.params.as_ref()),
         "issue/recall" => dispatch_recall(state, req.params.as_ref()),
         "issue/consensus" => dispatch_consensus(state, req.params.as_ref()),
         "issue/append" => dispatch_append(state, session, req.params.as_ref()),
@@ -147,6 +149,7 @@ fn is_mutating(method: &str) -> bool {
             | "issue/refile"
             | "issue/vote"
             | "issue/deed"
+            | "issue/target"
             | "issue/append"
             | "issue/resolve"
             | "issue/reject"
@@ -367,6 +370,35 @@ fn dispatch_related(state: &OwnerState, params: Option<&Value>) -> Result<Value,
 
 /// `issue/deed`: cite, drop, or read the deeds an issue produced. In the
 /// mutating table even for a read, since it is one request.
+fn dispatch_target(state: &OwnerState, params: Option<&Value>) -> Result<Value, JsonRpcError> {
+    let params: TargetParams = decode(params)?;
+    let edit = TargetEdit {
+        issue: params.id.clone(),
+        repo: params.repo,
+        branch: params.branch,
+        mode: params.mode,
+        lease: params.lease,
+        quorum: params.quorum,
+        landers: params.landers,
+        checks: params.checks,
+        owned: params.owned,
+        fork: params.fork,
+        mirrors: params.mirrors,
+        add: params.add,
+        remove: params.remove,
+        from: params.from,
+        to: params.to,
+        land_target: params.land_target,
+        org: params.org.unwrap_or(false),
+    };
+    let report = target::apply(&state.layout, &edit).map_err(map_core)?;
+    let issue = params
+        .id
+        .as_deref()
+        .and_then(|id| detail_one(&state.layout, id));
+    mut_result(state, report, issue)
+}
+
 fn dispatch_deed(state: &OwnerState, params: Option<&Value>) -> Result<Value, JsonRpcError> {
     let params: DeedParams = decode(params)?;
     let report =

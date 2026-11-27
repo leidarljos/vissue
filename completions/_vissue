@@ -208,6 +208,32 @@ _arguments "${_arguments_options[@]}" : \
 ':id:_default' \
 && ret=0
 ;;
+(target)
+_arguments "${_arguments_options[@]}" : \
+'--repo=[Canonical repo id, such as \`github\:owner/name\`]:REPO:_default' \
+'--branch=[Branch, or a ref such as \`refs/heads/develop\`]:BRANCH:_default' \
+'--mode=[\`ff-only\`, \`rebuild-ff\`, \`merge\`, \`squash-forge\`, \`pr\`, or \`mail\`]:MODE:_default' \
+'--lease=[\`strict-base\` (the default) or \`lease-rewrite\`]:LEASE:_default' \
+'--quorum=[Quorum text, on the target or on the issue]:QUORUM:_default' \
+'--landers=[Who may land, on the target or on the issue]:LANDERS:_default' \
+'*--check=[A check that gates the land. Repeat for several]:CHECKS:_default' \
+'--owned=[\`yes\` or \`upstream\`]:OWNED:_default' \
+'--fork=[Fork the pull-request head is pushed to]:FORK:_default' \
+'*--mirror=[A mirror updated after the land. Repeat for several]:MIRRORS:_default' \
+'*--add=[A target id to add to this issue. Repeat for several]:ADD:_default' \
+'*--remove=[A target id to drop from this issue. Repeat for several]:REMOVE:_default' \
+'--from=[Target id this issue leaves. Requires \`--to\`]:FROM:_default' \
+'--to=[Target id this issue moves to. Requires \`--from\`]:TO:_default' \
+'--land-target=[Land-field target id on this issue]:LAND_TARGET:_default' \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'--org[Print the stored org and write nothing]' \
+'--no-route[Ignore \`\$VISSUE_CONFIG\` / \`~/.config/vissue/config.toml\` and keep every verb on the process default layout]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+'::id -- Issue id. Omit when naming a target by repo and branch:_default' \
+&& ret=0
+;;
 (deed)
 _arguments "${_arguments_options[@]}" : \
 '*--add=[A deed accession this issue produced. Repeatable]:DEED:_default' \
@@ -921,6 +947,10 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(target)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
 (deed)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
@@ -1164,6 +1194,7 @@ _vissue_commands() {
 'claim:Take an issue\: move it to STARTED and stamp the claim' \
 'release:Drop every claim stamp held by one identity, including one left on a closed heading. State stays' \
 'vote:Cast this agent'\''s vote on an issue, or show the tally with no \`--for\`' \
+'target:Read or write a target, a change'\''s target list, a retarget, or land fields' \
 'deed:Cite, drop, or list the deeds this issue'\''s work produced' \
 'recall:The working set for an issue\: its plan, its inputs'\'' deeds, and its own' \
 'consensus:Weigh an issue'\''s ballots by who the group listens to (DeGroot)' \
@@ -1340,6 +1371,7 @@ _vissue__subcmd__help_commands() {
 'claim:Take an issue\: move it to STARTED and stamp the claim' \
 'release:Drop every claim stamp held by one identity, including one left on a closed heading. State stays' \
 'vote:Cast this agent'\''s vote on an issue, or show the tally with no \`--for\`' \
+'target:Read or write a target, a change'\''s target list, a retarget, or land fields' \
 'deed:Cite, drop, or list the deeds this issue'\''s work produced' \
 'recall:The working set for an issue\: its plan, its inputs'\'' deeds, and its own' \
 'consensus:Weigh an issue'\''s ballots by who the group listens to (DeGroot)' \
@@ -1676,6 +1708,11 @@ _vissue__subcmd__help__subcmd__surface_commands() {
     local commands; commands=()
     _describe -t commands 'vissue help surface commands' commands "$@"
 }
+(( $+functions[_vissue__subcmd__help__subcmd__target_commands] )) ||
+_vissue__subcmd__help__subcmd__target_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help target commands' commands "$@"
+}
 (( $+functions[_vissue__subcmd__help__subcmd__tree_commands] )) ||
 _vissue__subcmd__help__subcmd__tree_commands() {
     local commands; commands=()
@@ -1910,6 +1947,11 @@ _vissue__subcmd__stale_commands() {
 _vissue__subcmd__surface_commands() {
     local commands; commands=()
     _describe -t commands 'vissue surface commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__target_commands] )) ||
+_vissue__subcmd__target_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue target commands' commands "$@"
 }
 (( $+functions[_vissue__subcmd__tree_commands] )) ||
 _vissue__subcmd__tree_commands() {

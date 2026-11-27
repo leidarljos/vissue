@@ -292,6 +292,21 @@ fn merge_heading(
             }
             continue;
         }
+        // Same ids in two orders are one list. Both sides changed the order:
+        // write it once, so either side can merge first. A one-sided reorder
+        // keeps that side's text.
+        if k == crate::props::TARGETS
+            && let Some(value) = same_target_list(
+                o.properties.get(k).map(String::as_str),
+                a.properties.get(k).map(String::as_str),
+                b.properties.get(k).map(String::as_str),
+            )
+        {
+            if let Some(v) = value {
+                props.insert(k.clone(), v);
+            }
+            continue;
+        }
         let (v, clash) = pick(
             &o.properties.get(k).cloned(),
             &a.properties.get(k).cloned(),
@@ -351,7 +366,12 @@ fn merge_heading(
     }
 
     if !clashes.is_empty() {
-        let mut kept = format!(":{CONFLICT_DRAWER}:\n");
+        let mut entries = h
+            .extra_drawers
+            .iter()
+            .find(|drawer| drawer_name_is(drawer, CONFLICT_DRAWER))
+            .map(|drawer| conflict_entries(drawer))
+            .unwrap_or_default();
         for (field, theirs_value) in &clashes {
             conflict_note(
                 &mut h,
@@ -359,12 +379,17 @@ fn merge_heading(
                     "{field} changed on both sides; kept ours, theirs is in the {CONFLICT_DRAWER} drawer"
                 ),
             );
-            kept.push_str(&format!("{field}:\n{}\n", theirs_value.trim_end()));
+            let value = theirs_value.trim_end().to_string();
+            if !entries
+                .iter()
+                .any(|(have_field, have_value)| have_field == field && have_value == &value)
+            {
+                entries.push((field.clone(), value));
+            }
         }
-        kept.push_str(":END:\n");
         h.extra_drawers
-            .retain(|d| !drawer_name_is(d, CONFLICT_DRAWER));
-        h.extra_drawers.push(kept);
+            .retain(|drawer| !drawer_name_is(drawer, CONFLICT_DRAWER));
+        h.extra_drawers.push(render_conflict_drawer(&entries));
         *conflicts += clashes.len();
     }
     (h, tail)
@@ -372,6 +397,10 @@ fn merge_heading(
 
 /// Properties that hold a space-separated set: two sides that each added
 /// to one commute, so they merge by token rather than clash.
+///
+/// Land fields `TARGET`, `QUORUM`, and `LANDERS` stay off this list. A clash
+/// keeps ours in the property and theirs in the `:MERGE_CONFLICT:` drawer, and
+/// the note reports it. Folding them as tokens would drop the clash.
 const LIST_PROPERTIES: &[&str] = &[
     crate::props::DEEDS,
     crate::props::BLOCKED_BY,
@@ -479,9 +508,12 @@ fn merge_drawers(
             out.push(v);
         }
     }
-    // A clash drawer ours already carried stays until someone settles it.
-    if let Some(d) = find(ours, CONFLICT_DRAWER) {
-        out.push(d);
+    // Earlier clash values live only in this drawer. Keep both sides.
+    if let Some(drawer) = union_conflict_drawers(
+        find(ours, CONFLICT_DRAWER).as_deref(),
+        find(theirs, CONFLICT_DRAWER).as_deref(),
+    ) {
+        out.push(drawer);
     }
     out
 }
@@ -635,6 +667,294 @@ fn kept_ballot(
             ));
             ours.get(key).cloned()
         }
+    }
+}
+
+/// Entries already in a `:MERGE_CONFLICT:` drawer, in file order.
+///
+/// A drawer this writer emits opens with [`CLASH_FORM`]. caff198a never
+/// writes that line: merge.rs:362 of that commit starts with `{field}:`,
+/// and the org reader keeps each following line until a trimmed `:END:`.
+/// A drawer without the marker is that form, even when every value line
+/// starts with `%`.
+fn conflict_entries(drawer: &str) -> Vec<(String, String)> {
+    if marked_clash_drawer(drawer) {
+        marked_clash_entries(drawer)
+    } else {
+        legacy_clash_entries(drawer)
+    }
+}
+
+fn is_clash_banner(line: &str) -> bool {
+    line.trim()
+        .eq_ignore_ascii_case(&format!(":{CONFLICT_DRAWER}:"))
+}
+
+fn is_drawer_end(line: &str) -> bool {
+    line.trim().eq_ignore_ascii_case(":END:")
+}
+
+/// True when the first content line is the marker this writer emits.
+fn marked_clash_drawer(drawer: &str) -> bool {
+    for line in drawer.lines() {
+        if is_clash_banner(line) {
+            continue;
+        }
+        return line == CLASH_FORM;
+    }
+    false
+}
+
+/// Group of a field header, in the order caff198a writes clashes.
+///
+/// Title and state are written before body, so a later `title:` stays in
+/// the body and the following `priority:` is still that field. Ballot and
+/// drawer clashes follow properties; which of those two comes first depends
+/// on the file, so they share a group and either may follow the other.
+fn clash_group(line: &str) -> Option<u8> {
+    if line.starts_with(':') || line.starts_with(CLASH_MARK) {
+        return None;
+    }
+    let name = line.strip_suffix(':')?;
+    if name.is_empty() {
+        return None;
+    }
+    match name {
+        "title" => Some(0),
+        "state" => Some(1),
+        "body" => Some(2),
+        "priority" => Some(3),
+        "statistics" => Some(4),
+        "the org after the heading" => Some(7),
+        _ if name.starts_with("property ") && name.len() > "property ".len() => Some(5),
+        _ if (name.starts_with("ballot of ") && name.len() > "ballot of ".len())
+            || (name.starts_with("drawer ") && name.len() > "drawer ".len()) =>
+        {
+            Some(6)
+        }
+        _ => None,
+    }
+}
+
+/// Inverse of the caff198a writer. The line under a field is the value,
+/// including `:END:`, `title:`, `property QUORUM:`, `lost:`, and a line
+/// that starts with `%`. A later line opens the next field only when that
+/// field is not from an earlier group.
+fn legacy_clash_entries(drawer: &str) -> Vec<(String, String)> {
+    let lines: Vec<&str> = drawer.lines().collect();
+    let mut entries = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        if is_clash_banner(line) {
+            i += 1;
+            continue;
+        }
+        if is_drawer_end(line) {
+            break;
+        }
+        let Some(group) = clash_group(line) else {
+            i += 1;
+            continue;
+        };
+        let name = line.strip_suffix(':').unwrap_or(line).to_string();
+        i += 1;
+        let (value, next) = legacy_value(&lines, i, group);
+        i = next;
+        entries.push((name, value));
+    }
+    entries
+}
+
+fn legacy_value(lines: &[&str], mut i: usize, group: u8) -> (String, usize) {
+    if i >= lines.len() {
+        return (String::new(), i);
+    }
+    if is_drawer_end(lines[i]) {
+        return (":END:".to_string(), i);
+    }
+    let mut vals = vec![lines[i].to_string()];
+    i += 1;
+    while i < lines.len() && !is_drawer_end(lines[i]) {
+        if clash_group(lines[i]).is_some_and(|next| next >= group) {
+            break;
+        }
+        vals.push(lines[i].to_string());
+        i += 1;
+    }
+    (vals.join("\n"), i)
+}
+
+/// Percent form: strip one `%` from each value line. Field lines stay bare.
+fn marked_clash_entries(drawer: &str) -> Vec<(String, String)> {
+    let mut entries = Vec::new();
+    let mut field: Option<String> = None;
+    let mut lines: Vec<String> = Vec::new();
+    let mut saw_form = false;
+    for line in drawer.lines() {
+        if is_clash_banner(line) {
+            continue;
+        }
+        if is_drawer_end(line) {
+            break;
+        }
+        if !saw_form {
+            saw_form = true;
+            if line == CLASH_FORM {
+                continue;
+            }
+        }
+        if let Some(text) = decode_clash_line(line) {
+            if field.is_some() {
+                lines.push(text);
+            }
+            continue;
+        }
+        if let Some(name) = marked_header(line) {
+            finish_clash(&mut entries, &mut field, &mut lines);
+            field = Some(name.to_string());
+            continue;
+        }
+        if field.is_some() {
+            lines.push(line.to_string());
+        }
+    }
+    finish_clash(&mut entries, &mut field, &mut lines);
+    entries
+}
+
+fn marked_header(line: &str) -> Option<&str> {
+    if line.starts_with(':') || line.starts_with(CLASH_MARK) {
+        return None;
+    }
+    let name = line.strip_suffix(':')?;
+    (!name.is_empty()).then_some(name)
+}
+
+fn finish_clash(
+    entries: &mut Vec<(String, String)>,
+    field: &mut Option<String>,
+    lines: &mut Vec<String>,
+) {
+    if let Some(have) = field.take() {
+        entries.push((have, std::mem::take(lines).join("\n")));
+    }
+}
+
+/// Quote mark for one stored line of a clash value.
+///
+/// A space is not enough: the org reader trims before it looks for `:END:`,
+/// so a padded `:END:` still closes the drawer. `%` is not whitespace, and
+/// every value line carries one, so the text cannot be a field line
+/// (`name:`), a drawer name (`:NAME:`), or `:END:`.
+const CLASH_MARK: char = '%';
+
+/// First content line of a drawer this writer emits.
+///
+/// caff198a's first content line is always `{field}:`. A drawer that does
+/// not open with this line is that form, percent signs and all.
+const CLASH_FORM: &str = "%%";
+
+/// Each line of `value` prefixed with [`CLASH_MARK`]. A trailing newline is
+/// its own quoted line, so the bytes come back unchanged.
+fn encode_clash_value(value: &str) -> String {
+    let mut out = String::new();
+    let mut rest = value;
+    if value.is_empty() {
+        return format!("{CLASH_MARK}\n");
+    }
+    loop {
+        match rest.split_once('\n') {
+            Some((line, "")) => {
+                out.push(CLASH_MARK);
+                out.push_str(line);
+                out.push('\n');
+                out.push(CLASH_MARK);
+                out.push('\n');
+                break;
+            }
+            Some((line, after)) => {
+                out.push(CLASH_MARK);
+                out.push_str(line);
+                out.push('\n');
+                rest = after;
+            }
+            None => {
+                out.push(CLASH_MARK);
+                out.push_str(rest);
+                out.push('\n');
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// The value text of one quoted line, or `None` when `line` is not one.
+fn decode_clash_line(line: &str) -> Option<String> {
+    line.strip_prefix(CLASH_MARK).map(str::to_string)
+}
+
+fn render_conflict_drawer(entries: &[(String, String)]) -> String {
+    let mut kept = format!(":{CONFLICT_DRAWER}:\n{CLASH_FORM}\n");
+    for (field, value) in entries {
+        kept.push_str(field);
+        kept.push_str(":\n");
+        kept.push_str(&encode_clash_value(value));
+    }
+    kept.push_str(":END:\n");
+    kept
+}
+
+/// `Some` when both sides name the same target ids.
+///
+/// The inner `Option` is the list to write. Both orders differ from base:
+/// lexicographic, so the merge does not depend on which side is ours. One
+/// side still holds base's text: the other side's order stands.
+fn same_target_list(
+    base: Option<&str>,
+    ours: Option<&str>,
+    theirs: Option<&str>,
+) -> Option<Option<String>> {
+    let ids = |raw: Option<&str>| -> BTreeSet<String> {
+        raw.unwrap_or("")
+            .split_whitespace()
+            .map(str::to_string)
+            .collect()
+    };
+    let (ours_ids, theirs_ids) = (ids(ours), ids(theirs));
+    if ours_ids != theirs_ids {
+        return None;
+    }
+    let (base, ours, theirs) = (base.unwrap_or(""), ours.unwrap_or(""), theirs.unwrap_or(""));
+    if ours == theirs {
+        return Some((!ours.is_empty()).then(|| ours.to_string()));
+    }
+    if ours == base {
+        return Some((!theirs.is_empty()).then(|| theirs.to_string()));
+    }
+    if theirs == base {
+        return Some((!ours.is_empty()).then(|| ours.to_string()));
+    }
+    let list: Vec<String> = ours_ids.into_iter().collect();
+    Some((!list.is_empty()).then(|| list.join(" ")))
+}
+
+/// Ours' and theirs' clash entries, deduplicated, in a stable order.
+fn union_conflict_drawers(ours: Option<&str>, theirs: Option<&str>) -> Option<String> {
+    let mut entries = Vec::new();
+    for drawer in [ours, theirs].into_iter().flatten() {
+        for entry in conflict_entries(drawer) {
+            if !entries.contains(&entry) {
+                entries.push(entry);
+            }
+        }
+    }
+    if entries.is_empty() {
+        None
+    } else {
+        entries.sort();
+        Some(render_conflict_drawer(&entries))
     }
 }
 

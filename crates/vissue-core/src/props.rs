@@ -52,6 +52,14 @@ pub const DISCOVERED_FROM: &str = "DISCOVERED_FROM";
 pub const PIVOTED_TO: &str = "PIVOTED_TO";
 /// The terminal that lost a sibling race.
 pub const SIBLING_TERMINAL: &str = "SIBLING_TERMINAL";
+/// Target ids this change can land on, space-separated.
+pub const TARGETS: &str = "TARGETS";
+/// The target a land would use. A clash keeps both values.
+pub const LAND_TARGET: &str = "TARGET";
+/// Quorum text for a land. A clash keeps both values.
+pub const QUORUM: &str = "QUORUM";
+/// Who may land this change. A clash keeps both values.
+pub const LANDERS: &str = "LANDERS";
 
 /// Drawer keys vissue writes, in house order after `ID`.
 pub const CANONICAL_ORDER: &[&str] = &[
@@ -68,6 +76,10 @@ pub const CANONICAL_ORDER: &[&str] = &[
     DISCOVERED_FROM,
     PIVOTED_TO,
     SIBLING_TERMINAL,
+    TARGETS,
+    LAND_TARGET,
+    QUORUM,
+    LANDERS,
     EFFORT,
 ];
 

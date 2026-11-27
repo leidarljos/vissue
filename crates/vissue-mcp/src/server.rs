@@ -12,6 +12,7 @@ use vissue_core::error::Error;
 use vissue_core::mirror::{self, Format};
 use vissue_core::ops::{self, CreateOpts, RejectOpts, UpdatePred};
 use vissue_core::router::Router;
+use vissue_core::target::{self, TargetEdit};
 use vissue_core::views::{ClaimRow, IssueDetail, IssueRec, IssueRow, SearchHit};
 use vissue_core::{agent, events, report};
 
@@ -44,6 +45,37 @@ struct RejectDest {
     layout: Layout,
     project: Option<String>,
     extra_id_paths: Vec<PathBuf>,
+}
+
+fn target_result(result: vissue_core::Result<String>) -> Result<CallToolResult, McpError> {
+    match result {
+        Ok(text) => Ok(CallToolResult::success(vec![ContentBlock::text(text)])),
+        Err(Error::LeaseRewriteOnMain { branch }) => Err(McpError::new(
+            rmcp::model::ErrorCode(-32010),
+            format!("lease-rewrite is refused on a main ref: {branch}"),
+            Some(serde_json::json!({
+                "code": "lease_rewrite_on_main",
+                "branch": branch,
+            })),
+        )),
+        Err(Error::InvalidBranch { branch }) => Err(McpError::invalid_params(
+            format!("invalid branch: {branch}"),
+            Some(serde_json::json!({
+                "code": "invalid_branch",
+                "branch": branch,
+            })),
+        )),
+        Err(Error::RetargetNeedsBoth) => Err(McpError::invalid_params(
+            "retarget needs --from and --to",
+            Some(serde_json::json!({ "code": "retarget_needs_both" })),
+        )),
+        Err(Error::IssueNotFound { id }) => Err(McpError::new(
+            rmcp::model::ErrorCode(-32004),
+            format!("issue {id} not found"),
+            Some(serde_json::json!({ "code": "not_found", "id": id })),
+        )),
+        Err(err) => Err(McpError::internal_error(format!("{err}"), None)),
+    }
 }
 
 fn text<E: std::fmt::Display>(result: Result<String, E>) -> Result<CallToolResult, McpError> {
@@ -442,6 +474,52 @@ impl VissueServer {
                 args.rev.as_deref(),
             )
         }))
+    }
+
+    #[tool(
+        description = "Read or write a target (one repo and branch), a change's target list, a retarget, or the land fields quorum, landers, and target. The target id is the sha256 of the repo and the branch. lease-rewrite is refused on a main ref. Omit the write fields to read.",
+        annotations(
+            title = "Target record",
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn vissue_target(
+        &self,
+        Parameters(args): Parameters<TargetArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let edit = TargetEdit {
+            issue: args.issue_id.clone(),
+            repo: args.repo,
+            branch: args.branch,
+            mode: args.mode,
+            lease: args.lease,
+            quorum: args.quorum,
+            landers: args.landers,
+            checks: args.checks.unwrap_or_default(),
+            owned: args.owned,
+            fork: args.fork,
+            mirrors: args.mirrors.unwrap_or_default(),
+            add: args.add.unwrap_or_default(),
+            remove: args.remove.unwrap_or_default(),
+            from: args.from,
+            to: args.to,
+            land_target: args.land_target,
+            org: args.org.unwrap_or(false),
+        };
+        let layout = match &edit.issue {
+            Some(id) => match self.layout_for_id(id) {
+                Ok(layout) => layout,
+                // apply checks the fields before it reports a missing issue,
+                // which is the order issue/target uses.
+                Err(Error::IssueNotFound { .. }) => self.layout.clone(),
+                Err(err) => return target_result(Err(err)),
+            },
+            None => self.layout.clone(),
+        };
+        target_result(target::apply(&layout, &edit))
     }
 
     #[tool(

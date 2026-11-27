@@ -216,6 +216,44 @@ pub struct VoteArgs {
 }
 
 #[derive(Deserialize, JsonSchema)]
+pub struct TargetArgs {
+    /// Issue id. Omit when the call names a target by repo and branch.
+    pub issue_id: Option<String>,
+    /// Canonical repo id, such as `github:owner/name`.
+    pub repo: Option<String>,
+    /// Branch, or a ref such as `refs/heads/develop`.
+    pub branch: Option<String>,
+    /// `ff-only`, `rebuild-ff`, `merge`, `squash-forge`, `pr`, or `mail`.
+    pub mode: Option<String>,
+    /// `strict-base` (the default) or `lease-rewrite`.
+    pub lease: Option<String>,
+    /// Quorum text, on the target or on the issue.
+    pub quorum: Option<String>,
+    /// Who may land, on the target or on the issue.
+    pub landers: Option<String>,
+    /// Checks that gate the land.
+    pub checks: Option<Vec<String>>,
+    /// `yes` or `upstream`.
+    pub owned: Option<String>,
+    /// Fork the pull-request head is pushed to.
+    pub fork: Option<String>,
+    /// Mirrors updated after the land.
+    pub mirrors: Option<Vec<String>>,
+    /// Target ids to add to this issue.
+    pub add: Option<Vec<String>>,
+    /// Target ids to drop from this issue.
+    pub remove: Option<Vec<String>>,
+    /// Target id this issue leaves.
+    pub from: Option<String>,
+    /// Target id this issue moves to.
+    pub to: Option<String>,
+    /// Land-field target id on this issue.
+    pub land_target: Option<String>,
+    /// Print the stored org and write nothing.
+    pub org: Option<bool>,
+}
+
+#[derive(Deserialize, JsonSchema)]
 pub struct DeedArgs {
     /// Issue id.
     pub issue_id: String,

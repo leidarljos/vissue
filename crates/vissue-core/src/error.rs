@@ -65,6 +65,18 @@ pub enum Error {
         /// Corpus generation at the refusal.
         actual_gen: Option<u64>,
     },
+    /// `lease-rewrite` was asked for on a main ref.
+    LeaseRewriteOnMain {
+        /// The branch that was refused.
+        branch: String,
+    },
+    /// The branch name is not a valid branch name.
+    InvalidBranch {
+        /// The branch that was refused.
+        branch: String,
+    },
+    /// A retarget named `--from` or `--to` and not both.
+    RetargetNeedsBoth,
     /// A second terminal disagrees with the one already on the heading.
     TerminalConflict {
         /// The issue that already has a terminal state.
@@ -139,6 +151,11 @@ impl fmt::Display for Error {
                 ),
                 (None, None) => write!(f, "{id} write refused: stale"),
             },
+            Error::LeaseRewriteOnMain { branch } => {
+                write!(f, "lease-rewrite is refused on a main ref: {branch}")
+            }
+            Error::InvalidBranch { branch } => write!(f, "invalid branch: {branch}"),
+            Error::RetargetNeedsBoth => write!(f, "retarget needs --from and --to"),
             Error::TerminalConflict {
                 id,
                 held,
