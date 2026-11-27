@@ -1072,7 +1072,11 @@ mod tests {
         .expect("restate");
         let text = fs::read_to_string(targets_path(&layout)).expect("read");
         assert!(
-            text.contains("8 seats") && text.contains("seat:reviewer"),
+            text.contains("8 seats")
+                && text.contains("seat:reviewer")
+                && text.contains("ci:required")
+                && text.contains("github:acme/fork")
+                && text.contains("gitlab:acme/widgets"),
             "{text}"
         );
     }

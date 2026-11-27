@@ -671,7 +671,61 @@ fn kept_ballot(
 }
 
 /// Entries already in a `:MERGE_CONFLICT:` drawer, in file order.
+///
+/// A drawer this writer just emitted has `%` on every value line. Anything
+/// else is the caff198a form (`{field}:\n{value}\n` at merge.rs:362 of that
+/// commit): the org reader keeps each line until `:END:`, and the line after
+/// a field is the value.
 fn conflict_entries(drawer: &str) -> Vec<(String, String)> {
+    let legacy = legacy_clash_entries(drawer);
+    if clash_entries_are_marked(&legacy) {
+        marked_clash_entries(drawer)
+    } else {
+        legacy
+    }
+}
+
+/// Inverse of the caff198a writer. The first line under a field is the value,
+/// including `:END:`, `title:`, `property QUORUM:`, `lost:`, and a line that
+/// starts with `%`. A later line opens the next field only when it is one
+/// this writer emits.
+fn legacy_clash_entries(drawer: &str) -> Vec<(String, String)> {
+    let mut entries = Vec::new();
+    let mut field: Option<String> = None;
+    let mut lines: Vec<String> = Vec::new();
+    let mut saw_end = false;
+    for line in drawer.lines() {
+        if line.eq_ignore_ascii_case(&format!(":{CONFLICT_DRAWER}:")) {
+            continue;
+        }
+        if line.eq_ignore_ascii_case(":END:") {
+            saw_end = true;
+            break;
+        }
+        if field.is_some() && lines.is_empty() {
+            lines.push(line.to_string());
+            continue;
+        }
+        if let Some(name) = conflict_header(line) {
+            finish_clash(&mut entries, &mut field, &mut lines);
+            field = Some(name.to_string());
+            continue;
+        }
+        if field.is_some() {
+            lines.push(line.to_string());
+        }
+    }
+    // caff198a writes `{field}:\n:END:\n:END:` when the value is `:END:`.
+    // The org reader stops at the first one, so that line is the value.
+    if field.is_some() && lines.is_empty() && saw_end {
+        lines.push(":END:".to_string());
+    }
+    finish_clash(&mut entries, &mut field, &mut lines);
+    entries
+}
+
+/// Percent form: strip one `%` from each value line. Field lines stay bare.
+fn marked_clash_entries(drawer: &str) -> Vec<(String, String)> {
     let mut entries = Vec::new();
     let mut field: Option<String> = None;
     let mut lines: Vec<String> = Vec::new();
@@ -692,14 +746,32 @@ fn conflict_entries(drawer: &str) -> Vec<(String, String)> {
             field = Some(name.to_string());
             continue;
         }
-        // Develop wrote the value on the next line with no mark. Keep it
-        // byte-exact. A field header was taken above; this is not a key.
         if field.is_some() {
             lines.push(line.to_string());
         }
     }
     finish_clash(&mut entries, &mut field, &mut lines);
     entries
+}
+
+/// True when every value line carries [`CLASH_MARK`], which is the form
+/// [`encode_clash_value`] writes. A legacy value that is the character `%`
+/// is the one-line string `"%"`, so it takes this path only when the rest
+/// of the drawer is marked too.
+fn clash_entries_are_marked(entries: &[(String, String)]) -> bool {
+    let mut any = false;
+    for (_, value) in entries {
+        if value.is_empty() {
+            return false;
+        }
+        for line in value.lines() {
+            any = true;
+            if !line.starts_with(CLASH_MARK) {
+                return false;
+            }
+        }
+    }
+    any
 }
 
 fn finish_clash(
@@ -724,7 +796,8 @@ fn conflict_header(line: &str) -> Option<&str> {
 ///
 /// `title`, `state`, `body`, `priority`, `statistics`, `the org after the
 /// heading`, `property QUORUM`, `drawer NOTES`, `ballot of ada`. A value
-/// that merely ends in `:` (`lost:`) is not one of these.
+/// that merely ends in `:` (`lost:`) is not one of these. The legacy reader
+/// does not use this test on the line directly under a field.
 fn clash_field(name: &str) -> bool {
     matches!(
         name,

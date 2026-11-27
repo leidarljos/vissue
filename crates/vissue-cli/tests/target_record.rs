@@ -826,8 +826,10 @@ fn an_unknown_id_is_checked_before_not_found() {
 fn a_caff198_clash_drawer_survives_three_merges() {
     let dir = tracker();
     let root = dir.path();
-    // `{field}:\n{value}\n`, the bytes caff198a merge.rs writes. `Their title`
-    // is only in the drawer. `lost:` is a value, not a field name.
+    // `{field}:\n{value}\n`, the bytes caff198a merge.rs writes. The quorum
+    // value is the line `title:`. Landers is the line `property QUORUM:`.
+    // The last value is the line `:END:`. `lost:` and a leading `%` stay
+    // values. `Their title` is only in the drawer.
     let ledger = "\
 #+TODO: TODO | DONE CANCELLED
 
@@ -839,9 +841,9 @@ fn a_caff198_clash_drawer_survives_three_merges() {
 :END:
 :MERGE_CONFLICT:
 property QUORUM:
-seats-five
+title:
 property LANDERS:
-seat:bob
+property QUORUM:
 property TARGET:
 tgt-theirs
 state:
@@ -851,11 +853,15 @@ Their title
 ballot of ada:
 [X] rev 1 ada
 body:
-DONE
+line one
+still theirs
 drawer NOTES:
 theirs-title-ONLY-IN-DRAWER
 priority:
 lost:
+statistics:
+%kept
+the org after the heading:
 :END:
 #+VISSUE_LEDGER_LOG:
 ";
@@ -863,15 +869,17 @@ lost:
     let twice = merge_self(root, dir.path(), &once, "legacy-2");
     let thrice = merge_self(root, dir.path(), &twice, "legacy-3");
     let want = [
-        "seats-five",
-        "seat:bob",
+        "title:",
+        "property QUORUM:",
         "tgt-theirs",
         "CANCELLED",
         "Their title",
         "[X] rev 1 ada",
-        "DONE",
+        "line one\nstill theirs",
         "theirs-title-ONLY-IN-DRAWER",
         "lost:",
+        "%kept",
+        ":END:",
     ];
     let fields = [
         "property QUORUM",
@@ -883,28 +891,52 @@ lost:
         "body",
         "drawer NOTES",
         "priority",
+        "statistics",
+        "the org after the heading",
     ];
     let live = |text: &str| {
         let start = text.rfind(":MERGE_CONFLICT:").expect("clash drawer");
         let rest = &text[start..];
-        let end = rest.find(":END:").expect("drawer end");
-        let drawer = &rest[..end + ":END:".len()];
+        let mut offset = 0usize;
+        let mut end = None;
+        for line in rest.split_inclusive('\n') {
+            let bare = line.trim_end_matches(['\r', '\n']);
+            if bare.eq_ignore_ascii_case(":END:") {
+                end = Some(offset + bare.len());
+                break;
+            }
+            offset += line.len();
+        }
+        let end = end.expect("drawer end");
+        let drawer = &rest[..end];
         let values: Vec<String> = fields
             .iter()
             .map(|field| clash_value(drawer, field))
             .collect();
         let emptied = drawer.lines().any(|line| line == "%" || line == "lost:");
-        (values, emptied)
+        let mut headers: Vec<String> = drawer
+            .lines()
+            .filter_map(|line| {
+                if line.starts_with('%') || line.starts_with(':') || !line.ends_with(':') {
+                    return None;
+                }
+                line.strip_suffix(':')
+                    .filter(|name| !name.is_empty())
+                    .map(str::to_string)
+            })
+            .collect();
+        headers.sort_unstable();
+        (values, emptied, headers)
     };
+    let mut names: Vec<String> = fields.iter().map(|field| (*field).to_string()).collect();
+    names.sort_unstable();
+    let expect = (vec_of(want), false, names);
     assert_eq!(
         (live(&once), live(&twice), live(&thrice)),
-        (
-            (vec_of(want), false),
-            (vec_of(want), false),
-            (vec_of(want), false),
-        ),
+        (expect.clone(), expect.clone(), expect),
         "{thrice}"
     );
+    assert_eq!(twice, thrice, "merges 2 and 3 differ");
 }
 
 fn vec_of<const N: usize>(rows: [&str; N]) -> Vec<String> {
