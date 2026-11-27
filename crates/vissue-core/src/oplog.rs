@@ -378,7 +378,10 @@ pub fn describe(project: &str, headings: &[IssueHeading]) -> Result<Vec<Op>> {
 /// A property written by two ops that are not ordered by the parent relation
 /// stays in [`Folded::conflicts`], and the heading shows the value from the
 /// later `(lamport, op id)`. A scalar write concurrent with union adds on a
-/// set field shows the union of those writes and still clashes. Concurrent
+/// set field shows the union of those writes and still clashes. The
+/// replacement drops elements it observed; an add it did not see stays. A
+/// field write that sorts before the first birth is merged when that birth
+/// is applied. Concurrent
 /// body edits always clash. Two issues that share a short id both stay; the
 /// later one by `(lamport, op id)` is shown with a `~N` suffix.
 ///
@@ -396,7 +399,25 @@ pub fn fold(ops: &[Op]) -> Result<Folded> {
         mem.ancestors.insert(id, ancestor_set(op, &mem));
         apply(&mut mem, id, op)?;
     }
+    require_created(&mem)?;
     Ok(mem.finish())
+}
+
+fn require_created(mem: &Mem) -> Result<()> {
+    let mut keys: Vec<&IssueKey> = mem
+        .frontiers
+        .keys()
+        .filter(|(key, _)| !mem.issues.contains_key(key))
+        .map(|(key, _)| key)
+        .collect();
+    keys.sort();
+    keys.dedup();
+    if let Some(key) = keys.first() {
+        return Err(Error::IssueNotFound {
+            id: hex16(key.as_bytes()),
+        });
+    }
+    Ok(())
 }
 
 fn bad(msg: impl Into<String>) -> Error {
@@ -509,33 +530,51 @@ struct Frontier {
     writers: Vec<Writer>,
 }
 
-/// Set union of opaque elements, deduped and sorted. A later union does not
+/// Add-tags for one set field. The tag's op is the add that introduced the
+/// element. A replacement drops tags it observed. A later union does not
 /// split an earlier element on whitespace.
 #[derive(Clone, Default)]
 struct UnionSet {
-    elements: BTreeSet<String>,
+    tags: BTreeSet<(OpId, String)>,
 }
 
 impl UnionSet {
-    fn from_scalar(value: &str) -> Self {
-        Self {
-            elements: tokens(Some(value)),
+    fn from_scalar(source: OpId, value: &str) -> Self {
+        let mut set = Self::default();
+        for element in tokens(Some(value)) {
+            set.insert(source, &element);
         }
+        set
     }
 
-    fn insert(&mut self, element: &str) {
+    fn insert(&mut self, source: OpId, element: &str) {
         if !element.is_empty() {
-            self.elements.insert(element.to_string());
+            self.tags.insert((source, element.to_string()));
         }
     }
 
     fn extend_set(&mut self, other: &Self) {
-        self.elements.extend(other.elements.iter().cloned());
+        self.tags.extend(other.tags.iter().cloned());
+    }
+
+    /// Tags whose adding op is in `sources` were observed and are gone.
+    fn without(&self, sources: &HashSet<OpId>) -> Self {
+        let mut out = Self::default();
+        for (source, element) in &self.tags {
+            if !sources.contains(source) {
+                out.tags.insert((*source, element.clone()));
+            }
+        }
+        out
     }
 
     fn canonical(&self) -> String {
+        let mut elements = BTreeSet::new();
+        for (_, element) in &self.tags {
+            elements.insert(element.as_str());
+        }
         let mut out = String::new();
-        for (index, element) in self.elements.iter().enumerate() {
+        for (index, element) in elements.iter().enumerate() {
             if index > 0 {
                 out.push(' ');
             }
@@ -554,25 +593,28 @@ struct Writer {
     /// When set, `union` is this writer's own elements and `value` is the merged display.
     owned: bool,
     union: UnionSet,
-}
-
-fn scalar_writer(id: OpId, lamport: u64, value: String) -> Writer {
-    Writer {
-        id,
-        lamport,
-        value,
-        unite: false,
-        owned: false,
-        union: UnionSet::default(),
-    }
+    /// Add op ids whose elements this writer has removed.
+    removed: HashSet<OpId>,
 }
 
 fn stored_union(writer: &Writer) -> UnionSet {
     if writer.unite || writer.owned {
         writer.union.clone()
     } else {
-        UnionSet::from_scalar(&writer.value)
+        UnionSet::from_scalar(writer.id, &writer.value)
     }
+}
+
+fn carried(writer: &Writer, drop_sources: &HashSet<OpId>) -> UnionSet {
+    stored_union(writer).without(drop_sources)
+}
+
+fn removed_by(writers: &[Writer]) -> HashSet<OpId> {
+    let mut removed = HashSet::new();
+    for writer in writers {
+        removed.extend(&writer.removed);
+    }
+    removed
 }
 
 impl Mem {
@@ -758,13 +800,9 @@ fn install_issue(
         let slot = mem.frontiers.entry((key, field.clone())).or_default();
         converge(slot, &ancestors, id, op.lamport, &heading.title, false);
     }
-    if !mem.issues.contains_key(&key) {
-        reseed(mem, key, id, op.lamport, heading);
-        mem.issues
-            .insert(key, Live::from_op(op, short_id, heading.clone(), id));
-        return Ok(());
+    if mem.issues.contains_key(&key) {
+        drop_birth_snapshots(mem, key);
     }
-    drop_birth_snapshots(mem, key);
     merge_birth_fields(mem, key, id, op.lamport, &ancestors, heading);
     let mut live = Live::from_op(op, short_id, heading.clone(), id);
     for (name, value) in concurrent_displays(mem, key, id) {
@@ -880,17 +918,6 @@ fn heading_writes(heading: &IssueHeading) -> Vec<(String, String)> {
     fields
 }
 
-fn reseed(mem: &mut Mem, key: IssueKey, id: OpId, lamport: u64, heading: &IssueHeading) {
-    for (field, value) in heading_writes(heading) {
-        mem.frontiers.insert(
-            (key, field),
-            Frontier {
-                writers: vec![scalar_writer(id, lamport, value)],
-            },
-        );
-    }
-}
-
 fn write_named(mem: &mut Mem, id: OpId, op: &Op, name: &str, value: &str) -> Result<()> {
     write_field(mem, id, op, name, value, false)
 }
@@ -899,10 +926,13 @@ fn write_union(mem: &mut Mem, id: OpId, op: &Op, name: &str, element: &str) -> R
     write_field(mem, id, op, name, element, true)
 }
 
-/// One path for every property write, including births and revisions. A writer
-/// whose op is not an ancestor is concurrent: the fold keeps both and
-/// [`Mem::finish`] records a clash, except a pure set-union, which commutes.
-/// A scalar concurrent with union adds stores the union of those writes.
+/// One path for every property write, including births and revisions.
+///
+/// A writer whose op is not an ancestor is concurrent. The fold keeps both
+/// and [`Mem::finish`] records a clash, except a pure set-union, which
+/// commutes. A set replacement drops add-tags it observed and keeps an add
+/// it did not see. The issue row may be a later birth; the write stays on
+/// the frontier until that birth merges it.
 fn write_field(
     mem: &mut Mem,
     id: OpId,
@@ -915,14 +945,12 @@ fn write_field(
     if field == "priority" {
         one_char(value)?;
     }
-    if !mem.issues.contains_key(&op.issue) {
-        return Err(missing(op));
-    }
     let ancestors = mem.ancestors.get(&id).cloned().unwrap_or_default();
     let slot = mem.frontiers.entry((op.issue, field.clone())).or_default();
     let display = converge(slot, &ancestors, id, op.lamport, value, unite);
-    let live = mem.issues.get_mut(&op.issue).ok_or_else(|| missing(op))?;
-    project(live, &field, &display);
+    if let Some(live) = mem.issues.get_mut(&op.issue) {
+        project(live, &field, &display);
+    }
     Ok(())
 }
 
@@ -934,42 +962,50 @@ fn converge(
     value: &str,
     unite: bool,
 ) -> String {
-    let mut base: Option<Writer> = None;
+    let mut causal = Vec::new();
     let mut concurrent = Vec::new();
     for writer in slot.writers.drain(..) {
         if ancestors.contains(&writer.id) {
-            let replace = match &base {
-                None => true,
-                Some(prev) => (writer.lamport, writer.id) > (prev.lamport, prev.id),
-            };
-            if replace {
-                base = Some(writer);
-            }
+            causal.push(writer);
         } else {
             concurrent.push(writer);
         }
     }
-    let (stored, union, owned) = if unite {
+    let replacing = !unite
+        && (causal.iter().any(|writer| writer.unite || writer.owned)
+            || concurrent.iter().any(|writer| writer.unite || writer.owned));
+    let (stored, union, owned, removed) = if unite {
+        // Own element plus tags from adds this op observed. Concurrent
+        // snapshots stay on those writers so a removed element cannot ride
+        // back in on a sibling.
+        let removed = removed_by(&causal);
         let mut union = UnionSet::default();
-        if let Some(base) = &base {
-            union.extend_set(&stored_union(base));
+        for writer in &causal {
+            union.extend_set(&carried(writer, &removed));
         }
+        union.insert(id, value);
+        let mut display = union.clone();
         for writer in &concurrent {
-            union.extend_set(&stored_union(writer));
+            display.extend_set(&carried(writer, ancestors));
         }
-        union.insert(value);
-        let stored = union.canonical();
-        (stored, union, false)
-    } else if concurrent.iter().any(|writer| writer.unite || writer.owned) {
-        let mut union = UnionSet::default();
+        (display.canonical(), union, false, removed)
+    } else if replacing {
+        let mut removed = ancestors.clone();
+        removed.extend(removed_by(&causal));
+        let mut display = UnionSet::default();
         for writer in &concurrent {
-            union.extend_set(&stored_union(writer));
+            display.extend_set(&carried(writer, ancestors));
         }
-        let own = UnionSet::from_scalar(value);
-        union.extend_set(&own);
-        (union.canonical(), own, true)
+        let own = UnionSet::from_scalar(id, value);
+        display.extend_set(&own);
+        (display.canonical(), own, true, removed)
     } else {
-        (value.to_string(), UnionSet::default(), false)
+        (
+            value.to_string(),
+            UnionSet::default(),
+            false,
+            HashSet::new(),
+        )
     };
     let mut keep = concurrent;
     keep.push(Writer {
@@ -979,6 +1015,7 @@ fn converge(
         unite,
         owned,
         union,
+        removed,
     });
     let display = keep
         .iter()

@@ -492,6 +492,366 @@ fn clash_ids(folded: &Folded, field: &str) -> Vec<OpId> {
         .clone()
 }
 
+fn child(parents: &[&Op], issue: &Op, kind: OpKind, wall: i64) -> Op {
+    let lamport = parents
+        .iter()
+        .map(|parent| parent.lamport)
+        .max()
+        .unwrap_or(0)
+        + 1;
+    wire(&Op {
+        parents: parents.iter().map(|parent| parent.id().unwrap()).collect(),
+        lamport,
+        seat: issue.seat.clone(),
+        project: issue.project.clone(),
+        issue: issue.issue,
+        kind,
+        wall,
+    })
+}
+
+fn wall_at(mut make: impl FnMut(i64) -> Op, mut keep: impl FnMut(&Op) -> bool) -> Op {
+    (0..64)
+        .map(&mut make)
+        .find(|op| keep(op))
+        .expect("a wall with that op id order")
+}
+
+fn deeds(folded: &Folded) -> Option<String> {
+    folded.issues[&("proj".to_string(), "proj-1".to_string())]
+        .properties
+        .get("DEEDS")
+        .cloned()
+}
+
+fn blocked(folded: &Folded) -> Option<String> {
+    folded.issues[&("proj".to_string(), "proj-1".to_string())]
+        .properties
+        .get("BLOCKED_BY")
+        .cloned()
+}
+
+/// A set write removes the adds it observed. A concurrent add keeps its own
+/// element. Op id order and input order fold to the same bytes.
+fn a_removal_drops_elements_it_saw() {
+    let root = wire(&Op::create("proj", "proj-1", "Title", "seat").unwrap());
+    let old = child(
+        &[&root],
+        &root,
+        OpKind::AddDeed {
+            accession: "old".to_string(),
+        },
+        0,
+    );
+    let old_id = old.id().unwrap();
+    let stay_after = wall_at(
+        |wall| {
+            child(
+                &[&root],
+                &root,
+                OpKind::AddDeed {
+                    accession: "stay".to_string(),
+                },
+                wall,
+            )
+        },
+        |op| op.id().unwrap() > old_id,
+    );
+    let stay_before = wall_at(
+        |wall| {
+            child(
+                &[&root],
+                &root,
+                OpKind::AddDeed {
+                    accession: "stay".to_string(),
+                },
+                wall,
+            )
+        },
+        |op| op.id().unwrap() < old_id,
+    );
+    for stay in [stay_after, stay_before] {
+        let set = child(
+            &[&old],
+            &root,
+            OpKind::SetField {
+                name: "property:DEEDS".to_string(),
+                value: "S".to_string(),
+            },
+            3,
+        );
+        let set_id = set.id().unwrap();
+        let stay_id = stay.id().unwrap();
+        let mut ops = vec![root.clone(), old.clone(), stay.clone(), set.clone()];
+        assert_folds_same(&mut ops, |folded| {
+            assert_eq!(
+                deeds(folded).as_deref(),
+                Some("S stay"),
+                "{:?}",
+                folded.conflicts
+            );
+            let clash = clash_ids(folded, "property:DEEDS");
+            assert!(clash.contains(&stay_id), "{clash:?}");
+            assert!(clash.contains(&set_id), "{clash:?}");
+            assert!(!clash.contains(&old_id), "{clash:?}");
+            assert_eq!(clash.len(), 2, "{clash:?}");
+        });
+        let later = child(
+            &[&set],
+            &root,
+            OpKind::AddDeed {
+                accession: "d".to_string(),
+            },
+            4,
+        );
+        let mut ops = vec![root.clone(), old.clone(), stay, set, later];
+        assert_folds_same(&mut ops, |folded| {
+            assert_eq!(deeds(folded).as_deref(), Some("S d stay"));
+            assert!(
+                folded
+                    .conflicts
+                    .iter()
+                    .all(|clash| clash.field != "property:DEEDS"),
+                "{:?}",
+                folded.conflicts
+            );
+        });
+    }
+
+    let link_old = child(
+        &[&root],
+        &root,
+        OpKind::Link {
+            kind: "blocked-by".to_string(),
+            other: "old".to_string(),
+        },
+        0,
+    );
+    let link_old_id = link_old.id().unwrap();
+    let link_stay = wall_at(
+        |wall| {
+            child(
+                &[&root],
+                &root,
+                OpKind::Link {
+                    kind: "blocked-by".to_string(),
+                    other: "stay".to_string(),
+                },
+                wall,
+            )
+        },
+        |op| op.id().unwrap() > link_old_id,
+    );
+    let link_set = child(
+        &[&link_old],
+        &root,
+        OpKind::SetField {
+            name: "property:BLOCKED_BY".to_string(),
+            value: "S".to_string(),
+        },
+        3,
+    );
+    let link_set_id = link_set.id().unwrap();
+    let link_stay_id = link_stay.id().unwrap();
+    let mut ops = vec![root.clone(), link_old, link_stay, link_set];
+    assert_folds_same(&mut ops, |folded| {
+        assert_eq!(blocked(folded).as_deref(), Some("S stay"));
+        let clash = clash_ids(folded, "property:BLOCKED_BY");
+        assert!(clash.contains(&link_stay_id) && clash.contains(&link_set_id));
+        assert!(!clash.contains(&link_old_id));
+        assert_eq!(clash.len(), 2);
+    });
+
+    let stay = wall_at(
+        |wall| {
+            child(
+                &[&root],
+                &root,
+                OpKind::AddDeed {
+                    accession: "stay".to_string(),
+                },
+                wall,
+            )
+        },
+        |op| op.id().unwrap() > old_id,
+    );
+    let resolved = child(
+        &[&old],
+        &root,
+        OpKind::Resolve {
+            field: "property:DEEDS".to_string(),
+            value: "S".to_string(),
+        },
+        5,
+    );
+    let resolved_id = resolved.id().unwrap();
+    let stay_id = stay.id().unwrap();
+    let mut ops = vec![root.clone(), old.clone(), stay, resolved];
+    assert_folds_same(&mut ops, |folded| {
+        assert_eq!(deeds(folded).as_deref(), Some("S stay"));
+        let clash = clash_ids(folded, "property:DEEDS");
+        assert!(clash.contains(&stay_id) && clash.contains(&resolved_id));
+        assert!(!clash.contains(&old_id));
+        assert_eq!(clash.len(), 2);
+    });
+
+    let set = child(
+        &[&old],
+        &root,
+        OpKind::SetField {
+            name: "property:DEEDS".to_string(),
+            value: "S".to_string(),
+        },
+        3,
+    );
+    let set_id = set.id().unwrap();
+    for stay in [
+        wall_at(
+            |wall| {
+                child(
+                    &[&old],
+                    &root,
+                    OpKind::AddDeed {
+                        accession: "stay".to_string(),
+                    },
+                    wall,
+                )
+            },
+            |op| op.id().unwrap() > set_id,
+        ),
+        wall_at(
+            |wall| {
+                child(
+                    &[&old],
+                    &root,
+                    OpKind::AddDeed {
+                        accession: "stay".to_string(),
+                    },
+                    wall,
+                )
+            },
+            |op| op.id().unwrap() < set_id,
+        ),
+    ] {
+        let stay_id = stay.id().unwrap();
+        let mut ops = vec![root.clone(), old.clone(), stay, set.clone()];
+        assert_folds_same(&mut ops, |folded| {
+            assert_eq!(deeds(folded).as_deref(), Some("S stay"));
+            let clash = clash_ids(folded, "property:DEEDS");
+            assert!(clash.contains(&stay_id) && clash.contains(&set_id));
+            assert!(!clash.contains(&old_id));
+            assert_eq!(clash.len(), 2);
+        });
+    }
+
+    let left = child(
+        &[&root],
+        &root,
+        OpKind::AddDeed {
+            accession: "a".to_string(),
+        },
+        1,
+    );
+    let right = child(
+        &[&root],
+        &root,
+        OpKind::AddDeed {
+            accession: "b".to_string(),
+        },
+        2,
+    );
+    let left_id = left.id().unwrap();
+    let right_id = right.id().unwrap();
+    let extra = wall_at(
+        |wall| {
+            child(
+                &[&root],
+                &root,
+                OpKind::AddDeed {
+                    accession: "c".to_string(),
+                },
+                wall,
+            )
+        },
+        |op| {
+            let id = op.id().unwrap();
+            id > left_id && id > right_id
+        },
+    );
+    let both = child(
+        &[&left, &right],
+        &root,
+        OpKind::SetField {
+            name: "property:DEEDS".to_string(),
+            value: "S".to_string(),
+        },
+        3,
+    );
+    let added = child(
+        &[&both],
+        &root,
+        OpKind::AddDeed {
+            accession: "d".to_string(),
+        },
+        4,
+    );
+    let mut ops = vec![root, left, right, extra, both, added];
+    assert_folds_same(&mut ops, |folded| {
+        assert_eq!(deeds(folded).as_deref(), Some("S c d"));
+        assert!(
+            folded
+                .conflicts
+                .iter()
+                .all(|clash| clash.field != "property:DEEDS"),
+            "{:?}",
+            folded.conflicts
+        );
+    });
+}
+
+/// A parented create and a concurrent deed share a parent. The deed is kept
+/// when its op id sorts first and when the create sorts first.
+fn a_write_before_the_first_birth_is_kept() {
+    let anchor = wire(&Op::create("proj", "proj-0", "Other", "seat").unwrap());
+    let template = Op::create("proj", "proj-1", "Created", "seat").unwrap();
+    let birth_kind = template.kind.clone();
+    let deed_kind = OpKind::AddDeed {
+        accession: "keep-me".to_string(),
+    };
+    let mut deed_first = None;
+    let mut birth_first = None;
+    for birth_wall in 0..24 {
+        for deed_wall in 0..24 {
+            let birth = child(&[&anchor], &template, birth_kind.clone(), birth_wall);
+            let deed = child(&[&anchor], &template, deed_kind.clone(), deed_wall);
+            let birth_key = (birth.lamport, birth.id().unwrap());
+            let deed_key = (deed.lamport, deed.id().unwrap());
+            if deed_key < birth_key && deed_first.is_none() {
+                deed_first = Some((birth, deed));
+            } else if birth_key < deed_key && birth_first.is_none() {
+                birth_first = Some((birth, deed));
+            }
+        }
+    }
+    let cases = [
+        deed_first.expect("a deed that sorts before the birth"),
+        birth_first.expect("a birth that sorts before the deed"),
+    ];
+    for (birth, deed) in cases {
+        let mut ops = vec![anchor.clone(), birth, deed];
+        assert_folds_same(&mut ops, |folded| {
+            assert_eq!(deeds(folded).as_deref(), Some("keep-me"));
+            let heading = &folded.issues[&("proj".to_string(), "proj-1".to_string())];
+            assert_eq!(heading.title, "Created");
+            assert!(
+                folded
+                    .issues
+                    .contains_key(&("proj".to_string(), "proj-0".to_string()))
+            );
+        });
+    }
+}
+
 fn earlier_writes_survive_a_later_birth() {
     let other = wire(&Op::create("proj", "proj-0", "Other", "seat").unwrap());
     let create = wire(&Op::create("proj", "proj-1", "Created", "seat").unwrap());
@@ -657,6 +1017,8 @@ fn scalar_on_a_set_keeps_the_union() {
 
 #[test]
 fn concurrent_ops_fold_to_the_same_bytes_in_every_order() {
+    a_removal_drops_elements_it_saw();
+    a_write_before_the_first_birth_is_kept();
     earlier_writes_survive_a_later_birth();
     scalar_on_a_set_keeps_the_union();
     let create = wire(&Op::create("proj", "proj-1", "Created", "seat").unwrap());
