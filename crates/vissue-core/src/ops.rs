@@ -1667,29 +1667,59 @@ pub struct Ballot {
     pub used: Option<String>,
     /// Stated probability that `choice` is the outcome, as written.
     pub confidence: Option<String>,
+    /// Revision this ballot judged, when the caller named one.
+    pub rev: Option<String>,
+}
+
+/// The line a recast replaces: the voter's line for `rev`, or their only line
+/// when they have one ballot and it is a different revision. Several ballots
+/// and none for `rev` is a new line.
+fn recast_at(ballots: &[Ballot], identity: &str, rev: &Option<String>) -> Option<usize> {
+    if let Some(index) = ballots
+        .iter()
+        .position(|ballot| ballot.agent == identity && &ballot.rev == rev)
+    {
+        return Some(index);
+    }
+    let mut only = None;
+    let mut count = 0usize;
+    for (index, ballot) in ballots.iter().enumerate() {
+        if ballot.agent == identity {
+            count += 1;
+            only = Some(index);
+        }
+    }
+    if count == 1 { only } else { None }
 }
 
 /// Cast or change one agent's vote, or read the tally when `choice` is `None`.
-/// One ballot per identity, a recast replaces it, and the read-modify-write
-/// runs under the file lock. Stored as a `:VOTES:` drawer on the heading.
+/// One ballot per identity and revision. A recast replaces that line, and the
+/// read-modify-write runs under the file lock. Stored as a `:VOTES:` drawer
+/// on the heading.
 ///
 /// # Errors
 ///
 /// Returns an error if `id` is not in the corpus, `choice` is blank, or the file
 /// cannot be rewritten.
 pub fn vote(layout: &Layout, id: &str, choice: Option<&str>, identity: &str) -> Result<String> {
-    vote_with(layout, id, choice, identity, None, None)
+    vote_with(layout, id, choice, identity, None, None, None)
 }
 
-/// [`vote`], plus the deeds the ballot used and a stated probability.
+/// [`vote`], plus the deeds the ballot used, a stated probability, and the
+/// revision the ballot judged.
 ///
 /// `used` is `none` or accession ids. `confidence` is a decimal in `(0, 1]`.
-/// Both are kept on the ballot line and are not part of the choice.
+/// `rev` is one token, kept on the ballot line before the timestamp and not
+/// part of the choice. A recast replaces the line for this voter and revision.
+/// One existing ballot moves onto a different revision; several ballots, with
+/// none for it, gain a line. With no choice, `rev` counts only ballots for
+/// that revision; without it the tally is every ballot.
 ///
 /// # Errors
 ///
-/// Returns an error when `used` or `confidence` is not a single token, or
-/// `confidence` is outside `(0, 1]`. The errors from [`vote`] apply as well.
+/// Returns an error when `used` or `confidence` is not a single token,
+/// `confidence` is outside `(0, 1]`, or `rev` is empty, more than one token,
+/// or contains a control character. The errors from [`vote`] apply as well.
 pub fn vote_with(
     layout: &Layout,
     id: &str,
@@ -1697,9 +1727,11 @@ pub fn vote_with(
     identity: &str,
     used: Option<&str>,
     confidence: Option<&str>,
+    rev: Option<&str>,
 ) -> Result<String> {
     let used = clean_used(used)?;
     let confidence = clean_confidence(confidence)?;
+    let rev = clean_rev(rev)?;
     let (_h, path, project) =
         find_by_id(layout, id)?.ok_or_else(|| Error::IssueNotFound { id: id.to_string() })?;
     let Some(choice) = choice else {
@@ -1710,7 +1742,7 @@ pub fn vote_with(
             .find(|x| x.id == id)
             .ok_or_else(|| Error::IssueNotFound { id: id.to_string() })?;
         let (ballots, _) = read_ballots(h);
-        return Ok(tally_text(id, &ballots));
+        return Ok(tally_text(id, &select_rev(ballots, rev.as_deref())));
     };
     let choice = choice.trim();
     if choice.is_empty() {
@@ -1741,14 +1773,15 @@ pub fn vote_with(
             .ok_or_else(|| Error::IssueNotFound { id: id.to_string() })?;
         let (mut ballots, foreign) = read_ballots(h);
         let stamp = today_inactive_bracket();
-        let previous = ballots.iter().position(|b| b.agent == identity);
-        let changed_from = previous.map(|i| ballots[i].choice.clone());
+        let previous = recast_at(&ballots, identity, &rev);
+        let prior = previous.map(|i| ballots[i].clone());
         let ballot = Ballot {
             agent: identity.to_string(),
             choice: choice.to_string(),
             stamp,
             used,
             confidence,
+            rev: rev.clone(),
         };
         match previous {
             Some(i) => ballots[i] = ballot,
@@ -1756,9 +1789,18 @@ pub fn vote_with(
         }
         write_ballots(h, &ballots, &foreign);
         doc.write()?;
-        let mut out = match changed_from {
-            Some(old) if old == choice => format!("{id}: {identity} already voted {choice}\n"),
-            Some(old) => format!("{id}: {identity} changed {old} to {choice}\n"),
+        // A same choice with a new revision did replace the ballot. Saying
+        // "already voted" describes a no-op that did not happen.
+        let mut out = match &prior {
+            Some(old) if old.choice == choice && old.rev == rev => {
+                format!("{id}: {identity} already voted {choice}\n")
+            }
+            Some(old) if old.choice == choice => format!(
+                "{id}: {identity} changed rev {} to {}\n",
+                old.rev.as_deref().unwrap_or("none"),
+                rev.as_deref().unwrap_or("none")
+            ),
+            Some(old) => format!("{id}: {identity} changed {} to {choice}\n", old.choice),
             None => format!("{id}: {identity} voted {choice}\n"),
         };
         out.push_str(&tally_text(id, &ballots));
@@ -1844,9 +1886,13 @@ fn read_ballots(h: &IssueHeading) -> (Vec<Ballot>, Vec<String>) {
             continue;
         }
         match parse_ballot(trimmed) {
-            // One ballot per agent: a hand-edited duplicate collapses on read,
-            // last line winning.
-            Some(b) => match ballots.iter_mut().find(|x| x.agent == b.agent) {
+            // One ballot per agent and revision: a hand-edited duplicate of
+            // that pair collapses on read, last line winning. A second
+            // revision of the same agent is a different ballot.
+            Some(b) => match ballots
+                .iter_mut()
+                .find(|x| x.agent == b.agent && x.rev == b.rev)
+            {
                 Some(existing) => *existing = b,
                 None => ballots.push(b),
             },
@@ -1856,9 +1902,14 @@ fn read_ballots(h: &IssueHeading) -> (Vec<Ballot>, Vec<String>) {
     (ballots, foreign)
 }
 
-/// `[date] agent: choice`. The choice may hold ": ", so the first one delimits
-/// and the agent may not contain it; [`vote`] refuses an identity that does.
+/// `[date] agent: choice`, or `[rev=TOKEN] [date] agent: choice`.
+///
+/// The choice may hold ": ", so the first one delimits and the agent may not
+/// contain it; [`vote`] refuses an identity that does. A revision is only the
+/// `[rev=TOKEN]` prefix. Choice text that contains ` rev=` stays the choice:
+/// a line written before revisions opens with the timestamp, never `[rev=`.
 pub(crate) fn parse_ballot(line: &str) -> Option<Ballot> {
+    let (line, rev) = peel_stored_rev(line);
     let (stamp, rest) = line.strip_prefix('[')?.split_once("] ")?;
     let (agent, choice) = rest.split_once(": ")?;
     let agent = agent.trim();
@@ -1867,12 +1918,16 @@ pub(crate) fn parse_ballot(line: &str) -> Option<Ballot> {
         return None;
     }
     let (choice, used, confidence) = split_ballot_tail(choice);
+    if choice.is_empty() {
+        return None;
+    }
     Some(Ballot {
         agent: agent.to_string(),
         choice: choice.to_string(),
         stamp: format!("[{stamp}]"),
         used,
         confidence,
+        rev,
     })
 }
 
@@ -1901,7 +1956,46 @@ fn clean_confidence(confidence: Option<&str>) -> Result<Option<String>> {
     Ok(Some(confidence.to_string()))
 }
 
+/// `rev` is one token. `None` means the caller did not pass one.
+///
+/// Surrounding whitespace is trimmed, so a cast and a `--json` filter name
+/// the same revision. Empty or whitespace-only input is an error, not an
+/// absent revision. A control character is refused so the value cannot break
+/// the ballot line.
+///
+/// # Errors
+///
+/// Returns an error when `rev` is empty, whitespace-only, more than one
+/// token, or contains a control character.
+pub fn clean_rev(rev: Option<&str>) -> Result<Option<String>> {
+    let Some(rev) = rev else {
+        return Ok(None);
+    };
+    if rev.chars().any(char::is_control) {
+        return Err(anyhow!("--rev cannot contain a control character").into());
+    }
+    let rev = rev.trim();
+    if rev.is_empty() {
+        return Err(anyhow!("--rev is empty").into());
+    }
+    if rev.contains(char::is_whitespace) {
+        return Err(anyhow!("--rev is one token").into());
+    }
+    Ok(Some(rev.to_string()))
+}
+
+/// Keep every ballot, or only those whose revision equals `rev`.
+fn select_rev(mut ballots: Vec<Ballot>, rev: Option<&str>) -> Vec<Ballot> {
+    if let Some(want) = rev {
+        ballots.retain(|b| b.rev.as_deref() == Some(want));
+    }
+    ballots
+}
+
 /// Split `ship used=none confidence=0.5` into the choice and the two tails.
+///
+/// A revision is not one of these tails. It is a prefix, so choice text that
+/// contains ` rev=` is left as the choice.
 fn split_ballot_tail(choice: &str) -> (&str, Option<String>, Option<String>) {
     if let Some((choice, tail)) = choice.split_once(" used=") {
         let (used, confidence) = match tail.split_once(" confidence=") {
@@ -1919,6 +2013,51 @@ fn split_ballot_tail(choice: &str) -> (&str, Option<String>, Option<String>) {
         return (choice.trim(), None, Some(confidence.to_string()));
     }
     (choice, None, None)
+}
+
+/// Split a stored `[rev=TOKEN] ` prefix off a ballot line.
+///
+/// The base writer opens every ballot with an inactive timestamp
+/// `[YYYY-MM-DD Day]`, so a line it wrote never starts with `[rev=`. The
+/// choice, which may itself contain ` rev=`, sits after `: ` and is not read
+/// as a revision.
+fn peel_stored_rev(line: &str) -> (&str, Option<String>) {
+    let Some(rest) = line.strip_prefix("[rev=") else {
+        return (line, None);
+    };
+    let Some((token, tail)) = rest.split_once("] ") else {
+        return (line, None);
+    };
+    if token.is_empty() || token.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return (line, None);
+    }
+    (tail, Some(token.to_string()))
+}
+
+/// One ballot as the drawer writes it. Absent tails are omitted, so a ballot
+/// with no revision is the line it was before the field existed. A revision
+/// is a `[rev=TOKEN]` prefix, which those older lines do not start with.
+fn ballot_line(ballot: &Ballot) -> String {
+    let mut line = String::new();
+    if let Some(rev) = &ballot.rev {
+        line.push_str("[rev=");
+        line.push_str(rev);
+        line.push_str("] ");
+    }
+    line.push_str(&ballot.stamp);
+    line.push(' ');
+    line.push_str(&ballot.agent);
+    line.push_str(": ");
+    line.push_str(&ballot.choice);
+    if let Some(used) = &ballot.used {
+        line.push_str(" used=");
+        line.push_str(used);
+    }
+    if let Some(confidence) = &ballot.confidence {
+        line.push_str(" confidence=");
+        line.push_str(confidence);
+    }
+    line
 }
 
 pub(crate) fn drawer_name_is(drawer: &str, name: &str) -> bool {
@@ -1946,13 +2085,7 @@ fn write_ballots(h: &mut IssueHeading, ballots: &[Ballot], foreign: &[String]) {
     }
     let mut drawer = format!(":{VOTES_DRAWER}:\n");
     for b in ballots {
-        drawer.push_str(&format!("{} {}: {}", b.stamp, b.agent, b.choice));
-        if let Some(used) = &b.used {
-            drawer.push_str(&format!(" used={used}"));
-        }
-        if let Some(confidence) = &b.confidence {
-            drawer.push_str(&format!(" confidence={confidence}"));
-        }
+        drawer.push_str(&ballot_line(b));
         drawer.push('\n');
     }
     for line in foreign {
@@ -4737,6 +4870,7 @@ mod tests {
             "agent-b",
             Some("none"),
             Some("0.5"),
+            None,
         )
         .unwrap();
         assert!(recorded.contains("agent-b voted hold"), "{recorded}");
@@ -4753,6 +4887,49 @@ mod tests {
 
         let tally = vote(&layout, &id, None, "reader").unwrap();
         assert!(tally.contains("agent-a"), "{tally}");
+    }
+
+    /// An issues.org from before `rev` parses and rewrites byte for byte,
+    /// including a pass back through the ballot writer.
+    #[test]
+    fn an_issues_org_without_rev_parses_and_reserialises_byte_for_byte() {
+        let preamble = crate::store::default_preamble("old");
+        let heading = "\
+* TODO [#B] Old ballot\n\
+:PROPERTIES:\n\
+:ID:         old-0001\n\
+:END:\n\
+:VOTES:\n\
+[2026-01-01 Thu] inky: ship\n\
+[2026-01-02 Fri] blinky: hold used=none confidence=0.5\n\
+:END:\n";
+        let text = format!("{}\n\n{heading}\n", preamble.trim_end());
+        let mut doc =
+            IssueDoc::parse("old", std::path::PathBuf::from("issues.org"), &text).expect("parse");
+        assert_eq!(
+            doc.render_string(),
+            text,
+            "parse rewrote a file written before rev"
+        );
+        let heading = &mut doc.headings[0];
+        let (ballots, foreign) = read_ballots(heading);
+        assert!(ballots.iter().all(|b| b.rev.is_none()));
+        assert_eq!(ballots[0].choice, "ship");
+        assert_eq!(ballots[1].choice, "hold");
+        assert_eq!(ballots[1].used.as_deref(), Some("none"));
+        assert_eq!(ballots[1].confidence.as_deref(), Some("0.5"));
+        for (ballot, line) in ballots.iter().zip([
+            "[2026-01-01 Thu] inky: ship",
+            "[2026-01-02 Fri] blinky: hold used=none confidence=0.5",
+        ]) {
+            assert_eq!(ballot_line(ballot), line);
+        }
+        write_ballots(heading, &ballots, &foreign);
+        assert_eq!(
+            doc.render_string(),
+            text,
+            "rewriting the ballots changed a file written before rev"
+        );
     }
 
     #[test]

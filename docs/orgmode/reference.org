@@ -13,7 +13,7 @@
 | =append=                                                                  | Record a dated report under the heading, from the words after the id, =--text=, =--file=, or stdin |
 | =body-excerpt=                                                            | A capped preview of an issue's file range; =show --org= for the whole heading |
 | =claims=                                                                  | Every live claim, oldest first: who holds what, for how long             |
-| =vote=                                                                    | Cast this agent's ballot (=--for=), take it back (=--withdraw=, logged), or read the tally; =--json= for the ballot rows |
+| =vote=                                                                    | Cast this agent's ballot (=--for=, =--rev= names the revision), take it back (=--withdraw=, logged), or read the tally; =--json= without =--rev= returns every ballot, and =--rev= counts only that revision |
 | =consensus=                                                               | Weigh the same ballots by who the group listens to; social power and the two ways there is none; =--children= rolls up over a plan; =--trust JSON= lays rows over the configuration |
 | =deed=                                                                    | Cite (=--add=), drop (=--remove=), or list the deeds this issue's work produced; =d= on either board |
 | =recall=                                                                  | The working set for an issue: plan, inputs and their deeds, and its own; =--excerpts= splices in what each input concluded |
@@ -21,6 +21,7 @@
 | =--json= on a read                                                        | =list=, =show=, =ready=, =claims=, =digest=, =search=, =children=, =ancestors=, =impact=, =backlinks=, =agenda=, =tree=, =body-excerpt=, =projects=, =recall=, =consensus= |
 | =fold=                                                                    | Turn an inbox file's unstamped =* TODO= headings into issues             |
 | =whoami=                                                                  | The identity a claim would record                                        |
+| =find=                                                                    | Every match whose property equals a value (=--prop=)                     |
 | =ready=, =count=, =search=, =children=, =ancestors=, =impact=, =related=, =stale= | Query the corpus; bounded dependency and related traversal; =search -p PROJECT= narrows to one project |
 | =agenda=                                                                  | Deadlines and scheduled starts inside a horizon, overdue first           |
 | =export=                                                                  | JSONL, one object per issue                                              |
@@ -258,7 +259,7 @@ Usage: =vissue release [OPTIONS] --holder <HOLDER>=
 
 Cast this agent's vote on an issue, or show the tally with no =--for=.
 
-One ballot per identity and a recast replaces it, so several agents can disagree on the record and a reader sees whether they agree.
+One ballot per identity per revision, and a recast for the same revision replaces it, so several agents can disagree on the record and a reader sees whether they agree. =--rev= binds the ballot to a revision; on a tally it counts only that revision.
 
 Usage: =vissue vote [OPTIONS] <ID>=
 
@@ -269,9 +270,10 @@ Usage: =vissue vote [OPTIONS] <ID>=
 | Flag | Meaning |
 |------+---------|
 | =--for= =<CHOICE>= | What to vote for. Omit to read the tally without casting |
-| =--json= | The ballots as JSON rows of =agent=, =choice=, =stamp=; reads only |
+| =--json= | JSON rows of =agent=, =choice=, =stamp=, =used=, =confidence=, and =rev=; without =--rev=, every ballot; reads only |
 | =--used= =<USED>= | Deed accessions this ballot used, or =none= |
 | =--confidence= =<CONFIDENCE>= | Probability in (0, =1]= that the choice is the outcome |
+| =--rev= =<REV>= | Revision this ballot judged. On a tally, count only ballots for it |
 | =--withdraw= | Take back this identity's ballot; the logbook keeps what it was |
 
 ** =deed=
@@ -454,6 +456,18 @@ Usage: =vissue body-excerpt [OPTIONS] <ID>=
 | Flag | Meaning |
 |------+---------|
 | =--json= | Emit a JSON object instead of text |
+
+** =find=
+
+Every match whose property equals a value, one id per line.
+
+=list= and =search= do not answer an exact property match. The argument is the key, an equals sign, and the value.
+
+Usage: =vissue find [OPTIONS] --prop <PROP>=
+
+| Flag | Meaning |
+|------+---------|
+| =--prop= =<PROP>= | Property match: the key, an equals sign, and the value |
 
 ** =search=
 
@@ -1572,10 +1586,22 @@ which of them voted.
 =vote ID= prints the tally without casting. Ballots live in a =:VOTES:= drawer on
 the heading, one line each, so the file shows who thinks what without a tool.
 
-One ballot per identity. Casting again replaces it and says what changed, which
-keeps an agent that reconsiders from appearing twice. A drawer edited by hand into
-two lines for one name collapses to the last of them on the next read, because the
-tally counts on the invariant.
+=--rev REV= names the revision the ballot judged. The token is kept on the
+ballot line, before the timestamp, and is not part of the choice. A ballot
+written before revisions opens with the date, so that prefix cannot be one of
+those lines, and a choice that merely contains rev= stays the choice. Casting
+again replaces the ballot, revision included. =vote ID --rev REV= and
+=vote ID --json --rev REV= count only ballots whose revision is REV. Without
+=--rev=, the tally counts every ballot and =vote ID --json= returns every
+ballot. A ballot written with no revision still reads and writes as it did.
+
+One ballot per identity and revision. Casting again for that revision replaces
+the line and says what changed. A second revision is a second ballot. When the
+voter has one ballot, casting for another revision moves it. When the voter has
+several and none for the named revision, the cast adds a line. A drawer edited
+by hand into two lines for one identity and the same revision collapses to the
+last of them on the next read. Two lines for one name that name different
+revisions both stay.
 
 An identity may not contain a colon followed by a space. A choice may, which is
 why the line splits on the first one, and an identity holding one would be read

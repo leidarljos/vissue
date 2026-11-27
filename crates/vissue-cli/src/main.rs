@@ -276,14 +276,15 @@ enum Command {
     },
     /// Cast this agent's vote on an issue, or show the tally with no `--for`.
     ///
-    /// One ballot per identity and a recast replaces it, so several agents can
-    /// disagree on the record and a reader sees whether they agree.
+    /// One ballot per identity per revision, and a recast for the same revision replaces it, so several agents can
+    /// disagree on the record and a reader sees whether they agree. `--rev`
+    /// binds the ballot to a revision; on a tally it counts only that revision.
     Vote {
         id: String,
         /// What to vote for. Omit to read the tally without casting.
         #[arg(long = "for", value_name = "CHOICE")]
         choice: Option<String>,
-        /// The ballots as JSON rows of `agent`, `choice`, `stamp`; reads only.
+        /// JSON rows of `agent`, `choice`, `stamp`, `used`, `confidence`, and `rev`; without `--rev`, every ballot; reads only.
         #[arg(long, conflicts_with = "choice")]
         json: bool,
         /// Deed accessions this ballot used, or `none`.
@@ -292,6 +293,9 @@ enum Command {
         /// Probability in (0, 1] that the choice is the outcome.
         #[arg(long, requires = "choice")]
         confidence: Option<f64>,
+        /// Revision this ballot judged. On a tally, count only ballots for it.
+        #[arg(long, value_name = "REV", conflicts_with = "withdraw")]
+        rev: Option<String>,
         /// Take back this identity's ballot; the logbook keeps what it was.
         #[arg(long, conflicts_with_all = ["choice", "json"])]
         withdraw: bool,
@@ -463,6 +467,15 @@ enum Command {
         /// Emit a JSON object instead of text
         #[arg(long)]
         json: bool,
+    },
+    /// Every match whose property equals a value, one id per line.
+    ///
+    /// `list` and `search` do not answer an exact property match. The argument
+    /// is the key, an equals sign, and the value.
+    Find {
+        /// Property match: the key, an equals sign, and the value.
+        #[arg(long, value_name = "PROP")]
+        prop: String,
     },
     /// Substring search over ids, titles, properties, and bodies.
     Search {
@@ -954,13 +967,20 @@ fn merge_driver(
         .unwrap_or("issues")
         .to_string();
     let ours_text = read(ours)?;
-    let merged = if vissue_core::ledger::is_ledger_text(&ours_text) {
+    let ledger = vissue_core::ledger::is_ledger_text(&ours_text);
+    let merged = if ledger {
         vissue_core::ledger::merge_file(&read(base)?, &ours_text, &read(theirs)?)
     } else {
         vissue_core::merge::merge_tracker(&project, &read(base)?, &ours_text, &read(theirs)?)
     };
     match merged {
         Ok(m) => {
+            if ledger && ledger_glued_or_marked(&m.text) {
+                eprintln!(
+                    "vissue merge: refusing a ledger that glues a drawer or carries conflict markers"
+                );
+                std::process::exit(1);
+            }
             std::fs::write(ours, &m.text).with_context(|| format!("write {}", ours.display()))?;
             if m.conflicts > 0 {
                 eprintln!(
@@ -972,10 +992,12 @@ fn merge_driver(
             Ok(())
         }
         Err(e) => {
-            eprintln!(
-                "vissue merge: {}; leaving git's text conflict",
-                vissue_core::error::chain_line(&anyhow::Error::from(e))
-            );
+            let line = vissue_core::error::chain_line(&anyhow::Error::from(e));
+            if ledger {
+                eprintln!("vissue merge: {line}");
+                std::process::exit(1);
+            }
+            eprintln!("vissue merge: {line}; leaving git's text conflict");
             let _ = std::process::Command::new("git")
                 .args(["merge-file", "-L", "ours", "-L", "base", "-L", "theirs"])
                 .arg(ours)
@@ -985,6 +1007,19 @@ fn merge_driver(
             std::process::exit(1);
         }
     }
+}
+
+/// A per-issue ledger must not leave the merge with a drawer closer glued to
+/// the next drawer name, or with git conflict markers. Either form fails to
+/// fold, and `vote --json` then reads no ballots.
+fn ledger_glued_or_marked(text: &str) -> bool {
+    text.lines().any(|line| {
+        let line = line.trim_end();
+        line.contains(":END::")
+            || line.starts_with("<<<<<<< ")
+            || line.starts_with(">>>>>>> ")
+            || line == "======="
+    })
 }
 
 /// Append each missing line to a git control file such as `.gitattributes`.
@@ -1873,6 +1908,7 @@ fn run() -> Result<()> {
             json,
             used,
             confidence,
+            rev,
             withdraw,
         } => {
             let found = layout_for_id(&router, &id)?;
@@ -1880,8 +1916,15 @@ fn run() -> Result<()> {
                 let who = vissue_core::config::identity(&found);
                 emit!("{}", ops::withdraw(&found, &id, &who)?)
             } else if json {
+                // Same trim and refusal as a cast: padding is not a different
+                // revision, and a blank or a control character is an error.
+                let want = ops::clean_rev(rev.as_deref())?;
                 let rows: Vec<serde_json::Value> = ops::ballots(&found, &id)?
                     .iter()
+                    .filter(|b| {
+                        want.as_deref()
+                            .is_none_or(|want| b.rev.as_deref() == Some(want))
+                    })
                     .map(|b| {
                         serde_json::json!({
                             "agent": b.agent,
@@ -1889,6 +1932,7 @@ fn run() -> Result<()> {
                             "stamp": b.stamp,
                             "used": b.used,
                             "confidence": b.confidence,
+                            "rev": b.rev,
                         })
                     })
                     .collect();
@@ -1905,6 +1949,7 @@ fn run() -> Result<()> {
                         &who,
                         used.as_deref(),
                         confidence.as_deref(),
+                        rev.as_deref(),
                     )?
                 )
             }
@@ -1979,6 +2024,9 @@ fn run() -> Result<()> {
                 || with_catalog(&found, |svc| svc.excerpt(&id)),
                 || agent::body_excerpt(&found, &id),
             )?;
+        }
+        Command::Find { prop } => {
+            emit!("{}", find_routed(&router, &prop)?);
         }
         Command::Search {
             query,
@@ -2830,6 +2878,39 @@ fn concat_project_reports_with(
     {
         out.push_str(marker);
     }
+    Ok(out)
+}
+
+/// Issues whose property equals a value, one id per line.
+///
+/// # Errors
+///
+/// Returns an error when `spec` is not `KEY=VALUE`, or a project file cannot
+/// be read.
+fn find_routed(router: &Router, spec: &str) -> Result<String> {
+    let Some((key, value)) = spec.split_once('=') else {
+        bail!("--prop is KEY=VALUE");
+    };
+    let key = key.trim();
+    if key.is_empty() {
+        bail!("--prop is KEY=VALUE");
+    }
+    let value = value.trim();
+    let mut out = String::new();
+    for_each_visible_in(router, |recs, dir| {
+        for rec in recs.iter().filter(|rec| rec.project == dir) {
+            let hit = rec
+                .heading
+                .properties
+                .iter()
+                .any(|(k, v)| k == key && v == value);
+            if hit {
+                out.push_str(&rec.heading.id);
+                out.push('\n');
+            }
+        }
+        Ok(())
+    })?;
     Ok(out)
 }
 

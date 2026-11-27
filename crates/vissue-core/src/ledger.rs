@@ -1049,6 +1049,20 @@ fn split_drawers(payload: &str) -> Vec<String> {
     drawers
 }
 
+/// Join drawers so each `:END:` stays on its own line. A drawer built
+/// without a trailing newline would otherwise glue onto the next name
+/// (`:END::MERGE_CONFLICT:`), and the folded heading would not match.
+fn join_drawers(drawers: &[String]) -> String {
+    let mut out = String::new();
+    for drawer in drawers {
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str(drawer);
+    }
+    out
+}
+
 fn push_diff(buf: &mut Vec<u8>, old: &IssueHeading, new: &IssueHeading) {
     if old.state != new.state {
         push_op(buf, "state", &new.state);
@@ -1067,7 +1081,7 @@ fn push_diff(buf: &mut Vec<u8>, old: &IssueHeading, new: &IssueHeading) {
     }
     push_props(buf, &old.properties, &new.properties);
     if old.extra_drawers != new.extra_drawers {
-        push_op(buf, "drawers", &new.extra_drawers.concat());
+        push_op(buf, "drawers", &join_drawers(&new.extra_drawers));
     }
     if old.body != new.body {
         push_op(buf, "body", &new.body);

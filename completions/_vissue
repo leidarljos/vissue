@@ -197,9 +197,10 @@ _arguments "${_arguments_options[@]}" : \
 '--for=[What to vote for. Omit to read the tally without casting]:CHOICE:_default' \
 '--used=[Deed accessions this ballot used, or \`none\`]:USED:_default' \
 '--confidence=[Probability in (0, 1\] that the choice is the outcome]:CONFIDENCE:_default' \
+'(--withdraw)--rev=[Revision this ballot judged. On a tally, count only ballots for it]:REV:_default' \
 '--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
 '--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
-'(--for)--json[The ballots as JSON rows of \`agent\`, \`choice\`, \`stamp\`; reads only]' \
+'(--for)--json[JSON rows of \`agent\`, \`choice\`, \`stamp\`, \`used\`, \`confidence\`, and \`rev\`; without \`--rev\`, every ballot; reads only]' \
 '(--for --json)--withdraw[Take back this identity'\''s ballot; the logbook keeps what it was]' \
 '--no-route[Ignore \`\$VISSUE_CONFIG\` / \`~/.config/vissue/config.toml\` and keep every verb on the process default layout]' \
 '-h[Print help (see more with '\''--help'\'')]' \
@@ -364,6 +365,16 @@ _arguments "${_arguments_options[@]}" : \
 '-h[Print help]' \
 '--help[Print help]' \
 ':id:_default' \
+&& ret=0
+;;
+(find)
+_arguments "${_arguments_options[@]}" : \
+'--prop=[Property match\: the key, an equals sign, and the value]:PROP:_default' \
+'--root=[Tracker root. Falls back to ISSUE_ROOT, VISSUE_ROOT, then the current directory]:ROOT:_files' \
+'--prefix=[Directory under the root holding one subdirectory per project. Falls back to VISSUE_PREFIX, then \`prefix\` in vissue.toml, then \`Software\`]:PREFIX:_default' \
+'--no-route[Ignore \`\$VISSUE_CONFIG\` / \`~/.config/vissue/config.toml\` and keep every verb on the process default layout]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
 && ret=0
 ;;
 (search)
@@ -962,6 +973,10 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(find)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
 (search)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
@@ -1162,6 +1177,7 @@ _vissue_commands() {
 'whoami:Print the identity this tracker would record on a claim' \
 'waiting-on:Issues waiting on this one' \
 'body-excerpt:The first lines of an issue'\''s file range' \
+'find:Every match whose property equals a value, one id per line' \
 'search:Substring search over ids, titles, properties, and bodies' \
 'children:Issues whose \`\:PARENT\:\` matches this id' \
 'ancestors:Blockers transitively required by this issue' \
@@ -1290,6 +1306,11 @@ _vissue__subcmd__export_commands() {
     local commands; commands=()
     _describe -t commands 'vissue export commands' commands "$@"
 }
+(( $+functions[_vissue__subcmd__find_commands] )) ||
+_vissue__subcmd__find_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue find commands' commands "$@"
+}
 (( $+functions[_vissue__subcmd__fold_commands] )) ||
 _vissue__subcmd__fold_commands() {
     local commands; commands=()
@@ -1332,6 +1353,7 @@ _vissue__subcmd__help_commands() {
 'whoami:Print the identity this tracker would record on a claim' \
 'waiting-on:Issues waiting on this one' \
 'body-excerpt:The first lines of an issue'\''s file range' \
+'find:Every match whose property equals a value, one id per line' \
 'search:Substring search over ids, titles, properties, and bodies' \
 'children:Issues whose \`\:PARENT\:\` matches this id' \
 'ancestors:Blockers transitively required by this issue' \
@@ -1459,6 +1481,11 @@ _vissue__subcmd__help__subcmd__events_commands() {
 _vissue__subcmd__help__subcmd__export_commands() {
     local commands; commands=()
     _describe -t commands 'vissue help export commands' commands "$@"
+}
+(( $+functions[_vissue__subcmd__help__subcmd__find_commands] )) ||
+_vissue__subcmd__help__subcmd__find_commands() {
+    local commands; commands=()
+    _describe -t commands 'vissue help find commands' commands "$@"
 }
 (( $+functions[_vissue__subcmd__help__subcmd__fold_commands] )) ||
 _vissue__subcmd__help__subcmd__fold_commands() {

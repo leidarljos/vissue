@@ -210,6 +210,9 @@ pub struct VoteArgs {
     pub issue_id: String,
     /// What to vote for, one line. Omit to read the tally without casting.
     pub choice: Option<String>,
+    /// Revision this ballot judged. With no choice, the tally counts only
+    /// ballots for this revision.
+    pub rev: Option<String>,
 }
 
 #[derive(Deserialize, JsonSchema)]

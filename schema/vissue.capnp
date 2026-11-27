@@ -256,6 +256,7 @@ const operations :List(Operation) = [
       ( cli = "json", tool = "", socket = "", note = "the ballot rows as JSON, reads only; the remote surfaces answer in structure already", toolType = "", socketType = "" ),
       ( cli = "used", tool = "", socket = "", note = "command line only: the deeds this ballot drew on, or none", toolType = "", socketType = "" ),
       ( cli = "confidence", tool = "", socket = "", note = "command line only: the probability in (0, 1] that the choice is the outcome", toolType = "", socketType = "" ),
+      ( cli = "rev", tool = "rev", socket = "", note = "the revision this ballot judged; a tally with rev counts only that revision. Absent from the socket, which still casts and reads without one", toolType = "Option<String>", socketType = "" ),
       ( cli = "withdraw", tool = "", socket = "", note = "command line only: take back this identity's ballot; the logbook keeps what it was", toolType = "", socketType = "" )
     ] ),
   ( cli = "deed", socket = "issue/deed", mcp = "vissue_deed", mutates = true, local = false,
@@ -405,6 +406,11 @@ const operations :List(Operation) = [
       ( cli = "json", tool = "", socket = "", note = "the remote surfaces answer in structure already, so they need no flag to ask for it", toolType = "", socketType = "" ),
       ( cli = "limit", tool = "limit", socket = "limit", note = "", toolType = "Option<usize>", socketType = "Option<usize>" ),
       ( cli = "project", tool = "", socket = "", note = "command line only: search one project's issues, on the tracker that project routes to", toolType = "", socketType = "" )
+    ] ),
+  ( cli = "find", socket = "", mcp = "", mutates = false, local = false,
+    note = "command line only: the issue whose property equals a value. list and search do not answer that, and a remote caller that already holds the corpus can read the property drawer.",
+    fields = [
+      ( cli = "prop", tool = "", socket = "", note = "KEY=VALUE", toolType = "", socketType = "" )
     ] ),
   ( cli = "show", socket = "issue/show", mcp = "vissue_show", mutates = false, local = false,
     note = "",
