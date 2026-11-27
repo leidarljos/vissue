@@ -820,16 +820,18 @@ fn an_unknown_id_is_checked_before_not_found() {
     );
 }
 
-/// A drawer in the shape develop writes (bare value lines, one of them
-/// ending in `:`, inside a ledger) still has every value after three merges.
+/// A drawer in the shape develop writes (bare lines, in the order
+/// caff198a emits them, inside a ledger) still has every value after
+/// three merges. A later `title:` stays in the body, and a drawer whose
+/// values all start with `%` keeps those percents.
 #[test]
 fn a_caff198_clash_drawer_survives_three_merges() {
     let dir = tracker();
     let root = dir.path();
-    // `{field}:\n{value}\n`, the bytes caff198a merge.rs writes. The quorum
-    // value is the line `title:`. Landers is the line `property QUORUM:`.
-    // The last value is the line `:END:`. `lost:` and a leading `%` stay
-    // values. `Their title` is only in the drawer.
+    // `{field}:\n{value}\n`, the bytes caff198a merge.rs:362 writes, in
+    // that write order. The body continues through a later `title:` line
+    // and the next field is still priority. Quorum's value is `title:`.
+    // Landers' value is `property QUORUM:`. The tail's value is `:END:`.
     let ledger = "\
 #+TODO: TODO | DONE CANCELLED
 
@@ -840,27 +842,28 @@ fn a_caff198_clash_drawer_survives_three_merges() {
 :ID:         kit-aaaa
 :END:
 :MERGE_CONFLICT:
-property QUORUM:
-title:
-property LANDERS:
-property QUORUM:
-property TARGET:
-tgt-theirs
-state:
-CANCELLED
 title:
 Their title
-ballot of ada:
-[X] rev 1 ada
+state:
+CANCELLED
 body:
 line one
 still theirs
-drawer NOTES:
-theirs-title-ONLY-IN-DRAWER
+title:
 priority:
 lost:
 statistics:
 %kept
+property LANDERS:
+property QUORUM:
+property QUORUM:
+title:
+property TARGET:
+tgt-theirs
+ballot of ada:
+[X] rev 1 ada
+drawer NOTES:
+theirs-title-ONLY-IN-DRAWER
 the org after the heading:
 :END:
 #+VISSUE_LEDGER_LOG:
@@ -875,7 +878,7 @@ the org after the heading:
         "CANCELLED",
         "Their title",
         "[X] rev 1 ada",
-        "line one\nstill theirs",
+        "line one\nstill theirs\ntitle:",
         "theirs-title-ONLY-IN-DRAWER",
         "lost:",
         "%kept",
@@ -937,6 +940,53 @@ the org after the heading:
         "{thrice}"
     );
     assert_eq!(twice, thrice, "merges 2 and 3 differ");
+
+    // Every value line starts with `%`. That is still the legacy form.
+    let percents = "\
+#+TODO: TODO | DONE CANCELLED
+
+#+VISSUE_LEDGER:
+#+VISSUE_LINES: 4 22
+* TODO [#B] Land the kit
+:PROPERTIES:
+:ID:         kit-aaaa
+:END:
+:MERGE_CONFLICT:
+statistics:
+%kept
+property LANDERS:
+%seat:bob
+property QUORUM:
+%seats-five
+:END:
+#+VISSUE_LEDGER_LOG:
+";
+    let once_p = merge_self(root, dir.path(), percents, "pct-1");
+    let twice_p = merge_self(root, dir.path(), &once_p, "pct-2");
+    let thrice_p = merge_self(root, dir.path(), &twice_p, "pct-3");
+    let pct_fields = ["property QUORUM", "property LANDERS", "statistics"];
+    let pct_want = ["%seats-five", "%seat:bob", "%kept"];
+    let pct = |text: &str| {
+        let start = text.rfind(":MERGE_CONFLICT:").expect("clash drawer");
+        let rest = &text[start..];
+        let end = rest.find(":END:").expect("drawer end");
+        let drawer = &rest[..end];
+        pct_fields
+            .iter()
+            .map(|field| clash_value(drawer, field))
+            .collect::<Vec<_>>()
+    };
+    let pct_expect = vec_of(pct_want);
+    assert_eq!(
+        (pct(&once_p), pct(&twice_p), pct(&thrice_p)),
+        (pct_expect.clone(), pct_expect.clone(), pct_expect),
+        "{thrice_p}"
+    );
+    assert!(
+        once_p.contains("%%seats-five") && !once_p.contains("\ntitle:\n"),
+        "{once_p}"
+    );
+    assert_eq!(twice_p, thrice_p, "percent merges 2 and 3 differ");
 }
 
 fn vec_of<const N: usize>(rows: [&str; N]) -> Vec<String> {
