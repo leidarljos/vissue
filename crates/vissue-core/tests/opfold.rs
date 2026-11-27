@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use vissue_core::model::{IssueHeading, LogEntry};
-use vissue_core::oplog::{IssueKey, Op, OpKind, describe, fold};
+use vissue_core::oplog::{Folded, IssueKey, Op, OpId, OpKind, describe, fold};
 use vissue_core::store::IssueDoc;
 
 fn wire(op: &Op) -> Op {
@@ -457,8 +457,208 @@ fn permute(ops: &mut [Op], start: usize, visit: &mut impl FnMut(&[Op])) {
     }
 }
 
+fn parented(parent: &Op, issue: &Op, kind: OpKind, wall: i64) -> Op {
+    Op {
+        parents: vec![parent.id().unwrap()],
+        lamport: parent.lamport + 1,
+        seat: issue.seat.clone(),
+        project: issue.project.clone(),
+        issue: issue.issue,
+        kind,
+        wall,
+    }
+}
+
+fn assert_folds_same(ops: &mut [Op], mut check: impl FnMut(&Folded)) {
+    let mut expected: Option<Vec<u8>> = None;
+    permute(ops, 0, &mut |order| {
+        let folded = fold(order).expect("the concurrent set folds");
+        check(&folded);
+        let bytes = folded_bytes(&folded);
+        match &expected {
+            None => expected = Some(bytes),
+            Some(first) => assert_eq!(first, &bytes),
+        }
+    });
+}
+
+fn clash_ids(folded: &Folded, field: &str) -> Vec<OpId> {
+    folded
+        .conflicts
+        .iter()
+        .find(|clash| clash.field == field)
+        .unwrap_or_else(|| panic!("{field} missing in {:?}", folded.conflicts))
+        .ops
+        .clone()
+}
+
+fn earlier_writes_survive_a_later_birth() {
+    let other = wire(&Op::create("proj", "proj-0", "Other", "seat").unwrap());
+    let create = wire(&Op::create("proj", "proj-1", "Created", "seat").unwrap());
+    let create_id = create.id().unwrap();
+    let genesis_kind = describe("proj", &[plain_heading("proj-1", "Genesis")])
+        .unwrap()
+        .pop()
+        .unwrap()
+        .kind;
+    let deed_kind = OpKind::AddDeed {
+        accession: "keep-me".to_string(),
+    };
+    let owner_kind = OpKind::SetField {
+        name: "property:OWNER".to_string(),
+        value: "ada".to_string(),
+    };
+    let mut chosen = None;
+    for wall in 0..64 {
+        let genesis = parented(&other, &create, genesis_kind.clone(), wall);
+        let genesis_id = genesis.id().unwrap();
+        let Some(deed) = (0..64)
+            .map(|w| parented(&other, &create, deed_kind.clone(), w))
+            .find(|op| {
+                let id = op.id().unwrap();
+                id < create_id && id < genesis_id
+            })
+        else {
+            continue;
+        };
+        let deed_id = deed.id().unwrap();
+        let Some(owner) = (0..64)
+            .map(|w| parented(&other, &create, owner_kind.clone(), w))
+            .find(|op| {
+                let id = op.id().unwrap();
+                id < create_id && id < genesis_id && id != deed_id
+            })
+        else {
+            continue;
+        };
+        chosen = Some((wire(&genesis), wire(&deed), wire(&owner)));
+        break;
+    }
+    let (genesis, deed, owner) = chosen.expect("a deed and a property sort before the create");
+    let genesis_id = genesis.id().unwrap();
+    let deed_id = deed.id().unwrap();
+    let owner_id = owner.id().unwrap();
+    assert!(deed_id < create_id && owner_id < create_id);
+    assert!(deed_id < genesis_id && owner_id < genesis_id);
+    let mut ops = vec![other, create, genesis, deed, owner];
+    assert_folds_same(&mut ops, |folded| {
+        let heading = &folded.issues[&("proj".to_string(), "proj-1".to_string())];
+        assert_eq!(
+            heading.properties.get("DEEDS").map(String::as_str),
+            Some("keep-me")
+        );
+        assert_eq!(
+            heading.properties.get("OWNER").map(String::as_str),
+            Some("ada")
+        );
+        let births = clash_ids(folded, "issue");
+        assert!(births.contains(&create_id));
+        assert!(births.contains(&genesis_id));
+        assert_eq!(births.len(), 2);
+        for clash in &folded.conflicts {
+            assert!(clash.ops.len() >= 2, "{:?}", folded.conflicts);
+        }
+    });
+}
+
+fn scalar_on_a_set_keeps_the_union() {
+    let walls = [
+        [1_i64, 2, 3],
+        [1, 3, 2],
+        [2, 1, 3],
+        [2, 3, 1],
+        [3, 1, 2],
+        [3, 2, 1],
+    ];
+    for [left, mid, right] in walls {
+        let root = wire(&Op::create("proj", "proj-1", "Title", "seat").unwrap());
+        let deed_a = wire(&spawned(
+            &root,
+            OpKind::AddDeed {
+                accession: "a".to_string(),
+            },
+            left,
+        ));
+        let deed_b = wire(&spawned(
+            &root,
+            OpKind::AddDeed {
+                accession: "b".to_string(),
+            },
+            mid,
+        ));
+        let set = wire(&spawned(
+            &root,
+            OpKind::SetField {
+                name: "property:DEEDS".to_string(),
+                value: "S".to_string(),
+            },
+            right,
+        ));
+        let ids = [
+            deed_a.id().unwrap(),
+            deed_b.id().unwrap(),
+            set.id().unwrap(),
+        ];
+        let mut ops = vec![root, deed_a, deed_b, set];
+        assert_folds_same(&mut ops, |folded| {
+            let heading = &folded.issues[&("proj".to_string(), "proj-1".to_string())];
+            assert_eq!(
+                heading.properties.get("DEEDS").map(String::as_str),
+                Some("S a b")
+            );
+            let clash = clash_ids(folded, "property:DEEDS");
+            assert_eq!(clash.len(), 3, "{clash:?}");
+            for id in ids {
+                assert!(clash.contains(&id), "{clash:?}");
+            }
+        });
+
+        let root = wire(&Op::create("proj", "proj-1", "Title", "seat").unwrap());
+        let wide = wire(&spawned(
+            &root,
+            OpKind::Link {
+                kind: "blocked-by".to_string(),
+                other: "p q".to_string(),
+            },
+            left,
+        ));
+        let narrow = wire(&spawned(
+            &root,
+            OpKind::Link {
+                kind: "blocked-by".to_string(),
+                other: "r".to_string(),
+            },
+            mid,
+        ));
+        let set = wire(&spawned(
+            &root,
+            OpKind::SetField {
+                name: "property:BLOCKED_BY".to_string(),
+                value: "t".to_string(),
+            },
+            right,
+        ));
+        let ids = [wide.id().unwrap(), narrow.id().unwrap(), set.id().unwrap()];
+        let mut ops = vec![root, wide, narrow, set];
+        assert_folds_same(&mut ops, |folded| {
+            let heading = &folded.issues[&("proj".to_string(), "proj-1".to_string())];
+            assert_eq!(
+                heading.properties.get("BLOCKED_BY").map(String::as_str),
+                Some("p q r t")
+            );
+            let clash = clash_ids(folded, "property:BLOCKED_BY");
+            assert_eq!(clash.len(), 3, "{clash:?}");
+            for id in ids {
+                assert!(clash.contains(&id), "{clash:?}");
+            }
+        });
+    }
+}
+
 #[test]
 fn concurrent_ops_fold_to_the_same_bytes_in_every_order() {
+    earlier_writes_survive_a_later_birth();
+    scalar_on_a_set_keeps_the_union();
     let create = wire(&Op::create("proj", "proj-1", "Created", "seat").unwrap());
     let genesis = wire(
         &describe("proj", &[plain_heading("proj-1", "Genesis")])

@@ -377,9 +377,10 @@ pub fn describe(project: &str, headings: &[IssueHeading]) -> Result<Vec<Op>> {
 /// The same set folds to the same issues whichever order it is passed in.
 /// A property written by two ops that are not ordered by the parent relation
 /// stays in [`Folded::conflicts`], and the heading shows the value from the
-/// later `(lamport, op id)`. Concurrent body edits always clash. Two issues
-/// that share a short id both stay; the later one by `(lamport, op id)` is
-/// shown with a `~N` suffix.
+/// later `(lamport, op id)`. A scalar write concurrent with union adds on a
+/// set field shows the union of those writes and still clashes. Concurrent
+/// body edits always clash. Two issues that share a short id both stay; the
+/// later one by `(lamport, op id)` is shown with a `~N` suffix.
 ///
 /// # Errors
 ///
@@ -550,6 +551,8 @@ struct Writer {
     value: String,
     /// Pure unions are not a clash. Elements live in `union`.
     unite: bool,
+    /// When set, `union` is this writer's own elements and `value` is the merged display.
+    owned: bool,
     union: UnionSet,
 }
 
@@ -559,12 +562,13 @@ fn scalar_writer(id: OpId, lamport: u64, value: String) -> Writer {
         lamport,
         value,
         unite: false,
+        owned: false,
         union: UnionSet::default(),
     }
 }
 
 fn stored_union(writer: &Writer) -> UnionSet {
-    if writer.unite {
+    if writer.unite || writer.owned {
         writer.union.clone()
     } else {
         UnionSet::from_scalar(&writer.value)
@@ -720,6 +724,9 @@ fn apply_genesis(mem: &mut Mem, id: OpId, op: &Op, heading: &IssueHeading) -> Re
 
 /// Create and genesis are two writes of one field. Concurrent births clash
 /// and keep both op ids; a causal second create is still an error.
+/// A later birth merges into the frontiers already on the key. A field it
+/// does not write keeps its frontier. A field it writes keeps a concurrent
+/// writer and clashes through the same path as any other write.
 fn install_issue(
     mem: &mut Mem,
     id: OpId,
@@ -751,19 +758,85 @@ fn install_issue(
         let slot = mem.frontiers.entry((key, field.clone())).or_default();
         converge(slot, &ancestors, id, op.lamport, &heading.title, false);
     }
-    let stale: Vec<String> = mem
+    if !mem.issues.contains_key(&key) {
+        reseed(mem, key, id, op.lamport, heading);
+        mem.issues
+            .insert(key, Live::from_op(op, short_id, heading.clone(), id));
+        return Ok(());
+    }
+    drop_birth_snapshots(mem, key);
+    merge_birth_fields(mem, key, id, op.lamport, &ancestors, heading);
+    let mut live = Live::from_op(op, short_id, heading.clone(), id);
+    for (name, value) in concurrent_displays(mem, key, id) {
+        project(&mut live, &name, &value);
+    }
+    mem.issues.insert(key, live);
+    Ok(())
+}
+
+fn drop_birth_snapshots(mem: &mut Mem, key: IssueKey) {
+    let birth_ids: HashSet<OpId> = mem
+        .frontiers
+        .get(&(key, "issue".to_string()))
+        .map(|frontier| frontier.writers.iter().map(|writer| writer.id).collect())
+        .unwrap_or_default();
+    let names: Vec<String> = mem
         .frontiers
         .keys()
-        .filter(|(issue, name)| *issue == key && *name != field)
+        .filter(|(issue, name)| *issue == key && name != "issue")
         .map(|(_, name)| name.clone())
         .collect();
-    for name in stale {
-        mem.frontiers.remove(&(key, name));
+    for name in names {
+        let empty = {
+            let Some(slot) = mem.frontiers.get_mut(&(key, name.clone())) else {
+                continue;
+            };
+            slot.writers
+                .retain(|writer| !birth_ids.contains(&writer.id));
+            slot.writers.is_empty()
+        };
+        if empty {
+            mem.frontiers.remove(&(key, name));
+        }
     }
-    reseed(mem, key, id, op.lamport, heading);
-    mem.issues
-        .insert(key, Live::from_op(op, short_id, heading.clone(), id));
-    Ok(())
+}
+
+fn merge_birth_fields(
+    mem: &mut Mem,
+    key: IssueKey,
+    id: OpId,
+    lamport: u64,
+    ancestors: &HashSet<OpId>,
+    heading: &IssueHeading,
+) {
+    for (field, value) in heading_writes(heading) {
+        let slot = mem.frontiers.entry((key, field)).or_default();
+        converge(slot, ancestors, id, lamport, &value, false);
+    }
+}
+
+fn concurrent_displays(mem: &Mem, key: IssueKey, id: OpId) -> Vec<(String, String)> {
+    let mut fields: Vec<(String, String)> = mem
+        .frontiers
+        .iter()
+        .filter(|((issue, name), frontier)| {
+            *issue == key
+                && name != "issue"
+                && frontier.writers.iter().any(|writer| writer.id != id)
+        })
+        .map(|((_, name), frontier)| (name.clone(), frontier_display(frontier)))
+        .collect();
+    fields.sort();
+    fields
+}
+
+fn frontier_display(frontier: &Frontier) -> String {
+    frontier
+        .writers
+        .iter()
+        .max_by_key(|writer| (writer.lamport, writer.id))
+        .map(|writer| writer.value.clone())
+        .unwrap_or_default()
 }
 
 fn fresh_heading(id: &str, title: &str, state: &str, priority: char) -> IssueHeading {
@@ -786,7 +859,7 @@ fn fresh_heading(id: &str, title: &str, state: &str, priority: char) -> IssueHea
     }
 }
 
-fn reseed(mem: &mut Mem, key: IssueKey, id: OpId, lamport: u64, heading: &IssueHeading) {
+fn heading_writes(heading: &IssueHeading) -> Vec<(String, String)> {
     let mut fields = vec![
         ("title".to_string(), heading.title.clone()),
         ("state".to_string(), heading.state.clone()),
@@ -801,19 +874,18 @@ fn reseed(mem: &mut Mem, key: IssueKey, id: OpId, lamport: u64, heading: &IssueH
     for (name, value) in &heading.properties {
         fields.push((format!("property:{name}"), value.clone()));
     }
-    for (field, value) in fields {
+    for (slot, line) in load_votes(heading) {
+        fields.push((format!("ballot:{slot}"), line));
+    }
+    fields
+}
+
+fn reseed(mem: &mut Mem, key: IssueKey, id: OpId, lamport: u64, heading: &IssueHeading) {
+    for (field, value) in heading_writes(heading) {
         mem.frontiers.insert(
             (key, field),
             Frontier {
                 writers: vec![scalar_writer(id, lamport, value)],
-            },
-        );
-    }
-    for (slot, line) in load_votes(heading) {
-        mem.frontiers.insert(
-            (key, format!("ballot:{slot}")),
-            Frontier {
-                writers: vec![scalar_writer(id, lamport, line)],
             },
         );
     }
@@ -830,6 +902,7 @@ fn write_union(mem: &mut Mem, id: OpId, op: &Op, name: &str, element: &str) -> R
 /// One path for every property write, including births and revisions. A writer
 /// whose op is not an ancestor is concurrent: the fold keeps both and
 /// [`Mem::finish`] records a clash, except a pure set-union, which commutes.
+/// A scalar concurrent with union adds stores the union of those writes.
 fn write_field(
     mem: &mut Mem,
     id: OpId,
@@ -876,21 +949,27 @@ fn converge(
             concurrent.push(writer);
         }
     }
-    let (stored, union) = if unite {
+    let (stored, union, owned) = if unite {
         let mut union = UnionSet::default();
         if let Some(base) = &base {
             union.extend_set(&stored_union(base));
         }
-        if concurrent.iter().all(|writer| writer.unite) {
-            for writer in &concurrent {
-                union.extend_set(&stored_union(writer));
-            }
+        for writer in &concurrent {
+            union.extend_set(&stored_union(writer));
         }
         union.insert(value);
         let stored = union.canonical();
-        (stored, union)
+        (stored, union, false)
+    } else if concurrent.iter().any(|writer| writer.unite || writer.owned) {
+        let mut union = UnionSet::default();
+        for writer in &concurrent {
+            union.extend_set(&stored_union(writer));
+        }
+        let own = UnionSet::from_scalar(value);
+        union.extend_set(&own);
+        (union.canonical(), own, true)
     } else {
-        (value.to_string(), UnionSet::default())
+        (value.to_string(), UnionSet::default(), false)
     };
     let mut keep = concurrent;
     keep.push(Writer {
@@ -898,6 +977,7 @@ fn converge(
         lamport,
         value: stored,
         unite,
+        owned,
         union,
     });
     let display = keep
