@@ -776,6 +776,7 @@ mod tests {
             stamp: "[2026-09-07 Mon]".to_string(),
             used: None,
             confidence: None,
+            rev: None,
         }
     }
 

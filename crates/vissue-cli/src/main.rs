@@ -277,13 +277,14 @@ enum Command {
     /// Cast this agent's vote on an issue, or show the tally with no `--for`.
     ///
     /// One ballot per identity and a recast replaces it, so several agents can
-    /// disagree on the record and a reader sees whether they agree.
+    /// disagree on the record and a reader sees whether they agree. `--rev`
+    /// binds the ballot to a revision; on a tally it counts only that revision.
     Vote {
         id: String,
         /// What to vote for. Omit to read the tally without casting.
         #[arg(long = "for", value_name = "CHOICE")]
         choice: Option<String>,
-        /// The ballots as JSON rows of `agent`, `choice`, `stamp`; reads only.
+        /// The ballots as JSON rows of `agent`, `choice`, `stamp`, and `rev`; reads only.
         #[arg(long, conflicts_with = "choice")]
         json: bool,
         /// Deed accessions this ballot used, or `none`.
@@ -292,6 +293,9 @@ enum Command {
         /// Probability in (0, 1] that the choice is the outcome.
         #[arg(long, requires = "choice")]
         confidence: Option<f64>,
+        /// Revision this ballot judged. On a tally, count only ballots for it.
+        #[arg(long, value_name = "REV", conflicts_with = "withdraw")]
+        rev: Option<String>,
         /// Take back this identity's ballot; the logbook keeps what it was.
         #[arg(long, conflicts_with_all = ["choice", "json"])]
         withdraw: bool,
@@ -463,6 +467,15 @@ enum Command {
         /// Emit a JSON object instead of text
         #[arg(long)]
         json: bool,
+    },
+    /// Issue whose property equals a value.
+    ///
+    /// `list` and `search` do not answer an exact property match. The argument
+    /// is the key, an equals sign, and the value.
+    Find {
+        /// Property match: the key, an equals sign, and the value.
+        #[arg(long, value_name = "PROP")]
+        prop: String,
     },
     /// Substring search over ids, titles, properties, and bodies.
     Search {
@@ -1873,6 +1886,7 @@ fn run() -> Result<()> {
             json,
             used,
             confidence,
+            rev,
             withdraw,
         } => {
             let found = layout_for_id(&router, &id)?;
@@ -1880,8 +1894,16 @@ fn run() -> Result<()> {
                 let who = vissue_core::config::identity(&found);
                 emit!("{}", ops::withdraw(&found, &id, &who)?)
             } else if json {
+                if rev
+                    .as_deref()
+                    .is_some_and(|r| r.contains(char::is_whitespace))
+                {
+                    bail!("--rev is one token");
+                }
+                let want = rev.as_deref().map(str::trim).filter(|s| !s.is_empty());
                 let rows: Vec<serde_json::Value> = ops::ballots(&found, &id)?
                     .iter()
+                    .filter(|b| want.is_none_or(|want| b.rev.as_deref() == Some(want)))
                     .map(|b| {
                         serde_json::json!({
                             "agent": b.agent,
@@ -1889,6 +1911,7 @@ fn run() -> Result<()> {
                             "stamp": b.stamp,
                             "used": b.used,
                             "confidence": b.confidence,
+                            "rev": b.rev,
                         })
                     })
                     .collect();
@@ -1905,6 +1928,7 @@ fn run() -> Result<()> {
                         &who,
                         used.as_deref(),
                         confidence.as_deref(),
+                        rev.as_deref(),
                     )?
                 )
             }
@@ -1979,6 +2003,9 @@ fn run() -> Result<()> {
                 || with_catalog(&found, |svc| svc.excerpt(&id)),
                 || agent::body_excerpt(&found, &id),
             )?;
+        }
+        Command::Find { prop } => {
+            emit!("{}", find_routed(&router, &prop)?);
         }
         Command::Search {
             query,
@@ -2830,6 +2857,39 @@ fn concat_project_reports_with(
     {
         out.push_str(marker);
     }
+    Ok(out)
+}
+
+/// Issues whose property equals a value, one id per line.
+///
+/// # Errors
+///
+/// Returns an error when `spec` is not `KEY=VALUE`, or a project file cannot
+/// be read.
+fn find_routed(router: &Router, spec: &str) -> Result<String> {
+    let Some((key, value)) = spec.split_once('=') else {
+        bail!("--prop is KEY=VALUE");
+    };
+    let key = key.trim();
+    if key.is_empty() {
+        bail!("--prop is KEY=VALUE");
+    }
+    let value = value.trim();
+    let mut out = String::new();
+    for_each_visible_in(router, |recs, dir| {
+        for rec in recs.iter().filter(|rec| rec.project == dir) {
+            let hit = rec
+                .heading
+                .properties
+                .iter()
+                .any(|(k, v)| k == key && v == value);
+            if hit {
+                out.push_str(&rec.heading.id);
+                out.push('\n');
+            }
+        }
+        Ok(())
+    })?;
     Ok(out)
 }
 

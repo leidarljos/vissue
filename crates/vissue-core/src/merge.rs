@@ -557,6 +557,7 @@ fn merge_votes(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ops::Ballot;
 
     const HEAD: &str = "#+VISSUE: 1\n#+TODO: TODO STARTED BLOCKED | DONE CANCELLED\n\n";
 
@@ -652,6 +653,42 @@ mod tests {
         let doc = IssueDoc::parse("acme", PathBuf::from("issues.org"), &m.text).unwrap();
         let ids: Vec<&str> = doc.headings.iter().map(|h| h.id.as_str()).collect();
         assert_eq!(ids, ["acme-1a2b", "acme-3c4d", "acme-5e6f"]);
+    }
+
+    /// Two writers, two revisions, one ballot each: the merge keeps both lines
+    /// and each voter's revision.
+    #[test]
+    fn two_voters_keep_their_own_rev_when_the_ballots_merge() {
+        let votes = |lines: &[&str]| format!(":VOTES:\n{}\n:END:\n", lines.join("\n"));
+        let base = file(&[issue("acme-1a2b", "TODO", &[], "")]);
+        let ours = file(&[issue(
+            "acme-1a2b",
+            "TODO",
+            &[],
+            &votes(&["[2026-09-27 Sun] alice: ship rev=r1"]),
+        )]);
+        let theirs = file(&[issue(
+            "acme-1a2b",
+            "TODO",
+            &[],
+            &votes(&["[2026-09-28 Mon] bob: hold rev=r2"]),
+        )]);
+        let m = merge_tracker("acme", &base, &ours, &theirs).unwrap();
+        assert_eq!(m.conflicts, 0);
+        let h = heading(&m.text, "acme-1a2b");
+        let drawer = h
+            .extra_drawers
+            .iter()
+            .find(|d| drawer_name_is(d, VOTES_DRAWER))
+            .unwrap();
+        let parsed: Vec<Ballot> = drawer.lines().filter_map(parse_ballot).collect();
+        assert_eq!(parsed.len(), 2, "{drawer}");
+        let alice = parsed.iter().find(|b| b.agent == "alice").unwrap();
+        let bob = parsed.iter().find(|b| b.agent == "bob").unwrap();
+        assert_eq!(alice.choice, "ship");
+        assert_eq!(alice.rev.as_deref(), Some("r1"));
+        assert_eq!(bob.choice, "hold");
+        assert_eq!(bob.rev.as_deref(), Some("r2"));
     }
 
     #[test]

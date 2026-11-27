@@ -417,7 +417,7 @@ impl VissueServer {
     }
 
     #[tool(
-        description = "Cast this agent's vote on an issue, or read the tally when no choice is given. One ballot per identity: voting again replaces your own ballot and never another agent's. The tally separates a majority from a plurality and from a tie, so consult it before acting on what looks like agreement.",
+        description = "Cast this agent's vote on an issue, or read the tally when no choice is given. One ballot per identity: voting again replaces your own ballot and never another agent's. Pass rev to bind the ballot to a revision; when no choice is given, rev counts only ballots for that revision. The tally separates a majority from a plurality and from a tie, so consult it before acting on what looks like agreement.",
         annotations(
             title = "Cast a ballot",
             read_only_hint = false,
@@ -432,7 +432,15 @@ impl VissueServer {
     ) -> Result<CallToolResult, McpError> {
         text(self.layout_for_id(&args.issue_id).and_then(|layout| {
             let who = vissue_core::config::identity(&layout);
-            ops::vote(&layout, &args.issue_id, args.choice.as_deref(), &who)
+            ops::vote_with(
+                &layout,
+                &args.issue_id,
+                args.choice.as_deref(),
+                &who,
+                None,
+                None,
+                args.rev.as_deref(),
+            )
         }))
     }
 
