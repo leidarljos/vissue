@@ -372,6 +372,10 @@ fn merge_heading(
 
 /// Properties that hold a space-separated set: two sides that each added
 /// to one commute, so they merge by token rather than clash.
+///
+/// Land fields `TARGET`, `QUORUM`, and `LANDERS` stay off this list. A clash
+/// keeps ours in the property and theirs in the `:MERGE_CONFLICT:` drawer, and
+/// the note reports it. Folding them as tokens would drop the clash.
 const LIST_PROPERTIES: &[&str] = &[
     crate::props::DEEDS,
     crate::props::BLOCKED_BY,

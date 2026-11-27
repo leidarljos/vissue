@@ -175,6 +175,9 @@ _vissue() {
             vissue,surface)
                 cmd="vissue__subcmd__surface"
                 ;;
+            vissue,target)
+                cmd="vissue__subcmd__target"
+                ;;
             vissue,tree)
                 cmd="vissue__subcmd__tree"
                 ;;
@@ -355,6 +358,9 @@ _vissue() {
             vissue__subcmd__help,surface)
                 cmd="vissue__subcmd__help__subcmd__surface"
                 ;;
+            vissue__subcmd__help,target)
+                cmd="vissue__subcmd__help__subcmd__target"
+                ;;
             vissue__subcmd__help,tree)
                 cmd="vissue__subcmd__help__subcmd__tree"
                 ;;
@@ -416,7 +422,7 @@ _vissue() {
 
     case "${cmd}" in
         vissue)
-            opts="-h -V --root --prefix --no-route --help --version create q list show update resolve reject ready claim release vote deed recall consensus migrate-ledger note append claims fold agenda hygiene whoami waiting-on body-excerpt find search children ancestors impact related stale count export tree cycles graph satchel refile backlinks roadmap check normalize digest project merge-driver mirror events ping wait gen projects surface identity serve tui hud completions man keys help"
+            opts="-h -V --root --prefix --no-route --help --version create q list show update resolve reject ready claim release vote target deed recall consensus migrate-ledger note append claims fold agenda hygiene whoami waiting-on body-excerpt find search children ancestors impact related stale count export tree cycles graph satchel refile backlinks roadmap check normalize digest project merge-driver mirror events ping wait gen projects surface identity serve tui hud completions man keys help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1102,7 +1108,7 @@ _vissue() {
             return 0
             ;;
         vissue__subcmd__help)
-            opts="create q list show update resolve reject ready claim release vote deed recall consensus migrate-ledger note append claims fold agenda hygiene whoami waiting-on body-excerpt find search children ancestors impact related stale count export tree cycles graph satchel refile backlinks roadmap check normalize digest project merge-driver mirror events ping wait gen projects surface identity serve tui hud completions man keys help"
+            opts="create q list show update resolve reject ready claim release vote target deed recall consensus migrate-ledger note append claims fold agenda hygiene whoami waiting-on body-excerpt find search children ancestors impact related stale count export tree cycles graph satchel refile backlinks roadmap check normalize digest project merge-driver mirror events ping wait gen projects surface identity serve tui hud completions man keys help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1886,6 +1892,20 @@ _vissue() {
             return 0
             ;;
         vissue__subcmd__help__subcmd__surface)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        vissue__subcmd__help__subcmd__target)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -3090,6 +3110,88 @@ _vissue() {
                 return 0
             fi
             case "${prev}" in
+                --root)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --prefix)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        vissue__subcmd__target)
+            opts="-h --repo --branch --mode --lease --quorum --landers --check --owned --fork --mirror --add --remove --from --to --land-target --org --root --prefix --no-route --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --repo)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --branch)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --mode)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --lease)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --quorum)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --landers)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --check)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --owned)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --fork)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --mirror)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --add)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --remove)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --from)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --to)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --land-target)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 --root)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0

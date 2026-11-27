@@ -12,6 +12,7 @@ use vissue_core::error::Error;
 use vissue_core::mirror::{self, Format};
 use vissue_core::ops::{self, CreateOpts, RejectOpts, UpdatePred};
 use vissue_core::router::Router;
+use vissue_core::target::{self, TargetEdit};
 use vissue_core::views::{ClaimRow, IssueDetail, IssueRec, IssueRow, SearchHit};
 use vissue_core::{agent, events, report};
 
@@ -442,6 +443,46 @@ impl VissueServer {
                 args.rev.as_deref(),
             )
         }))
+    }
+
+    #[tool(
+        description = "Read or write a target (one repo and branch), a change's target list, a retarget, or the land fields quorum, landers, and target. The target id is the sha256 of the repo and the branch. lease-rewrite is refused on a main ref. Omit the write fields to read.",
+        annotations(
+            title = "Target record",
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn vissue_target(
+        &self,
+        Parameters(args): Parameters<TargetArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let edit = TargetEdit {
+            issue: args.issue_id.clone(),
+            repo: args.repo,
+            branch: args.branch,
+            mode: args.mode,
+            lease: args.lease,
+            quorum: args.quorum,
+            landers: args.landers,
+            checks: args.checks.unwrap_or_default(),
+            owned: args.owned,
+            fork: args.fork,
+            mirrors: args.mirrors.unwrap_or_default(),
+            add: args.add.unwrap_or_default(),
+            remove: args.remove.unwrap_or_default(),
+            from: args.from,
+            to: args.to,
+            land_target: args.land_target,
+            org: args.org.unwrap_or(false),
+        };
+        let layout = match &edit.issue {
+            Some(id) => self.layout_for_id(id),
+            None => Ok(self.layout.clone()),
+        };
+        text(layout.and_then(|layout| target::apply(&layout, &edit)))
     }
 
     #[tool(

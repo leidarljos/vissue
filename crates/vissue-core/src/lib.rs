@@ -30,6 +30,7 @@ pub mod router;
 pub mod satchel;
 pub mod store;
 pub mod surface;
+pub mod target;
 /// Generated from `schema/vissue.capnp`; the operation set is encoded in here.
 ///
 /// Committed rather than built, because `capnp` the compiler is not on the

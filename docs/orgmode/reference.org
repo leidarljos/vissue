@@ -16,6 +16,7 @@
 | =vote=                                                                    | Cast this agent's ballot (=--for=, =--rev= names the revision), take it back (=--withdraw=, logged), or read the tally; =--json= without =--rev= returns every ballot, and =--rev= counts only that revision |
 | =consensus=                                                               | Weigh the same ballots by who the group listens to; social power and the two ways there is none; =--children= rolls up over a plan; =--trust JSON= lays rows over the configuration |
 | =deed=                                                                    | Cite (=--add=), drop (=--remove=), or list the deeds this issue's work produced; =d= on either board |
+| =target=                                                                  | A repo and branch a change can land on, the change's target list, a retarget, and the land fields |
 | =recall=                                                                  | The working set for an issue: plan, inputs and their deeds, and its own; =--excerpts= splices in what each input concluded |
 | =backlinks=                                                               | Everything pointing at an id; given a deed accession instead, the issues citing it, across every routed tracker |
 | =--json= on a read                                                        | =list=, =show=, =ready=, =claims=, =digest=, =search=, =children=, =ancestors=, =impact=, =backlinks=, =agenda=, =tree=, =body-excerpt=, =projects=, =recall=, =consensus= |
@@ -275,6 +276,37 @@ Usage: =vissue vote [OPTIONS] <ID>=
 | =--confidence= =<CONFIDENCE>= | Probability in (0, =1]= that the choice is the outcome |
 | =--rev= =<REV>= | Revision this ballot judged. On a tally, count only ballots for it |
 | =--withdraw= | Take back this identity's ballot; the logbook keeps what it was |
+
+** =target=
+
+Read or write a target, a change's target list, a retarget, or land fields.
+
+A target is one repo and one branch. Its id is the sha256 of those two. =--lease lease-rewrite= is refused on a main ref. =--org= prints the stored org and writes nothing. On an issue, =--add= and =--remove= edit the target list, =--from= and =--to= record a retarget, and =--quorum=, =--landers=, and =--land-target= set the land fields.
+
+Usage: =vissue target [OPTIONS] [ID]=
+
+| Argument | Meaning |
+|----------+---------|
+| =[ID]= | Issue id. Omit when naming a target by repo and branch |
+
+| Flag | Meaning |
+|------+---------|
+| =--repo= =<REPO>= | Canonical repo id, such as =github:owner/name= |
+| =--branch= =<BRANCH>= | Branch, or a ref such as =refs/heads/develop= |
+| =--mode= =<MODE>= | =ff-only=, =rebuild-ff=, =merge=, =squash-forge=, =pr=, or =mail= |
+| =--lease= =<LEASE>= | =strict-base= (the default) or =lease-rewrite= |
+| =--quorum= =<QUORUM>= | Quorum text, on the target or on the issue |
+| =--landers= =<LANDERS>= | Who may land, on the target or on the issue |
+| =--check= =<CHECKS>= | A check that gates the land. Repeat for several |
+| =--owned= =<OWNED>= | =yes= or =upstream= |
+| =--fork= =<FORK>= | Fork the pull-request head is pushed to |
+| =--mirror= =<MIRRORS>= | A mirror updated after the land. Repeat for several |
+| =--add= =<ADD>= | A target id to add to this issue. Repeat for several |
+| =--remove= =<REMOVE>= | A target id to drop from this issue. Repeat for several |
+| =--from= =<FROM>= | Target id this issue leaves. Requires =--to= |
+| =--to= =<TO>= | Target id this issue moves to. Requires =--from= |
+| =--land-target= =<LAND_TARGET>= | Land-field target id on this issue |
+| =--org= | Print the stored org and write nothing |
 
 ** =deed=
 
@@ -1220,7 +1252,7 @@ the heading and adds a second content item with the same line.
 Change one: =vissue_create=, =vissue_update=, =vissue_claim=, =vissue_release=,
 =vissue_note=,
 =vissue_append=, =vissue_refile=, =vissue_fold=, =vissue_reject=, =vissue_resolve=,
-=vissue_vote=, =vissue_deed=.
+=vissue_vote=, =vissue_deed=, =vissue_target=.
 
 Work a node: =vissue_recall= before starting, to open what the plan says the
 work stands on; =vissue_deed= when it finishes, to name what it produced;
@@ -1414,7 +1446,7 @@ need no Cap'n Proto toolchain; regenerating after a schema edit does, and
 
 Every verb that changes a file has a method: =issue/create=, =issue/update=,
 =issue/claim=, =issue/release=, =issue/note=, =issue/append=, =issue/refile=, =issue/reject=,
-=issue/resolve=, =issue/vote=, =issue/deed=, =issue/fold=, =issue/normalize=.
+=issue/resolve=, =issue/vote=, =issue/deed=, =issue/target=, =issue/fold=, =issue/normalize=.
 
 The reads have methods too: =issue/list=, =issue/show=, =issue/get=,
 =issue/search=, =issue/tree=, =issue/ready=, =issue/agenda=, =issue/claims=,

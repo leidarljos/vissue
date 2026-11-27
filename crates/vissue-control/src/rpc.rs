@@ -315,6 +315,14 @@ pub fn error_from_core(err: &CoreError) -> JsonRpcError {
                 "actual_gen": actual_gen,
             })),
         },
+        CoreError::LeaseRewriteOnMain { branch } => JsonRpcError {
+            code: INVALID_STATE,
+            message: err.to_string(),
+            data: Some(json!({
+                "code": "lease_rewrite_on_main",
+                "branch": branch,
+            })),
+        },
         CoreError::TerminalConflict {
             id,
             held,
@@ -393,6 +401,8 @@ pub enum Method {
     /// Operation added after v1's first draft; see schema/vissue.capnp.
     IssueDeed,
     /// Operation added after v1's first draft; see schema/vissue.capnp.
+    IssueTarget,
+    /// Operation added after v1's first draft; see schema/vissue.capnp.
     IssueRecall,
     /// Operation added after v1's first draft; see schema/vissue.capnp.
     IssueConsensus,
@@ -469,6 +479,7 @@ impl Method {
             Self::IssueResolve => "issue/resolve",
             Self::IssueVote => "issue/vote",
             Self::IssueDeed => "issue/deed",
+            Self::IssueTarget => "issue/target",
             Self::IssueRecall => "issue/recall",
             Self::IssueConsensus => "issue/consensus",
             Self::IssueFold => "issue/fold",
@@ -527,6 +538,7 @@ impl Method {
             "issue/resolve" => Ok(Self::IssueResolve),
             "issue/vote" => Ok(Self::IssueVote),
             "issue/deed" => Ok(Self::IssueDeed),
+            "issue/target" => Ok(Self::IssueTarget),
             "issue/recall" => Ok(Self::IssueRecall),
             "issue/consensus" => Ok(Self::IssueConsensus),
             "issue/fold" => Ok(Self::IssueFold),
@@ -585,6 +597,7 @@ pub const V1_CAPABILITIES: &[&str] = &[
     "issue/resolve",
     "issue/vote",
     "issue/deed",
+    "issue/target",
     "issue/recall",
     "issue/consensus",
     "issue/fold",
@@ -978,6 +991,63 @@ pub struct VoteParams {
     /// Override the connection agent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
+}
+
+/// `issue/target` params. A repo and branch write a target record. An id
+/// with no write fields reads the change's target list.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TargetParams {
+    /// Issue id. Absent when the call names a target record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Canonical repo id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
+    /// Branch or ref.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    /// Mode. Default `ff-only` on a record write.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    /// Lease rule. Default `strict-base` on a record write.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lease: Option<String>,
+    /// Quorum text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quorum: Option<String>,
+    /// Who may land.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub landers: Option<String>,
+    /// Checks that gate the land.
+    #[serde(default)]
+    pub checks: Vec<String>,
+    /// `yes` or `upstream`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owned: Option<String>,
+    /// Fork the pull-request head is pushed to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork: Option<String>,
+    /// Mirrors updated after the land.
+    #[serde(default)]
+    pub mirrors: Vec<String>,
+    /// Target ids to add to the change.
+    #[serde(default)]
+    pub add: Vec<String>,
+    /// Target ids to drop from the change.
+    #[serde(default)]
+    pub remove: Vec<String>,
+    /// Target id the change leaves.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    /// Target id the change moves to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<String>,
+    /// Land-field target on the change.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub land_target: Option<String>,
+    /// Print the org bytes and write nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub org: Option<bool>,
 }
 
 /// `issue/deed` params. Both lists absent reads the citations without writing.
@@ -1417,6 +1487,8 @@ pub enum Request {
     IssueVote(VoteParams),
     /// Cite, drop, or read the deeds an issue produced.
     IssueDeed(DeedParams),
+    /// Read or write a target, a change's target list, a retarget, or land fields.
+    IssueTarget(TargetParams),
     /// The working set for an issue.
     IssueRecall(RecallParams),
     /// DeGroot consensus over an issue's ballots.
@@ -1491,6 +1563,7 @@ impl Request {
             Self::IssueResolve(_) => Method::IssueResolve,
             Self::IssueVote(_) => Method::IssueVote,
             Self::IssueDeed(_) => Method::IssueDeed,
+            Self::IssueTarget(_) => Method::IssueTarget,
             Self::IssueRecall(_) => Method::IssueRecall,
             Self::IssueConsensus(_) => Method::IssueConsensus,
             Self::IssueFold(_) => Method::IssueFold,
@@ -1557,6 +1630,7 @@ impl Request {
             Method::IssueResolve => Ok(Self::IssueResolve(decode_params(params)?)),
             Method::IssueVote => Ok(Self::IssueVote(decode_params(params)?)),
             Method::IssueDeed => Ok(Self::IssueDeed(decode_params(params)?)),
+            Method::IssueTarget => Ok(Self::IssueTarget(decode_params(params)?)),
             Method::IssueRecall => Ok(Self::IssueRecall(decode_params(params)?)),
             Method::IssueConsensus => Ok(Self::IssueConsensus(decode_params(params)?)),
             Method::IssueFold => Ok(Self::IssueFold(decode_params(params)?)),
@@ -1586,6 +1660,7 @@ impl Request {
             Self::IssueResolve(p) => serde_json::to_value(p).unwrap_or(Value::Null),
             Self::IssueVote(p) => serde_json::to_value(p).unwrap_or(Value::Null),
             Self::IssueDeed(p) => serde_json::to_value(p).unwrap_or(Value::Null),
+            Self::IssueTarget(p) => serde_json::to_value(p).unwrap_or(Value::Null),
             Self::IssueRecall(p) => serde_json::to_value(p).unwrap_or(Value::Null),
             Self::IssueConsensus(p) => serde_json::to_value(p).unwrap_or(Value::Null),
             Self::IssueFold(p) => serde_json::to_value(p).unwrap_or(Value::Null),
@@ -1689,6 +1764,8 @@ pub enum Response {
     IssueVote(MutResult),
     /// Cite, drop, or read the deeds an issue produced.
     IssueDeed(MutResult),
+    /// Read or write a target, a change's target list, a retarget, or land fields.
+    IssueTarget(MutResult),
     /// The working set for an issue.
     IssueRecall(Recall),
     /// Consensus over an issue's ballots, or over its children.
@@ -1746,6 +1823,7 @@ impl Response {
             Self::IssueResolve(v) => serde_json::to_value(v),
             Self::IssueVote(v) => serde_json::to_value(v),
             Self::IssueDeed(v) => serde_json::to_value(v),
+            Self::IssueTarget(v) => serde_json::to_value(v),
             Self::IssueRecall(v) => serde_json::to_value(v),
             Self::IssueConsensus(v) => serde_json::to_value(v),
             Self::IssueFold(v) => serde_json::to_value(v),

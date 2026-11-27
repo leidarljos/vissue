@@ -266,6 +266,27 @@ const operations :List(Operation) = [
       ( cli = "add", tool = "add", socket = "add", note = "repeatable on the command line; a list on the two remote surfaces, and absent on both lists is the read", toolType = "Option<Vec<String>>", socketType = "Vec<String>", omittable = true ),
       ( cli = "remove", tool = "remove", socket = "remove", note = "repeatable on the command line; a list on the two remote surfaces, and absent on both lists is the read", toolType = "Option<Vec<String>>", socketType = "Vec<String>", omittable = true )
     ] ),
+  ( cli = "target", socket = "issue/target", mcp = "vissue_target", mutates = true, local = false,
+    note = "",
+    fields = [
+      ( cli = "", tool = "issue_id", socket = "id", note = "positional on the command line and optional: a target record is named by repo and branch, and the remote surfaces spell the issue the way they spell every other id", toolType = "Option<String>", socketType = "Option<String>", omittable = true ),
+      ( cli = "repo", tool = "repo", socket = "repo", note = "", toolType = "Option<String>", socketType = "Option<String>", omittable = true ),
+      ( cli = "branch", tool = "branch", socket = "branch", note = "", toolType = "Option<String>", socketType = "Option<String>", omittable = true ),
+      ( cli = "mode", tool = "mode", socket = "mode", note = "", toolType = "Option<String>", socketType = "Option<String>", omittable = true ),
+      ( cli = "lease", tool = "lease", socket = "lease", note = "", toolType = "Option<String>", socketType = "Option<String>", omittable = true ),
+      ( cli = "quorum", tool = "quorum", socket = "quorum", note = "", toolType = "Option<String>", socketType = "Option<String>", omittable = true ),
+      ( cli = "landers", tool = "landers", socket = "landers", note = "", toolType = "Option<String>", socketType = "Option<String>", omittable = true ),
+      ( cli = "check", tool = "checks", socket = "checks", note = "repeatable on the command line; a list on the two remote surfaces", toolType = "Option<Vec<String>>", socketType = "Vec<String>", omittable = true ),
+      ( cli = "owned", tool = "owned", socket = "owned", note = "", toolType = "Option<String>", socketType = "Option<String>", omittable = true ),
+      ( cli = "fork", tool = "fork", socket = "fork", note = "", toolType = "Option<String>", socketType = "Option<String>", omittable = true ),
+      ( cli = "mirror", tool = "mirrors", socket = "mirrors", note = "repeatable on the command line; a list on the two remote surfaces", toolType = "Option<Vec<String>>", socketType = "Vec<String>", omittable = true ),
+      ( cli = "add", tool = "add", socket = "add", note = "repeatable on the command line; a list on the two remote surfaces", toolType = "Option<Vec<String>>", socketType = "Vec<String>", omittable = true ),
+      ( cli = "remove", tool = "remove", socket = "remove", note = "repeatable on the command line; a list on the two remote surfaces", toolType = "Option<Vec<String>>", socketType = "Vec<String>", omittable = true ),
+      ( cli = "from", tool = "from", socket = "from", note = "", toolType = "Option<String>", socketType = "Option<String>", omittable = true ),
+      ( cli = "to", tool = "to", socket = "to", note = "", toolType = "Option<String>", socketType = "Option<String>", omittable = true ),
+      ( cli = "land-target", tool = "land_target", socket = "land_target", note = "the flag spells the land field; the remote surfaces use a field name", toolType = "Option<String>", socketType = "Option<String>", omittable = true ),
+      ( cli = "org", tool = "org", socket = "org", note = "", toolType = "Option<bool>", socketType = "Option<bool>", omittable = true )
+    ] ),
   ( cli = "recall", socket = "issue/recall", mcp = "vissue_recall", mutates = false, local = false,
     note = "",
     fields = [

@@ -300,6 +300,65 @@ enum Command {
         #[arg(long, conflicts_with_all = ["choice", "json"])]
         withdraw: bool,
     },
+    /// Read or write a target, a change's target list, a retarget, or land fields.
+    ///
+    /// A target is one repo and one branch. Its id is the sha256 of those two.
+    /// `--lease lease-rewrite` is refused on a main ref. `--org` prints the
+    /// stored org and writes nothing. On an issue, `--add` and `--remove` edit
+    /// the target list, `--from` and `--to` record a retarget, and `--quorum`,
+    /// `--landers`, and `--land-target` set the land fields.
+    Target {
+        /// Issue id. Omit when naming a target by repo and branch.
+        id: Option<String>,
+        /// Canonical repo id, such as `github:owner/name`.
+        #[arg(long)]
+        repo: Option<String>,
+        /// Branch, or a ref such as `refs/heads/develop`.
+        #[arg(long)]
+        branch: Option<String>,
+        /// `ff-only`, `rebuild-ff`, `merge`, `squash-forge`, `pr`, or `mail`.
+        #[arg(long)]
+        mode: Option<String>,
+        /// `strict-base` (the default) or `lease-rewrite`.
+        #[arg(long)]
+        lease: Option<String>,
+        /// Quorum text, on the target or on the issue.
+        #[arg(long)]
+        quorum: Option<String>,
+        /// Who may land, on the target or on the issue.
+        #[arg(long)]
+        landers: Option<String>,
+        /// A check that gates the land. Repeat for several.
+        #[arg(long = "check")]
+        checks: Vec<String>,
+        /// `yes` or `upstream`.
+        #[arg(long)]
+        owned: Option<String>,
+        /// Fork the pull-request head is pushed to.
+        #[arg(long)]
+        fork: Option<String>,
+        /// A mirror updated after the land. Repeat for several.
+        #[arg(long = "mirror")]
+        mirrors: Vec<String>,
+        /// A target id to add to this issue. Repeat for several.
+        #[arg(long = "add")]
+        add: Vec<String>,
+        /// A target id to drop from this issue. Repeat for several.
+        #[arg(long = "remove")]
+        remove: Vec<String>,
+        /// Target id this issue leaves. Requires `--to`.
+        #[arg(long, requires = "to")]
+        from: Option<String>,
+        /// Target id this issue moves to. Requires `--from`.
+        #[arg(long, requires = "from")]
+        to: Option<String>,
+        /// Land-field target id on this issue.
+        #[arg(long)]
+        land_target: Option<String>,
+        /// Print the stored org and write nothing.
+        #[arg(long)]
+        org: bool,
+    },
     /// Cite, drop, or list the deeds this issue's work produced.
     ///
     /// A deed is deedar's record of a product: `deedar get <id>` returns it and
@@ -1825,6 +1884,55 @@ fn run() -> Result<()> {
         Command::Deed { id, add, remove } => {
             let found = layout_for_id(&router, &id)?;
             emit!("{}", ops::deed(&found, &id, &add, &remove)?)
+        }
+        Command::Target {
+            id,
+            repo,
+            branch,
+            mode,
+            lease,
+            quorum,
+            landers,
+            checks,
+            owned,
+            fork,
+            mirrors,
+            add,
+            remove,
+            from,
+            to,
+            land_target,
+            org,
+        } => {
+            let found = match &id {
+                Some(id) => layout_for_id(&router, id)?,
+                None => layout,
+            };
+            emit!(
+                "{}",
+                vissue_core::target::apply(
+                    &found,
+                    &vissue_core::target::TargetEdit {
+                        issue: id,
+                        repo,
+                        branch,
+                        mode,
+                        lease,
+                        quorum,
+                        landers,
+                        checks,
+                        owned,
+                        fork,
+                        mirrors,
+                        add,
+                        remove,
+                        from,
+                        to,
+                        land_target,
+                        org,
+                    },
+                )?
+            );
         }
         Command::Recall {
             id,

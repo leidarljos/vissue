@@ -257,6 +257,9 @@ pub fn decode_response(method: &str, value: Value) -> Result<Response, Error> {
             Ok(Response::IssueRefile(serde_json::from_value(value)?))
         }
         crate::rpc::Method::IssueDeed => Ok(Response::IssueDeed(serde_json::from_value(value)?)),
+        crate::rpc::Method::IssueTarget => {
+            Ok(Response::IssueTarget(serde_json::from_value(value)?))
+        }
         crate::rpc::Method::IssueRecall => {
             Ok(Response::IssueRecall(serde_json::from_value(value)?))
         }
