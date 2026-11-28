@@ -1716,6 +1716,26 @@ fn line_is(text: &str, line: &str) -> bool {
 /// writer and reader return that same value on one line.
 #[test]
 fn genesis_lines_survive_the_next_op() {
+    legacy_drawers_survive_the_next_op();
+    let root = a_retarget_keeps_the_later_status();
+    quoted_tokens_survive_in_the_drawers(&root);
+    a_duplicated_genesis_line_gains_the_next_op();
+    pre_birth_lines_fold_to_one_order();
+    let (anchor, template, link_kind) = duplicate_cites_fold_the_same_either_way();
+    a_clear_drops_only_the_lines_it_observed(&template, &link_kind);
+    let post_birth = a_replaced_revision_matches_across_birth(&anchor, &template);
+    target_fields_keep_the_order_the_op_named(anchor, &template, post_birth);
+    let before = folded_bytes(&fold(std::slice::from_ref(&root)).unwrap());
+    a_value_base_cannot_store_is_refused(&root);
+    a_heading_round_trips_when_the_base_reader_accepts_it();
+    two_adds_and_a_clear_share_one_drawer();
+    a_pre_birth_descendant_keeps_every_line();
+    a_drawer_type_without_a_headline_tag_folds();
+    let after = folded_bytes(&fold(std::slice::from_ref(&root)).unwrap());
+    assert_eq!(before, after);
+}
+
+fn legacy_drawers_survive_the_next_op() {
     let mut legacy = plain_heading("proj-1", "Genesis");
     legacy
         .properties
@@ -1818,7 +1838,9 @@ retarget zzz
             assert!(clash.ops.contains(&born_id), "{field} {:?}", clash.ops);
         }
     });
+}
 
+fn a_retarget_keeps_the_later_status() -> Op {
     let root = wire(&Op::create("proj", "proj-1", "Title", "seat").unwrap());
     let open = wire(&spawned(
         &root,
@@ -1841,9 +1863,12 @@ retarget zzz
     assert!(line_is(&text, "retarget status closed"), "{text}");
     assert!(!text.contains("retarget status open"), "{text}");
     assert!(folded.conflicts.is_empty(), "{:?}", folded.conflicts);
+    root
+}
 
+fn quoted_tokens_survive_in_the_drawers(root: &Op) {
     let smith = wire(&spawned(
-        &root,
+        root,
         OpKind::Ballot {
             voter: "ann smith".to_string(),
             rev: String::new(),
@@ -1853,7 +1878,7 @@ retarget zzz
         1,
     ));
     let quoted = wire(&spawned(
-        &root,
+        root,
         OpKind::Ballot {
             voter: "ann\"x".to_string(),
             rev: String::new(),
@@ -1863,7 +1888,7 @@ retarget zzz
         2,
     ));
     let slash = wire(&spawned(
-        &root,
+        root,
         OpKind::Ballot {
             voter: "a\\b".to_string(),
             rev: String::new(),
@@ -1873,7 +1898,7 @@ retarget zzz
         3,
     ));
     let tabbed = wire(&spawned(
-        &root,
+        root,
         OpKind::Ballot {
             voter: "a\tb".to_string(),
             rev: String::new(),
@@ -1883,14 +1908,14 @@ retarget zzz
         4,
     ));
     let deed = wire(&spawned(
-        &root,
+        root,
         OpKind::AddDeed {
             accession: "deed-a\"b".to_string(),
         },
         5,
     ));
     let link = wire(&spawned(
-        &root,
+        root,
         OpKind::Link {
             kind: "blocked-by".to_string(),
             other: "proj-a\"b".to_string(),
@@ -1898,7 +1923,7 @@ retarget zzz
         6,
     ));
     let cites = wire(&spawned(
-        &root,
+        root,
         OpKind::Link {
             kind: "cites".to_string(),
             other: "proj-a\"b".to_string(),
@@ -1907,7 +1932,7 @@ retarget zzz
     ));
     both_ways(
         &[
-            root.clone(),
+            (*root).clone(),
             smith,
             quoted,
             slash,
@@ -1938,7 +1963,9 @@ retarget zzz
             }
         },
     );
+}
 
+fn a_duplicated_genesis_line_gains_the_next_op() {
     let mut duplicated = plain_heading("proj-1", "Dup");
     let dup_votes = "\
 :VOTES:
@@ -2032,7 +2059,9 @@ retarget zzz
             ballot.ops
         );
     });
+}
 
+fn pre_birth_lines_fold_to_one_order() {
     let anchor = wire(&Op::create("proj", "proj-0", "Anchor", "seat").unwrap());
     let template = Op::create("proj", "proj-1", "Born", "seat").unwrap();
     let ann = child(
@@ -2111,7 +2140,9 @@ retarget zzz
     let backward = drawers(&fold(&reversed).expect("reversed"), "proj-1");
     assert_eq!(seen.as_deref(), Some(backward.as_str()));
     assert_eq!(seen.as_deref(), Some(expect_drawers.as_str()));
+}
 
+fn duplicate_cites_fold_the_same_either_way() -> (Op, Op, OpKind) {
     let anchor = wire(&Op::create("proj", "proj-0", "Anchor", "seat").unwrap());
     let template = Op::create("proj", "proj-1", "Dup", "seat").unwrap();
     let mut dup_links = plain_heading("proj-1", "Dup");
@@ -2178,7 +2209,10 @@ cites proj-2
         link_drawers[0], link_drawers[1],
         "delivery order changed the drawer"
     );
+    (anchor, template, link_kind)
+}
 
+fn a_clear_drops_only_the_lines_it_observed(template: &Op, link_kind: &OpKind) {
     let mut cleared = plain_heading("proj-1", "Dup");
     cleared.extra_drawers = vec![
         "\
@@ -2200,8 +2234,8 @@ cites proj-9
     let mut add_first = None;
     for clear_wall in 0..24 {
         for add_wall in 0..24 {
-            let clear = child(&[&clear_birth], &template, clear_kind.clone(), clear_wall);
-            let add = child(&[&clear_birth], &template, link_kind.clone(), add_wall);
+            let clear = child(&[&clear_birth], template, clear_kind.clone(), clear_wall);
+            let add = child(&[&clear_birth], template, (*link_kind).clone(), add_wall);
             let clear_id = clear.id().unwrap();
             let add_id = add.id().unwrap();
             if clear_id < add_id && clear_first.is_none() {
@@ -2243,7 +2277,9 @@ cites proj-2
             );
         });
     }
+}
 
+fn a_replaced_revision_matches_across_birth(anchor: &Op, template: &Op) -> Op {
     let post_birth = wire(&Op::create("proj", "proj-1", "Title", "seat").unwrap());
     let old_rev = OpKind::AddRevision {
         rev_id: "5".to_string(),
@@ -2311,8 +2347,8 @@ cites proj-2
     let mut pre_pair = None;
     for left_wall in 0..20 {
         for right_wall in 0..20 {
-            let left = child(&[&anchor], &template, old_rev.clone(), left_wall);
-            let right = child(&[&anchor], &template, other_rev.clone(), right_wall);
+            let left = child(&[anchor], template, old_rev.clone(), left_wall);
+            let right = child(&[anchor], template, other_rev.clone(), right_wall);
             if left.id().unwrap() < right.id().unwrap() {
                 pre_pair = Some((left, right));
                 break;
@@ -2323,14 +2359,21 @@ cites proj-2
         }
     }
     let (pre_left, pre_right) = pre_pair.unwrap();
-    let pre_replaced = child(&[&pre_left], &template, new_rev, 41);
+    let pre_replaced = child(&[&pre_left], template, new_rev, 41);
     let pre_birth = child(
         &[&pre_left, &pre_right, &pre_replaced],
-        &template,
+        template,
         template.kind.clone(),
         42,
     );
-    let pre = fold(&[anchor.clone(), pre_left, pre_right, pre_replaced, pre_birth]).unwrap();
+    let pre = fold(&[
+        (*anchor).clone(),
+        pre_left,
+        pre_right,
+        pre_replaced,
+        pre_birth,
+    ])
+    .unwrap();
     let pre_rev = pre.issues[&("proj".to_string(), "proj-1".to_string())]
         .extra_drawers
         .iter()
@@ -2338,7 +2381,10 @@ cites proj-2
         .cloned()
         .unwrap();
     assert_eq!(pre_rev, post_rev);
+    post_birth
+}
 
+fn target_fields_keep_the_order_the_op_named(anchor: Op, template: &Op, post_birth: Op) {
     let target_kind = OpKind::SetTarget {
         target_id: "t1".to_string(),
         fields: vec![
@@ -2348,8 +2394,8 @@ cites proj-2
     };
     let targeted = spawned(&post_birth, target_kind.clone(), 3);
     let after_birth = drawers(&fold(&[post_birth, targeted]).unwrap(), "proj-1");
-    let early_target = child(&[&anchor], &template, target_kind.clone(), 3);
-    let early_birth = child(&[&early_target], &template, template.kind.clone(), 4);
+    let early_target = child(&[&anchor], template, target_kind.clone(), 3);
+    let early_birth = child(&[&early_target], template, template.kind.clone(), 4);
     let before_birth = drawers(
         &fold(&[anchor.clone(), early_target, early_birth]).unwrap(),
         "proj-1",
@@ -2363,9 +2409,9 @@ cites proj-2
     for first_wall in 0..16 {
         for set_wall in 0..16 {
             for second_wall in 0..16 {
-                let first = child(&[&anchor], &template, template.kind.clone(), first_wall);
-                let set = child(&[&anchor], &template, target_kind.clone(), set_wall);
-                let second = child(&[&anchor], &template, template.kind.clone(), second_wall);
+                let first = child(&[&anchor], template, template.kind.clone(), first_wall);
+                let set = child(&[&anchor], template, target_kind.clone(), set_wall);
+                let second = child(&[&anchor], template, template.kind.clone(), second_wall);
                 let first_id = first.id().unwrap();
                 let set_id = set.id().unwrap();
                 let second_id = second.id().unwrap();
@@ -2390,8 +2436,9 @@ cites proj-2
         let ay = text.find("t1 a 2").unwrap_or_else(|| panic!("{id} {text}"));
         assert!(zed < ay, "{id} {text}");
     }
+}
 
-    let before = folded_bytes(&fold(std::slice::from_ref(&root)).unwrap());
+fn a_value_base_cannot_store_is_refused(root: &Op) {
     let refused: &[(&str, OpKind)] = &[
         (
             "property:NOTE",
@@ -2432,12 +2479,12 @@ cites proj-2
         ),
     ];
     for (snippet, kind) in refused {
-        let op = spawned(&root, kind.clone(), 9);
+        let op = spawned(root, kind.clone(), 9);
         let err = Op::from_message_bytes(&op.message_bytes().expect(snippet)).expect_err(snippet);
         let text = err.to_string();
         assert!(text.contains(snippet), "{snippet} not in {text}");
         assert!(
-            fold(&[root.clone(), op]).is_err(),
+            fold(&[(*root).clone(), op]).is_err(),
             "{snippet} changed the tracker"
         );
     }
@@ -2472,10 +2519,13 @@ cites proj-2
         let text = err.to_string();
         assert!(text.contains(snippet), "{snippet} not in {text}");
         assert!(
-            fold(&[root.clone(), op]).is_err(),
+            fold(&[(*root).clone(), op]).is_err(),
             "{snippet} changed the tracker"
         );
     }
+}
+
+fn a_heading_round_trips_when_the_base_reader_accepts_it() {
     let round_trip = |heading: IssueHeading| {
         let ops = describe("proj", std::slice::from_ref(&heading)).expect("describe");
         fold(&ops).expect("fold").issues[&("proj".to_string(), "proj-1".to_string())].clone()
@@ -2546,12 +2596,6 @@ ok
         describe("proj", &[injected]).is_err(),
         "a drawer past :END: folded"
     );
-    two_adds_and_a_clear_share_one_drawer();
-    a_pre_birth_descendant_keeps_every_line();
-    a_drawer_type_without_a_headline_tag_folds();
-
-    let after = folded_bytes(&fold(std::slice::from_ref(&root)).unwrap());
-    assert_eq!(before, after);
 }
 
 fn two_adds_and_a_clear_share_one_drawer() {

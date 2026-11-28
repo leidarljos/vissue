@@ -1285,11 +1285,17 @@ fn project(live: &mut Live, field: &str, value: &str) -> bool {
                 matches!(parse_target_line(line), Some(TargetLine::Retarget(_)))
             })
         }
-        name if let Some(key) = name.strip_prefix("property:") => {
-            set_property(live, key, value);
-            false
-        }
-        name if let Some((voter, rev)) = unkey("ballot:", name) => edit_first_drawer(
+        name => project_named(live, name, value),
+    }
+}
+
+fn project_named(live: &mut Live, name: &str, value: &str) -> bool {
+    if let Some(key) = name.strip_prefix("property:") {
+        set_property(live, key, value);
+        return false;
+    }
+    if let Some((voter, rev)) = unkey("ballot:", name) {
+        return edit_first_drawer(
             &mut live.heading,
             "VOTES",
             Some(value.to_string()),
@@ -1298,40 +1304,40 @@ fn project(live: &mut Live, field: &str, value: &str) -> bool {
                     ballot.agent == voter && ballot.rev.unwrap_or_default() == rev
                 })
             },
-        ),
-        name if let Some(rev) = name.strip_prefix("revision:") => {
-            let written = revision_line(rev, value);
-            edit_first_drawer(&mut live.heading, "REVISIONS", Some(written), |line| {
-                parse_revision_line(line).is_some_and(|(id, _)| id == rev)
-            })
-        }
-        name if let Some((target, key)) = split_target(name) => {
-            let written = target_field_line(&target, &key, value);
-            edit_first_drawer(&mut live.heading, "TARGETS", Some(written), |line| {
-                matches!(
-                    parse_target_line(line),
-                    Some(TargetLine::Field(id, field, _)) if id == target && field == key
-                )
-            })
-        }
-        name if let Some((kind, other)) = unkey("link:", name) => {
-            let hit = |line: &str| {
-                parse_link_line(line)
-                    .is_some_and(|(have_kind, have_other)| have_kind == kind && have_other == other)
-            };
-            if value.is_empty() {
-                drop_matching_lines(&mut live.heading, "LINKS", hit);
-                return false;
-            }
-            edit_first_drawer(
-                &mut live.heading,
-                "LINKS",
-                Some(link_line(&kind, &other)),
-                hit,
-            )
-        }
-        _ => false,
+        );
     }
+    if let Some(rev) = name.strip_prefix("revision:") {
+        let written = revision_line(rev, value);
+        return edit_first_drawer(&mut live.heading, "REVISIONS", Some(written), |line| {
+            parse_revision_line(line).is_some_and(|(id, _)| id == rev)
+        });
+    }
+    if let Some((target, key)) = split_target(name) {
+        let written = target_field_line(&target, &key, value);
+        return edit_first_drawer(&mut live.heading, "TARGETS", Some(written), |line| {
+            matches!(
+                parse_target_line(line),
+                Some(TargetLine::Field(id, field, _)) if id == target && field == key
+            )
+        });
+    }
+    if let Some((kind, other)) = unkey("link:", name) {
+        let hit = |line: &str| {
+            parse_link_line(line)
+                .is_some_and(|(have_kind, have_other)| have_kind == kind && have_other == other)
+        };
+        if value.is_empty() {
+            drop_matching_lines(&mut live.heading, "LINKS", hit);
+            return false;
+        }
+        return edit_first_drawer(
+            &mut live.heading,
+            "LINKS",
+            Some(link_line(&kind, &other)),
+            hit,
+        );
+    }
+    false
 }
 
 fn set_property(live: &mut Live, key: &str, value: &str) {
@@ -2361,37 +2367,41 @@ fn stores(kind: &str, left: &str, right: &str) -> Result<()> {
                     |h| h.priority == ch,
                 )
             }
-            name if let Some(key) = name.strip_prefix("property:") => {
-                stores("property", key, right)
-            }
-            name if let Some(rev) = name.strip_prefix("revision:") => stores("summary", rev, right),
-            name if let Some((target, key)) = split_target(name) => {
-                stores("tvalue", &target, &format!("{key}\0{right}"))
-            }
-            name if name.starts_with("link:") => {
-                if right.is_empty() || !breaks_a_line(right) {
-                    Ok(())
-                } else {
-                    Err(bad(format!("id {right:?}")))
-                }
-            }
-            name if let Some((voter, rev)) = unkey("ballot:", name) => {
-                if breaks_a_line(right) {
-                    return Err(bad(format!("choice {right:?}")));
-                }
-                let Some(parsed) = crate::ops::parse_ballot(right) else {
-                    return Err(bad(format!("voter {voter:?}")));
-                };
-                if parsed.agent == voter && parsed.rev.unwrap_or_default() == rev {
-                    Ok(())
-                } else {
-                    Err(bad(format!("voter {voter:?}")))
-                }
-            }
-            _ => Ok(()),
+            name => store_named_set(name, right),
         },
         _ => Err(bad(err)),
     }
+}
+
+fn store_named_set(name: &str, right: &str) -> Result<()> {
+    if let Some(key) = name.strip_prefix("property:") {
+        return stores("property", key, right);
+    }
+    if let Some(rev) = name.strip_prefix("revision:") {
+        return stores("summary", rev, right);
+    }
+    if let Some((target, key)) = split_target(name) {
+        return stores("tvalue", &target, &format!("{key}\0{right}"));
+    }
+    if name.starts_with("link:") {
+        if right.is_empty() || !breaks_a_line(right) {
+            return Ok(());
+        }
+        return Err(bad(format!("id {right:?}")));
+    }
+    if let Some((voter, rev)) = unkey("ballot:", name) {
+        if breaks_a_line(right) {
+            return Err(bad(format!("choice {right:?}")));
+        }
+        let Some(parsed) = crate::ops::parse_ballot(right) else {
+            return Err(bad(format!("voter {voter:?}")));
+        };
+        if parsed.agent == voter && parsed.rev.unwrap_or_default() == rev {
+            return Ok(());
+        }
+        return Err(bad(format!("voter {voter:?}")));
+    }
+    Ok(())
 }
 
 fn target_name_ok(id: &str, field: &str) -> bool {
