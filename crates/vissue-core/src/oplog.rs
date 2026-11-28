@@ -278,7 +278,7 @@ impl Op {
             ids.push(parent.id()?);
             max_lamport = max_lamport.max(parent.lamport);
         }
-        Ok(Self {
+        let op = Self {
             parents: ids,
             lamport: max_lamport + 1,
             seat: seat.to_string(),
@@ -286,7 +286,9 @@ impl Op {
             issue: IssueKey::derive(project, short_id),
             kind,
             wall: 0,
-        })
+        };
+        check_op(&op)?;
+        Ok(op)
     }
 
     /// Id of this op, the sha256 of its canonical segment.
@@ -393,6 +395,9 @@ pub fn describe(project: &str, headings: &[IssueHeading]) -> Result<Vec<Op>> {
 /// match the parents, the graph has a cycle, or an op names an issue that
 /// has not been created.
 pub fn fold(ops: &[Op]) -> Result<Folded> {
+    for op in ops {
+        check_op(op)?;
+    }
     let indexed = index(ops)?;
     let order = topo(&indexed)?;
     let mut mem = Mem::default();
@@ -533,7 +538,7 @@ struct Live {
     revisions: BTreeMap<String, String>,
     targets: BTreeMap<(String, String), String>,
     retarget: Option<String>,
-    /// Drawer lines the codec does not split. A rewrite copies them verbatim.
+    /// Drawer lines the base reader does not take. A rewrite copies them verbatim.
     raw: BTreeMap<String, BTreeSet<String>>,
     born_lamport: u64,
     born_id: OpId,
@@ -557,7 +562,7 @@ struct UnionSet {
 impl UnionSet {
     fn from_scalar(source: OpId, value: &str) -> Self {
         let mut set = Self::default();
-        for element in decode_elements(value) {
+        for element in list_elements(value) {
             set.insert(source, &element);
         }
         set
@@ -589,7 +594,14 @@ impl UnionSet {
         for (_, element) in &self.tags {
             elements.insert(element.as_str());
         }
-        encode_elements(elements)
+        let mut out = String::new();
+        for (index, element) in elements.iter().enumerate() {
+            if index > 0 {
+                out.push(' ');
+            }
+            out.push_str(element);
+        }
+        out
     }
 }
 
@@ -773,23 +785,17 @@ fn apply(mem: &mut Mem, id: OpId, op: &Op) -> Result<()> {
             stamp,
         } => {
             let line = vote_line(rev, stamp, voter, choice);
-            write_named(mem, id, op, &pair_field("ballot:", voter, rev), &line)
+            write_named(mem, id, op, &keyed("ballot:", voter, rev), &line)
         }
         OpKind::AddRevision { rev_id, summary } => {
             write_named(mem, id, op, &format!("revision:{rev_id}"), summary)
         }
         OpKind::SetTarget { target_id, fields } => {
             if fields.is_empty() {
-                return write_named(
-                    mem,
-                    id,
-                    op,
-                    &pair_field("target:", target_id, "id"),
-                    target_id,
-                );
+                return write_named(mem, id, op, &format!("target:{target_id}:id"), target_id);
             }
             for (name, value) in fields {
-                write_named(mem, id, op, &pair_field("target:", target_id, name), value)?;
+                write_named(mem, id, op, &format!("target:{target_id}:{name}"), value)?;
             }
             Ok(())
         }
@@ -964,8 +970,9 @@ fn heading_writes(heading: &IssueHeading) -> Vec<(String, String)> {
     for (name, value) in &heading.properties {
         fields.push((format!("property:{name}"), value.clone()));
     }
-    for (slot, line) in load_votes(heading) {
-        fields.push((format!("ballot:{slot}"), line));
+    let (ballots, _) = load_votes(heading);
+    for (slot, line) in ballots {
+        fields.push((slot, line));
     }
     let (revisions, _) = load_revisions(heading);
     for (rev, summary) in revisions {
@@ -973,7 +980,7 @@ fn heading_writes(heading: &IssueHeading) -> Vec<(String, String)> {
     }
     let (targets, retarget, _) = load_targets(heading);
     for ((target, key), value) in targets {
-        fields.push((pair_field("target:", &target, &key), value));
+        fields.push((format!("target:{target}:{key}"), value));
     }
     if let Some(target) = retarget {
         fields.push(("retarget".to_string(), target));
@@ -1117,21 +1124,45 @@ fn canonical_field(name: &str) -> Result<String> {
     if matches!(
         name,
         "title" | "state" | "priority" | "body" | "tags" | "statistics" | "retarget"
-    ) || name.starts_with("property:")
-        || name.starts_with("ballot:")
-        || name.starts_with("revision:")
-        || colon_name(name, "target:")
-        || colon_name(name, "link:")
-    {
-        Ok(name.to_string())
-    } else {
-        Err(bad("unknown field"))
+    ) {
+        return Ok(name.to_string());
     }
-}
-
-fn colon_name(name: &str, prefix: &str) -> bool {
-    name.strip_prefix(prefix)
-        .is_some_and(|rest| rest.contains(':'))
+    if let Some(key) = name.strip_prefix("property:") {
+        spellable_colon("field", key)?;
+        return Ok(name.to_string());
+    }
+    if let Some(rev) = name.strip_prefix("revision:") {
+        spellable("revision", rev)?;
+        return Ok(name.to_string());
+    }
+    if let Some(rest) = name.strip_prefix("target:") {
+        let Some((id, field)) = rest.split_once(':') else {
+            return Err(bad("unknown field"));
+        };
+        if !token_ok_colon(id) || !token_ok_colon(field) {
+            return Err(bad(format!("field {name:?}")));
+        }
+        return Ok(name.to_string());
+    }
+    if name.starts_with("link:") {
+        let Some((kind, other)) = unkey("link:", name) else {
+            return Err(bad(format!("field {name:?}")));
+        };
+        spellable("link kind", &kind)?;
+        spellable("id", &other)?;
+        return Ok(name.to_string());
+    }
+    if name.starts_with("ballot:") {
+        let Some((voter, rev)) = unkey("ballot:", name) else {
+            return Err(bad(format!("field {name:?}")));
+        };
+        spellable("voter", &voter)?;
+        if !rev.is_empty() {
+            spellable("revision", &rev)?;
+        }
+        return Ok(name.to_string());
+    }
+    Err(bad("unknown field"))
 }
 
 fn project(live: &mut Live, field: &str, value: &str) {
@@ -1158,36 +1189,32 @@ fn project(live: &mut Live, field: &str, value: &str) {
             set_property(live, &name["property:".len()..], value)
         }
         name if name.starts_with("ballot:") => {
-            live.ballots
-                .insert(name["ballot:".len()..].to_string(), value.to_string());
+            live.ballots.insert(name.to_string(), value.to_string());
             rewrite_ballots(live);
         }
         name if name.starts_with("revision:") => {
             let rev = &name["revision:".len()..];
             rewrite_revisions(live, rev, value);
         }
-        name if name.starts_with("target:") => {
-            if let Some((target, key)) = split_pair(&name["target:".len()..]) {
-                live.targets.insert((target, key), value.to_string());
-                rewrite_targets(live);
-            }
+        name if let Some((target, key)) = split_target(name) => {
+            live.targets.insert((target, key), value.to_string());
+            rewrite_targets(live);
         }
-        name if name.starts_with("link:") => {
-            if let Some((kind, other)) = split_pair(&name["link:".len()..]) {
-                if value.is_empty() {
-                    live.links.remove(&(kind, other));
-                } else {
-                    live.links.insert((kind, other));
-                }
-                let mut lines: Vec<String> = live
-                    .links
-                    .iter()
-                    .map(|(kind, other)| link_line(kind, other))
-                    .collect();
-                push_raw(&live.raw, "LINKS", &mut lines);
-                seal(&mut lines);
-                replace_drawer(&mut live.heading, "LINKS", &lines);
+        name if let Some((kind, other)) = unkey("link:", name) => {
+            if value.is_empty() {
+                live.links.remove(&(kind.clone(), other.clone()));
+            } else {
+                live.links.insert((kind, other));
             }
+            let mut lines: Vec<String> = live
+                .links
+                .iter()
+                .map(|(kind, other)| link_line(kind, other))
+                .collect();
+            push_raw(&live.raw, "LINKS", &mut lines);
+            lines.sort();
+            lines.dedup();
+            replace_drawer(&mut live.heading, "LINKS", &lines);
         }
         _ => {}
     }
@@ -1224,8 +1251,9 @@ fn set_property(live: &mut Live, key: &str, value: &str) {
 
 fn rewrite_ballots(live: &mut Live) {
     let mut lines: Vec<String> = live.ballots.values().cloned().collect();
+    push_raw(&live.raw, "VOTES", &mut lines);
     lines.sort();
-    seal(&mut lines);
+    lines.dedup();
     replace_drawer(&mut live.heading, "VOTES", &lines);
 }
 
@@ -1237,7 +1265,8 @@ fn rewrite_revisions(live: &mut Live, rev: &str, summary: &str) {
         .map(|(rev, summary)| revision_line(rev, summary))
         .collect();
     push_raw(&live.raw, "REVISIONS", &mut lines);
-    seal(&mut lines);
+    lines.sort();
+    lines.dedup();
     replace_drawer(&mut live.heading, "REVISIONS", &lines);
 }
 
@@ -1251,7 +1280,7 @@ fn rewrite_targets(live: &mut Live) {
     }
     push_raw(&live.raw, "TARGETS", &mut lines);
     lines.sort();
-    seal(&mut lines);
+    lines.dedup();
     replace_drawer(&mut live.heading, "TARGETS", &lines);
 }
 
@@ -1286,33 +1315,6 @@ fn replace_drawer(heading: &mut IssueHeading, name: &str, lines: &[String]) {
     text.push_str(":END:\n");
     heading.extra_drawers.push(text);
     heading.extra_drawers.sort();
-}
-
-/// First content line of a drawer this codec wrote.
-///
-/// Base `parse_heading` copies an extra drawer through `:END:` and does not
-/// read interior lines as keys. `:CODEC: 1` does not match `opens_a_drawer`
-/// because it does not end in `:`, so a file round-trip keeps the bytes.
-const CODEC_MARK: &str = ":CODEC: 1";
-
-fn seal(lines: &mut Vec<String>) {
-    if lines.is_empty() || lines.first().is_some_and(|line| line == CODEC_MARK) {
-        return;
-    }
-    lines.insert(0, CODEC_MARK.to_string());
-}
-
-fn drawer_body(heading: &IssueHeading, name: &str) -> (bool, Vec<String>) {
-    let mut lines = drawer_lines(heading, name);
-    let marked = lines.first().is_some_and(|line| line == CODEC_MARK);
-    if marked {
-        lines.remove(0);
-    }
-    (marked, lines)
-}
-
-fn is_comment_line(line: &str) -> bool {
-    line.starts_with('#')
 }
 
 fn drawer_named(drawer: &str, name: &str) -> bool {
@@ -1368,7 +1370,7 @@ fn add_link(mem: &mut Mem, id: OpId, op: &Op, kind: &str, other: &str) -> Result
     if kind == "blocked-by" {
         return write_union(mem, id, op, "property:BLOCKED_BY", other);
     }
-    write_union(mem, id, op, &pair_field("link:", kind, other), other)
+    write_union(mem, id, op, &keyed("link:", kind, other), other)
 }
 
 fn one_char(value: &str) -> Result<char> {
@@ -1379,55 +1381,74 @@ fn one_char(value: &str) -> Result<char> {
     }
 }
 
-fn load_votes(heading: &IssueHeading) -> BTreeMap<String, String> {
+fn load_votes(heading: &IssueHeading) -> (BTreeMap<String, String>, BTreeSet<String>) {
     let mut votes = BTreeMap::new();
-    let (marked, lines) = drawer_body(heading, "VOTES");
-    for line in lines {
-        if is_comment_line(&line) {
-            votes.insert(format!("line:{line}"), line);
-            continue;
+    let mut raw = BTreeSet::new();
+    for line in drawer_lines(heading, "VOTES") {
+        if let Some(ballot) = crate::ops::parse_ballot(&line) {
+            let rev = ballot.rev.unwrap_or_default();
+            if token_ok(&ballot.agent) && (rev.is_empty() || token_ok(&rev)) {
+                votes.insert(keyed("ballot:", &ballot.agent, &rev), line);
+                continue;
+            }
         }
-        let key = match vote_key_parts(&line, marked) {
-            Some((voter, rev)) => ballot_slot(&voter, &rev),
-            None => format!("line:{line}"),
-        };
-        votes.insert(key, line);
+        raw.insert(line);
     }
-    votes
+    (votes, raw)
 }
 
 fn load_revisions(heading: &IssueHeading) -> (BTreeMap<String, String>, BTreeSet<String>) {
     let mut revisions = BTreeMap::new();
     let mut raw = BTreeSet::new();
-    let (marked, lines) = drawer_body(heading, "REVISIONS");
-    for line in lines {
-        match revision_parts(&line, marked) {
-            Some((rev, summary)) => {
-                revisions.insert(rev, summary);
-            }
-            None => {
-                raw.insert(line);
-            }
+    for line in drawer_lines(heading, "REVISIONS") {
+        if let Some((id, summary)) = structured_revision(&line) {
+            revisions.insert(id, summary);
+        } else {
+            raw.insert(line);
         }
     }
     (revisions, raw)
 }
 
+fn structured_revision(line: &str) -> Option<(String, String)> {
+    if let Some((id, summary)) = line.split_once(' ') {
+        if token_ok(id)
+            && !summary.is_empty()
+            && !summary
+                .chars()
+                .any(|ch| ch.is_whitespace() || ch.is_control())
+        {
+            return Some((id.to_string(), summary.to_string()));
+        }
+        return None;
+    }
+    if token_ok(line) {
+        Some((line.to_string(), String::new()))
+    } else {
+        None
+    }
+}
+
 fn load_links(heading: &IssueHeading) -> (BTreeSet<(String, String)>, BTreeSet<String>) {
     let mut links = BTreeSet::new();
     let mut raw = BTreeSet::new();
-    let (marked, lines) = drawer_body(heading, "LINKS");
-    for line in lines {
-        match parse_link_line(&line, marked) {
-            Some(pair) => {
-                links.insert(pair);
-            }
-            None => {
-                raw.insert(line);
-            }
+    for line in drawer_lines(heading, "LINKS") {
+        if let Some(pair) = structured_link(&line) {
+            links.insert(pair);
+        } else {
+            raw.insert(line);
         }
     }
     (links, raw)
+}
+
+fn structured_link(line: &str) -> Option<(String, String)> {
+    let (kind, other) = line.split_once(' ')?;
+    if token_ok(kind) && token_ok(other) {
+        Some((kind.to_string(), other.to_string()))
+    } else {
+        None
+    }
 }
 
 fn load_targets(
@@ -1440,19 +1461,32 @@ fn load_targets(
     let mut targets = BTreeMap::new();
     let mut retarget = None;
     let mut raw = BTreeSet::new();
-    let (marked, lines) = drawer_body(heading, "TARGETS");
-    for line in lines {
-        if let Some((target, key, value)) = parse_target_line(&line, marked) {
-            targets.insert((target, key), value);
+    for line in drawer_lines(heading, "TARGETS") {
+        if let Some(id) = line.strip_prefix("retarget ") {
+            if token_ok(id) {
+                retarget = Some(id.to_string());
+            } else {
+                raw.insert(line);
+            }
             continue;
         }
-        if let Some(id) = parse_retarget_line(&line, marked) {
-            retarget = Some(id);
+        if let Some((target, key, value)) = structured_target(&line) {
+            targets.insert((target, key), value);
             continue;
         }
         raw.insert(line);
     }
     (targets, retarget, raw)
+}
+
+fn structured_target(line: &str) -> Option<(String, String, String)> {
+    let (target, rest) = line.split_once(' ')?;
+    let (key, value) = rest.split_once(' ')?;
+    if token_ok_colon(target) && token_ok_colon(key) && !value.chars().any(char::is_control) {
+        Some((target.to_string(), key.to_string(), value.to_string()))
+    } else {
+        None
+    }
 }
 
 fn push_raw(raw: &BTreeMap<String, BTreeSet<String>>, drawer: &str, lines: &mut Vec<String>) {
@@ -1463,11 +1497,15 @@ fn push_raw(raw: &BTreeMap<String, BTreeSet<String>>, drawer: &str, lines: &mut 
 }
 
 fn kept_lines(
+    votes: BTreeSet<String>,
     revisions: BTreeSet<String>,
     links: BTreeSet<String>,
     targets: BTreeSet<String>,
 ) -> BTreeMap<String, BTreeSet<String>> {
     let mut raw = BTreeMap::new();
+    if !votes.is_empty() {
+        raw.insert("VOTES".to_string(), votes);
+    }
     if !revisions.is_empty() {
         raw.insert("REVISIONS".to_string(), revisions);
     }
@@ -1480,399 +1518,117 @@ fn kept_lines(
     raw
 }
 
-/// A token that contains whitespace is a git-config quoted string.
-/// A quote or a backslash stays bare: those bytes are part of the id,
-/// and [`crate::org::split_id_list`] does not treat them as syntax.
-fn needs_quote(text: &str) -> bool {
-    text.chars().any(char::is_whitespace)
+fn token_ok(value: &str) -> bool {
+    !value.is_empty()
+        && !value
+            .chars()
+            .any(|ch| ch.is_whitespace() || ch.is_control() || ch == '"' || ch == '\\')
 }
 
-fn quote_wrapped(text: &str) -> String {
-    let mut out = String::from("\"");
-    for ch in text.chars() {
-        match ch {
-            '"' | '\\' => {
-                out.push('\\');
-                out.push(ch);
-            }
-            '\n' => out.push_str("\\n"),
-            '\t' => out.push_str("\\t"),
-            '\u{0008}' => out.push_str("\\b"),
-            _ => out.push(ch),
-        }
-    }
-    out.push('"');
-    out
+fn token_ok_colon(value: &str) -> bool {
+    token_ok(value) && !value.contains(':')
 }
 
-fn quote_token(text: &str) -> String {
-    if needs_quote(text) {
-        quote_wrapped(text)
+fn spellable(field: &str, value: &str) -> Result<()> {
+    if token_ok(value) {
+        Ok(())
     } else {
-        text.to_string()
+        Err(bad(format!("{field} {value:?}")))
     }
 }
 
-/// One side of a `prefix{left}:{right}` field. A colon is quoted so the
-/// separator stays the one unquoted colon. `t1` and `status` stay bare,
-/// so the field is still `target:t1:status`.
-fn pair_side(text: &str) -> String {
-    if text.is_empty() || text.contains([':', '"', '\\']) || needs_quote(text) {
-        quote_wrapped(text)
+fn spellable_colon(field: &str, value: &str) -> Result<()> {
+    if token_ok_colon(value) {
+        Ok(())
     } else {
-        text.to_string()
+        Err(bad(format!("{field} {value:?}")))
     }
 }
 
-fn pair_field(prefix: &str, left: &str, right: &str) -> String {
-    format!("{prefix}{}:{}", pair_side(left), pair_side(right))
+fn spellable_choice(value: &str) -> Result<()> {
+    if value.trim().is_empty() || value.chars().any(char::is_control) {
+        return Err(bad(format!("choice {value:?}")));
+    }
+    Ok(())
 }
 
-fn take_side(text: &str) -> Option<(String, &str)> {
-    let mut chars = text.char_indices();
-    let (_, first) = chars.next()?;
-    if first != '"' {
-        let end = text.find(':').unwrap_or(text.len());
-        if end == 0 {
-            return None;
-        }
-        return Some((text[..end].to_string(), &text[end..]));
-    }
-    let mut out = String::new();
-    while let Some((index, ch)) = chars.next() {
-        match ch {
-            '\\' => {
-                let (_, esc) = chars.next()?;
-                match esc {
-                    'n' => out.push('\n'),
-                    't' => out.push('\t'),
-                    'b' => out.push('\u{0008}'),
-                    other => out.push(other),
-                }
-            }
-            '"' => return Some((out, &text[index + ch.len_utf8()..])),
-            other => out.push(other),
-        }
-    }
-    None
+/// Name of one `(left, right)` pair.
+///
+/// A colon is legal in a voter, a revision, a link kind, and an id. The name
+/// records how long the left side is, so two different pairs do not share a
+/// name. Drawer lines never use this spelling.
+fn keyed(prefix: &str, left: &str, right: &str) -> String {
+    format!("{prefix}{}:{left}{right}", left.chars().count())
 }
 
-fn split_pair(rest: &str) -> Option<(String, String)> {
-    let (left, rest) = take_side(rest)?;
-    let rest = rest.strip_prefix(':')?;
-    let (right, tail) = take_side(rest)?;
-    if !tail.is_empty() {
+fn unkey(prefix: &str, name: &str) -> Option<(String, String)> {
+    let rest = name.strip_prefix(prefix)?;
+    let (len, tail) = rest.split_once(':')?;
+    let n: usize = len.parse().ok()?;
+    if tail.chars().count() < n {
         return None;
     }
+    let left: String = tail.chars().take(n).collect();
+    let right: String = tail.chars().skip(n).collect();
     Some((left, right))
 }
 
-/// Every token of a marked line, including an empty one. A bare token is
-/// not this form.
-fn marked_tokens(line: &str) -> Option<Vec<String>> {
-    let mut rest = line;
-    let mut out = Vec::new();
-    loop {
-        if rest.is_empty() {
-            break;
-        }
-        if !rest.starts_with('"') {
-            return None;
-        }
-        let (token, tail) = take_side(rest)?;
-        out.push(token);
-        if tail.is_empty() {
-            break;
-        }
-        rest = tail.strip_prefix(' ')?;
-    }
-    if out.is_empty() { None } else { Some(out) }
-}
-
-fn encode_elements<'a>(elements: impl IntoIterator<Item = &'a str>) -> String {
-    let mut out = String::new();
-    for (index, element) in elements.into_iter().enumerate() {
-        if index > 0 {
-            out.push(' ');
-        }
-        out.push_str(&quote_token(element));
-    }
-    out
-}
-
-/// Inverse of [`encode_elements`].
-///
-/// A value this writer produced re-encodes to itself, including `"a  b" c`.
-/// Anything else is [`crate::org::split_id_list`]: a leading or trailing
-/// space is not part of an id. The one exception is the locked residue
-/// `a  b` (exactly two words and one doubled space), which stays one element.
-fn decode_elements(value: &str) -> Vec<String> {
-    if value.is_empty() {
-        return Vec::new();
-    }
-    if let Some(elements) = codec_list(value) {
-        return elements;
-    }
-    if locked_double_space(value) {
-        return vec![value.to_string()];
-    }
-    crate::org::split_id_list(value)
-}
-
-fn locked_double_space(value: &str) -> bool {
-    if value.contains([',', '"']) || value.chars().any(|ch| ch.is_whitespace() && ch != ' ') {
-        return false;
-    }
-    let parts: Vec<&str> = value.split(' ').collect();
-    parts.len() == 3 && !parts[0].is_empty() && parts[1].is_empty() && !parts[2].is_empty()
-}
-
-/// Quoted text this codec wrote. A legacy `"acc1"` re-encodes to `acc1`,
-/// so it is not this form and the quote characters stay in the id.
-fn codec_list(value: &str) -> Option<Vec<String>> {
-    if !value.contains('"') {
-        return None;
-    }
-    let elements = parse_quoted_elements(value);
-    if elements.is_empty() || elements.iter().any(String::is_empty) {
-        return None;
-    }
-    let encoded = encode_elements(elements.iter().map(String::as_str));
-    if encoded == value {
-        Some(elements)
+fn split_target(name: &str) -> Option<(String, String)> {
+    let rest = name.strip_prefix("target:")?;
+    let (target, key) = rest.split_once(':')?;
+    if token_ok_colon(target) && token_ok_colon(key) {
+        Some((target.to_string(), key.to_string()))
     } else {
         None
     }
 }
 
-fn parse_quoted_elements(value: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut chars = value.chars().peekable();
-    while chars.peek().is_some() {
-        while chars.peek() == Some(&' ') {
-            chars.next();
-        }
-        if chars.peek().is_none() {
-            break;
-        }
-        if chars.peek() == Some(&'"') {
-            chars.next();
-            let mut element = String::new();
-            loop {
-                match chars.next() {
-                    Some('\\') => match chars.next() {
-                        Some('n') => element.push('\n'),
-                        Some('t') => element.push('\t'),
-                        Some('b') => element.push('\u{0008}'),
-                        Some(ch) => element.push(ch),
-                        None => element.push('\\'),
-                    },
-                    Some('"') => break,
-                    Some(ch) => element.push(ch),
-                    None => break,
-                }
-            }
-            out.push(element);
+/// Ids in a property list. A doubled space is not two ids: the base reader
+/// would erase it, and a legacy line keeps the spelling it was given.
+fn list_elements(value: &str) -> Vec<String> {
+    if value.contains("  ") || value.chars().any(|ch| ch.is_whitespace() && ch != ' ') {
+        return if value.is_empty() {
+            Vec::new()
         } else {
-            let mut element = String::new();
-            while let Some(&ch) = chars.peek() {
-                if ch == ' ' {
-                    break;
-                }
-                element.push(ch);
-                chars.next();
-            }
-            out.push(element);
-        }
+            vec![value.to_string()]
+        };
     }
-    out
+    crate::org::split_id_list(value)
 }
 
-fn quote_always(text: &str) -> String {
-    quote_wrapped(text)
+fn vote_line(rev: &str, stamp: &str, voter: &str, choice: &str) -> String {
+    let mut line = String::new();
+    if !rev.is_empty() {
+        line.push_str("[rev=");
+        line.push_str(rev);
+        line.push_str("] ");
+    }
+    line.push_str(stamp);
+    line.push(' ');
+    line.push_str(voter);
+    line.push_str(": ");
+    line.push_str(choice);
+    line
+}
+
+fn revision_line(rev: &str, summary: &str) -> String {
+    if summary.is_empty() {
+        rev.to_string()
+    } else {
+        format!("{rev} {summary}")
+    }
 }
 
 fn link_line(kind: &str, other: &str) -> String {
-    format!("{} {}", quote_always(kind), quote_always(other))
-}
-
-fn parse_link_line(line: &str, marked: bool) -> Option<(String, String)> {
-    if is_comment_line(line) {
-        return None;
-    }
-    if marked {
-        let tokens = marked_tokens(line)?;
-        if tokens.len() == 2 && !tokens[0].is_empty() && !tokens[1].is_empty() {
-            return Some((tokens[0].clone(), tokens[1].clone()));
-        }
-        return None;
-    }
-    let (kind, other) = line.split_once(' ')?;
-    if kind.is_empty() || other.is_empty() {
-        return None;
-    }
-    Some((kind.to_string(), other.to_string()))
+    format!("{kind} {other}")
 }
 
 fn target_field_line(target: &str, key: &str, value: &str) -> String {
-    format!(
-        "{} {} {}",
-        quote_always(target),
-        quote_always(key),
-        quote_always(value)
-    )
-}
-
-fn parse_target_line(line: &str, marked: bool) -> Option<(String, String, String)> {
-    if is_comment_line(line) {
-        return None;
-    }
-    if marked {
-        let tokens = marked_tokens(line)?;
-        if tokens.len() == 3 {
-            return Some((tokens[0].clone(), tokens[1].clone(), tokens[2].clone()));
-        }
-        return None;
-    }
-    let (target, rest) = line.split_once(' ')?;
-    let (key, value) = rest.split_once(' ')?;
-    if target.is_empty() || key.is_empty() {
-        return None;
-    }
-    Some((target.to_string(), key.to_string(), value.to_string()))
-}
-
-fn parse_retarget_line(line: &str, marked: bool) -> Option<String> {
-    if marked {
-        let tokens = marked_tokens(line)?;
-        if tokens.len() == 2 && tokens[0] == "retarget" {
-            return Some(tokens[1].clone());
-        }
-        return None;
-    }
-    let rest = line.strip_prefix("retarget ")?;
-    if rest.is_empty() || rest.contains(' ') {
-        return None;
-    }
-    Some(rest.to_string())
+    format!("{target} {key} {value}")
 }
 
 fn retarget_line(target: &str) -> String {
-    format!("{} {}", quote_always("retarget"), quote_always(target))
-}
-
-/// Marked form quotes both sides. An unmarked line with a second space is
-/// one id (`1 2 3` beside `1 2 x`).
-fn revision_line(rev: &str, summary: &str) -> String {
-    if summary.is_empty() {
-        quote_always(rev)
-    } else {
-        format!("{} {}", quote_always(rev), quote_always(summary))
-    }
-}
-
-fn revision_parts(line: &str, marked: bool) -> Option<(String, String)> {
-    if is_comment_line(line) || line.is_empty() {
-        return None;
-    }
-    if marked {
-        let tokens = marked_tokens(line)?;
-        return match tokens.as_slice() {
-            [id] => Some((id.clone(), String::new())),
-            [id, summary] => Some((id.clone(), summary.clone())),
-            _ => None,
-        };
-    }
-    match line.split_once(' ') {
-        Some((id, summary)) if !id.is_empty() && !summary.is_empty() && !summary.contains(' ') => {
-            Some((id.to_string(), summary.to_string()))
-        }
-        Some(_) => Some((line.to_string(), String::new())),
-        None => Some((line.to_string(), String::new())),
-    }
-}
-
-fn breaks_line(text: &str) -> bool {
-    text.chars()
-        .any(|ch| matches!(ch, '\n' | '\t' | '"' | '\\'))
-}
-
-fn quote_if_breaks(text: &str) -> String {
-    if breaks_line(text) {
-        quote_wrapped(text)
-    } else {
-        text.to_string()
-    }
-}
-
-/// Whole text is one quoted token. Otherwise the bytes stay.
-fn unwrap_token(text: &str) -> String {
-    if !text.starts_with('"') {
-        return text.to_string();
-    }
-    match take_side(text) {
-        Some((decoded, tail)) if tail.is_empty() => decoded,
-        _ => text.to_string(),
-    }
-}
-
-/// Voter and revision [`parse_ballot`] would return, with quoted tokens
-/// decoded when the drawer is marked. The choice stays the base reader's text.
-fn vote_key_parts(line: &str, marked: bool) -> Option<(String, String)> {
-    if let Some(ballot) = crate::ops::parse_ballot(line) {
-        let voter = if marked {
-            unwrap_token(&ballot.agent)
-        } else {
-            ballot.agent
-        };
-        let rev = ballot.rev.unwrap_or_default();
-        let rev = if marked { unwrap_token(&rev) } else { rev };
-        return Some((voter, rev));
-    }
-    if !marked {
-        return None;
-    }
-    let (rev, rest) = if let Some(rest) = line.strip_prefix("[rev=") {
-        let (token, tail) = rest.split_once("] ")?;
-        (unwrap_token(token), tail)
-    } else {
-        (String::new(), line)
-    };
-    if !rest.starts_with('"') {
-        return None;
-    }
-    let (_stamp, tail) = take_side(rest)?;
-    let rest = tail.strip_prefix(' ')?;
-    let (voter, _choice) = rest.split_once(": ")?;
-    Some((unwrap_token(voter), rev))
-}
-
-/// The ballot line [`crate::ops::parse_ballot`] reads.
-///
-/// A choice is bare, including spaces and colons, so that reader returns the
-/// words that were voted. A newline, tab, quote, or backslash in the choice,
-/// voter, revision, or stamp is quoted so the vote stays one line.
-fn vote_line(rev: &str, stamp: &str, voter: &str, choice: &str) -> String {
-    let choice = quote_if_breaks(choice);
-    let voter = quote_if_breaks(voter);
-    let stamp = if breaks_line(stamp) {
-        quote_wrapped(stamp)
-    } else {
-        stamp.to_string()
-    };
-    let rev_prefix = if rev.is_empty() {
-        String::new()
-    } else {
-        format!("[rev={}] ", quote_if_breaks(rev))
-    };
-    format!("{rev_prefix}{stamp} {voter}: {choice}")
-}
-
-/// Field key for one ballot. Each side uses [`pair_side`], so `ann:work`
-/// with an empty revision is not `ann` on revision `work`.
-fn ballot_slot(voter: &str, rev: &str) -> String {
-    let field = pair_field("ballot:", voter, rev);
-    field["ballot:".len()..].to_string()
+    format!("retarget {target}")
 }
 
 fn require_derived(project: &str, short_id: &str, key: IssueKey) -> Result<()> {
@@ -1884,25 +1640,76 @@ fn require_derived(project: &str, short_id: &str, key: IssueKey) -> Result<()> {
 
 fn check_op(op: &Op) -> Result<()> {
     match &op.kind {
-        OpKind::Create { short_id, .. } => require_derived(&op.project, short_id, op.issue),
+        OpKind::Create { short_id, .. } => {
+            spellable("id", short_id)?;
+            require_derived(&op.project, short_id, op.issue)
+        }
         OpKind::GenesisImport { heading, .. } => {
+            spellable("id", &heading.id)?;
             require_derived(&op.project, &heading.id, op.issue)
         }
-        OpKind::SetField { name, .. } | OpKind::Resolve { field: name, .. } => {
+        OpKind::SetField { name, value } | OpKind::Resolve { field: name, value } => {
             canonical_field(name)?;
+            if name == "retarget" {
+                spellable("retarget", value)?;
+            }
             Ok(())
         }
-        _ => Ok(()),
+        OpKind::Ballot {
+            voter,
+            rev,
+            choice,
+            stamp,
+        } => {
+            spellable("voter", voter)?;
+            if !rev.is_empty() {
+                spellable("revision", rev)?;
+            }
+            spellable_choice(choice)?;
+            if stamp.is_empty() || stamp.chars().any(char::is_control) {
+                return Err(bad(format!("stamp {stamp:?}")));
+            }
+            Ok(())
+        }
+        OpKind::AddRevision { rev_id, summary } => {
+            spellable("revision", rev_id)?;
+            if !summary.is_empty()
+                && summary
+                    .chars()
+                    .any(|ch| ch.is_whitespace() || ch.is_control())
+            {
+                return Err(bad(format!("summary {summary:?}")));
+            }
+            Ok(())
+        }
+        OpKind::SetTarget { target_id, fields } => {
+            spellable_colon("target id", target_id)?;
+            for (name, value) in fields {
+                spellable_colon("target field", name)?;
+                if value.chars().any(char::is_control) {
+                    return Err(bad(format!("target field {value:?}")));
+                }
+            }
+            Ok(())
+        }
+        OpKind::Retarget { target_id } => spellable("retarget", target_id),
+        OpKind::AddDeed { accession } => spellable("deed", accession),
+        OpKind::Link { kind, other } => {
+            spellable("link kind", kind)?;
+            spellable("id", other)?;
+            Ok(())
+        }
+        OpKind::AppendLog { .. } | OpKind::SetBody { .. } | OpKind::Retire { .. } => Ok(()),
     }
 }
 
 impl Live {
     fn from_op(op: &Op, short_id: &str, heading: IssueHeading, id: OpId) -> Self {
-        let ballots = load_votes(&heading);
+        let (ballots, raw_votes) = load_votes(&heading);
         let (revisions, raw_revisions) = load_revisions(&heading);
         let (links, raw_links) = load_links(&heading);
         let (targets, retarget, raw_targets) = load_targets(&heading);
-        let raw = kept_lines(raw_revisions, raw_links, raw_targets);
+        let raw = kept_lines(raw_votes, raw_revisions, raw_links, raw_targets);
         let order_fixed = heading.property_order.len();
         Self {
             project: op.project.clone(),
