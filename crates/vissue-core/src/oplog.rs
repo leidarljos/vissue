@@ -533,6 +533,8 @@ struct Live {
     revisions: BTreeMap<String, String>,
     targets: BTreeMap<(String, String), String>,
     retarget: Option<String>,
+    /// Drawer lines the codec does not split. A rewrite copies them verbatim.
+    raw: BTreeMap<String, BTreeSet<String>>,
     born_lamport: u64,
     born_id: OpId,
     /// Length of the `property_order` prefix fixed by create or genesis.
@@ -555,10 +557,9 @@ struct UnionSet {
 impl UnionSet {
     fn from_scalar(source: OpId, value: &str) -> Self {
         let mut set = Self::default();
-        // Same element as `insert`. A scalar or a genesis value is one
-        // accession, including its spaces; splitting it would drop them
-        // on the next add.
-        set.insert(source, value);
+        for element in decode_elements(value) {
+            set.insert(source, &element);
+        }
         set
     }
 
@@ -588,14 +589,7 @@ impl UnionSet {
         for (_, element) in &self.tags {
             elements.insert(element.as_str());
         }
-        let mut out = String::new();
-        for (index, element) in elements.iter().enumerate() {
-            if index > 0 {
-                out.push(' ');
-            }
-            out.push_str(element);
-        }
-        out
+        encode_elements(elements)
     }
 }
 
@@ -778,7 +772,7 @@ fn apply(mem: &mut Mem, id: OpId, op: &Op) -> Result<()> {
             choice,
             stamp,
         } => {
-            let line = format!("{stamp} {voter}: {choice}");
+            let line = vote_line(rev, stamp, voter, choice);
             let slot = ballot_slot(voter, rev);
             write_named(mem, id, op, &format!("ballot:{slot}"), &line)
         }
@@ -967,6 +961,17 @@ fn heading_writes(heading: &IssueHeading) -> Vec<(String, String)> {
     }
     for (slot, line) in load_votes(heading) {
         fields.push((format!("ballot:{slot}"), line));
+    }
+    let (revisions, _) = load_revisions(heading);
+    for (rev, summary) in revisions {
+        fields.push((format!("revision:{rev}"), summary));
+    }
+    let (targets, retarget, _) = load_targets(heading);
+    for ((target, key), value) in targets {
+        fields.push((format!("target:{target}:{key}"), value));
+    }
+    if let Some(target) = retarget {
+        fields.push(("retarget".to_string(), target));
     }
     fields
 }
@@ -1172,11 +1177,12 @@ fn project(live: &mut Live, field: &str, value: &str) {
                 } else {
                     live.links.insert((kind.to_string(), other.to_string()));
                 }
-                let lines: Vec<String> = live
+                let mut lines: Vec<String> = live
                     .links
                     .iter()
                     .map(|(kind, other)| link_line(kind, other))
                     .collect();
+                push_raw(&live.raw, "LINKS", &mut lines);
                 replace_drawer(&mut live.heading, "LINKS", &lines);
             }
         }
@@ -1221,11 +1227,12 @@ fn rewrite_ballots(live: &mut Live) {
 
 fn rewrite_revisions(live: &mut Live, rev: &str, summary: &str) {
     live.revisions.insert(rev.to_string(), summary.to_string());
-    let lines: Vec<String> = live
+    let mut lines: Vec<String> = live
         .revisions
         .iter()
         .map(|(rev, summary)| revision_line(rev, summary))
         .collect();
+    push_raw(&live.raw, "REVISIONS", &mut lines);
     replace_drawer(&mut live.heading, "REVISIONS", &lines);
 }
 
@@ -1237,6 +1244,7 @@ fn rewrite_targets(live: &mut Live) {
     if let Some(target) = &live.retarget {
         lines.push(retarget_line(target));
     }
+    push_raw(&live.raw, "TARGETS", &mut lines);
     lines.sort();
     replace_drawer(&mut live.heading, "TARGETS", &lines);
 }
@@ -1350,52 +1358,210 @@ fn load_votes(heading: &IssueHeading) -> BTreeMap<String, String> {
     votes
 }
 
-fn load_revisions(heading: &IssueHeading) -> BTreeMap<String, String> {
+fn load_revisions(heading: &IssueHeading) -> (BTreeMap<String, String>, BTreeSet<String>) {
     let mut revisions = BTreeMap::new();
+    let mut raw = BTreeSet::new();
     for line in drawer_lines(heading, "REVISIONS") {
-        let (rev, summary) = revision_parts(&line);
-        revisions.insert(rev, summary);
-    }
-    revisions
-}
-
-fn load_links(heading: &IssueHeading) -> BTreeSet<(String, String)> {
-    let mut links = BTreeSet::new();
-    for line in drawer_lines(heading, "LINKS") {
-        if let Some(pair) = parse_link_line(&line) {
-            links.insert(pair);
+        match revision_parts(&line) {
+            Some((rev, summary)) => {
+                revisions.insert(rev, summary);
+            }
+            None => {
+                raw.insert(line);
+            }
         }
     }
-    links
+    (revisions, raw)
 }
 
-fn load_targets(heading: &IssueHeading) -> (BTreeMap<(String, String), String>, Option<String>) {
+fn load_links(heading: &IssueHeading) -> (BTreeSet<(String, String)>, BTreeSet<String>) {
+    let mut links = BTreeSet::new();
+    let mut raw = BTreeSet::new();
+    for line in drawer_lines(heading, "LINKS") {
+        match parse_link_line(&line) {
+            Some(pair) => {
+                links.insert(pair);
+            }
+            None => {
+                raw.insert(line);
+            }
+        }
+    }
+    (links, raw)
+}
+
+fn load_targets(
+    heading: &IssueHeading,
+) -> (
+    BTreeMap<(String, String), String>,
+    Option<String>,
+    BTreeSet<String>,
+) {
     let mut targets = BTreeMap::new();
     let mut retarget = None;
+    let mut raw = BTreeSet::new();
     for line in drawer_lines(heading, "TARGETS") {
-        if let Some(id) = line.strip_prefix("retarget ") {
+        if let Some(id) = line.strip_prefix("retarget ")
+            && !id.is_empty()
+        {
             retarget = Some(id.to_string());
             continue;
         }
-        let Some((target, rest)) = line.split_once(' ') else {
-            continue;
-        };
-        let Some((key, value)) = rest.split_once(' ') else {
-            continue;
-        };
-        if target.is_empty() || key.is_empty() {
-            continue;
+        match parse_target_line(&line) {
+            Some((target, key, value)) => {
+                targets.insert((target, key), value);
+            }
+            None => {
+                raw.insert(line);
+            }
         }
-        targets.insert((target.to_string(), key.to_string()), value.to_string());
     }
-    (targets, retarget)
+    (targets, retarget, raw)
+}
+
+fn push_raw(raw: &BTreeMap<String, BTreeSet<String>>, drawer: &str, lines: &mut Vec<String>) {
+    let Some(extra) = raw.get(drawer) else {
+        return;
+    };
+    lines.extend(extra.iter().cloned());
+}
+
+fn kept_lines(
+    revisions: BTreeSet<String>,
+    links: BTreeSet<String>,
+    targets: BTreeSet<String>,
+) -> BTreeMap<String, BTreeSet<String>> {
+    let mut raw = BTreeMap::new();
+    if !revisions.is_empty() {
+        raw.insert("REVISIONS".to_string(), revisions);
+    }
+    if !links.is_empty() {
+        raw.insert("LINKS".to_string(), links);
+    }
+    if !targets.is_empty() {
+        raw.insert("TARGETS".to_string(), targets);
+    }
+    raw
+}
+
+/// A list token that contains the separator is a git-config quoted string.
+/// Simple tokens stay bare, so `acc1 acc2` decodes unchanged.
+fn needs_quote(text: &str) -> bool {
+    text.is_empty()
+        || text
+            .chars()
+            .any(|ch| ch.is_whitespace() || ch == '"' || ch == '\\')
+}
+
+fn quote_token(text: &str) -> String {
+    if !needs_quote(text) {
+        return text.to_string();
+    }
+    let mut out = String::from("\"");
+    for ch in text.chars() {
+        match ch {
+            '"' | '\\' => {
+                out.push('\\');
+                out.push(ch);
+            }
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            '\u{0008}' => out.push_str("\\b"),
+            _ => out.push(ch),
+        }
+    }
+    out.push('"');
+    out
+}
+
+fn encode_elements<'a>(elements: impl IntoIterator<Item = &'a str>) -> String {
+    let mut out = String::new();
+    for (index, element) in elements.into_iter().enumerate() {
+        if index > 0 {
+            out.push(' ');
+        }
+        out.push_str(&quote_token(element));
+    }
+    out
+}
+
+/// Inverse of [`encode_elements`] for bytes this code wrote.
+///
+/// A value with no quote and no backslash is a list of simple tokens when
+/// every token is non-empty (`acc1 acc2`). A doubled space is one element
+/// (`a  b`), which a whitespace split would destroy.
+fn decode_elements(value: &str) -> Vec<String> {
+    if value.is_empty() {
+        return Vec::new();
+    }
+    if !value.contains(['"', '\\']) {
+        if value.split(' ').any(str::is_empty) {
+            return vec![value.to_string()];
+        }
+        return value.split(' ').map(str::to_string).collect();
+    }
+    parse_quoted_elements(value)
+}
+
+fn parse_quoted_elements(value: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut chars = value.chars().peekable();
+    while chars.peek().is_some() {
+        while chars.peek() == Some(&' ') {
+            chars.next();
+        }
+        if chars.peek().is_none() {
+            break;
+        }
+        if chars.peek() == Some(&'"') {
+            chars.next();
+            let mut element = String::new();
+            loop {
+                match chars.next() {
+                    Some('\\') => match chars.next() {
+                        Some('n') => element.push('\n'),
+                        Some('t') => element.push('\t'),
+                        Some('b') => element.push('\u{0008}'),
+                        Some(ch) => element.push(ch),
+                        None => element.push('\\'),
+                    },
+                    Some('"') => break,
+                    Some(ch) => element.push(ch),
+                    None => break,
+                }
+            }
+            out.push(element);
+        } else {
+            let mut element = String::new();
+            while let Some(&ch) = chars.peek() {
+                if ch == ' ' {
+                    break;
+                }
+                element.push(ch);
+                chars.next();
+            }
+            out.push(element);
+        }
+    }
+    out
 }
 
 fn link_line(kind: &str, other: &str) -> String {
-    format!("{kind} {other}")
+    if needs_quote(kind) || other.contains(['"', '\\']) {
+        format!("{} {}", quote_token(kind), quote_token(other))
+    } else {
+        format!("{kind} {other}")
+    }
 }
 
 fn parse_link_line(line: &str) -> Option<(String, String)> {
+    if line.contains(['"', '\\']) {
+        let tokens = parse_quoted_elements(line);
+        if tokens.len() == 2 && !tokens[0].is_empty() && !tokens[1].is_empty() {
+            return Some((tokens[0].clone(), tokens[1].clone()));
+        }
+        return None;
+    }
     let (kind, other) = line.split_once(' ')?;
     if kind.is_empty() || other.is_empty() {
         return None;
@@ -1404,27 +1570,83 @@ fn parse_link_line(line: &str) -> Option<(String, String)> {
 }
 
 fn target_field_line(target: &str, key: &str, value: &str) -> String {
-    format!("{target} {key} {value}")
+    if needs_quote(target) || needs_quote(key) || value.contains(['"', '\\']) {
+        format!(
+            "{} {} {}",
+            quote_token(target),
+            quote_token(key),
+            quote_token(value)
+        )
+    } else {
+        format!("{target} {key} {value}")
+    }
+}
+
+fn parse_target_line(line: &str) -> Option<(String, String, String)> {
+    if line.contains(['"', '\\']) {
+        let tokens = parse_quoted_elements(line);
+        if tokens.len() == 3 && !tokens[0].is_empty() && !tokens[1].is_empty() {
+            return Some((tokens[0].clone(), tokens[1].clone(), tokens[2].clone()));
+        }
+        return None;
+    }
+    let (target, rest) = line.split_once(' ')?;
+    let (key, value) = rest.split_once(' ')?;
+    if target.is_empty() || key.is_empty() {
+        return None;
+    }
+    Some((target.to_string(), key.to_string(), value.to_string()))
 }
 
 fn retarget_line(target: &str) -> String {
     format!("retarget {target}")
 }
 
-/// `{id} {summary}`. An empty summary is a genesis line kept whole.
+/// `{id} {summary}`. A token that contains a space is quoted, so `1 alpha`
+/// stays two bare tokens and `1 2` is not read back as id `1`.
 fn revision_line(rev: &str, summary: &str) -> String {
     if summary.is_empty() {
-        rev.to_string()
+        quote_token(rev)
     } else {
-        format!("{rev} {summary}")
+        format!("{} {}", quote_token(rev), quote_token(summary))
     }
 }
 
-/// The id and the summary may both contain spaces, so the first space is
-/// not the id. `1 2 3` and `1 2 x` would share `1` and the next rewrite
-/// would drop a line. The line is the id; [`revision_line`] writes it back.
-fn revision_parts(line: &str) -> (String, String) {
-    (line.to_string(), String::new())
+/// Id and summary for one revision line.
+///
+/// A simple line is one bare id and one bare summary (`1 alpha`, or `9`
+/// alone). A line with a second space and no quotes is one id (`1 2 3`
+/// beside `1 2 x`). Quotes are the form [`revision_line`] writes when a
+/// token contains the separator.
+fn revision_parts(line: &str) -> Option<(String, String)> {
+    if line.is_empty() {
+        return None;
+    }
+    if line.contains(['"', '\\']) {
+        let tokens = parse_quoted_elements(line);
+        return match tokens.as_slice() {
+            [id] => Some((id.clone(), String::new())),
+            [id, summary] => Some((id.clone(), summary.clone())),
+            _ => None,
+        };
+    }
+    match line.split_once(' ') {
+        Some((id, summary)) if !id.is_empty() && !summary.is_empty() && !summary.contains(' ') => {
+            Some((id.to_string(), summary.to_string()))
+        }
+        Some(_) => Some((line.to_string(), String::new())),
+        None => Some((line.to_string(), String::new())),
+    }
+}
+
+/// The ballot line `parse_ballot` reads. The revision is a `[rev=TOKEN]`
+/// prefix, the same bytes the org writer stores.
+fn vote_line(rev: &str, stamp: &str, voter: &str, choice: &str) -> String {
+    if rev.is_empty() {
+        format!("{stamp} {voter}: {choice}")
+    } else {
+        format!("[rev={rev}] {stamp} {voter}: {choice}")
+    }
 }
 
 fn ballot_slot(voter: &str, rev: &str) -> String {
@@ -1459,9 +1681,10 @@ fn check_op(op: &Op) -> Result<()> {
 impl Live {
     fn from_op(op: &Op, short_id: &str, heading: IssueHeading, id: OpId) -> Self {
         let ballots = load_votes(&heading);
-        let revisions = load_revisions(&heading);
-        let links = load_links(&heading);
-        let (targets, retarget) = load_targets(&heading);
+        let (revisions, raw_revisions) = load_revisions(&heading);
+        let (links, raw_links) = load_links(&heading);
+        let (targets, retarget, raw_targets) = load_targets(&heading);
+        let raw = kept_lines(raw_revisions, raw_links, raw_targets);
         let order_fixed = heading.property_order.len();
         Self {
             project: op.project.clone(),
@@ -1472,6 +1695,7 @@ impl Live {
             revisions,
             targets,
             retarget,
+            raw,
             born_lamport: op.lamport,
             born_id: id,
             order_fixed,
@@ -2391,6 +2615,7 @@ mod tests {
             revisions: BTreeMap::new(),
             targets: BTreeMap::new(),
             retarget: None,
+            raw: BTreeMap::new(),
             born_lamport: lamport,
             born_id: OpId([0; 32]),
             order_fixed: 1,

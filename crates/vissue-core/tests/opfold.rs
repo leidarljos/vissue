@@ -1244,7 +1244,7 @@ fn scalar_on_a_set_keeps_the_union() {
             let heading = &folded.issues[&("proj".to_string(), "proj-1".to_string())];
             assert_eq!(
                 heading.properties.get("BLOCKED_BY").map(String::as_str),
-                Some("p q r t")
+                Some("\"p q\" r t")
             );
             let clash = clash_ids(folded, "property:BLOCKED_BY");
             assert_eq!(clash.len(), 3, "{clash:?}");
@@ -1652,7 +1652,7 @@ fn concurrent_ops_fold_to_the_same_bytes_in_every_order() {
         );
         assert_eq!(
             heading.properties.get("DEEDS").map(String::as_str),
-            Some("a  b c")
+            Some("\"a  b\" c")
         );
         assert_eq!(
             heading.properties.get("OWNER").map(String::as_str),
@@ -1666,8 +1666,8 @@ fn concurrent_ops_fold_to_the_same_bytes_in_every_order() {
         let revisions = drawers.find(":REVISIONS:").expect("revisions drawer");
         let votes = drawers.find(":VOTES:").expect("votes drawer");
         assert!(revisions < votes, "{drawers}");
-        assert!(drawers.contains("1 2 3"), "{drawers}");
-        assert!(drawers.contains("1 2 x"), "{drawers}");
+        assert!(drawers.contains("1 \"2 3\""), "{drawers}");
+        assert!(drawers.contains("\"1 2\" x"), "{drawers}");
         assert!(drawers.contains("[2026-04-01 Wed] ann: yes"), "{drawers}");
         let mut sorted = heading.extra_drawers.clone();
         sorted.sort();
@@ -1702,17 +1702,49 @@ fn issue_text(folded: &Folded) -> String {
     text
 }
 
-/// Genesis and a scalar set value must use the same keys as the op that
-/// rewrites the drawer. Each row is one heading and the next op; every
-/// input order keeps the genesis line.
+fn both_ways(ops: &[Op], mut check: impl FnMut(&Folded)) {
+    let forward = fold(ops).expect("fold");
+    let mut reversed = ops.to_vec();
+    reversed.reverse();
+    let backward = fold(&reversed).expect("fold");
+    assert_eq!(
+        folded_bytes(&forward),
+        folded_bytes(&backward),
+        "input order changed the fold"
+    );
+    check(&forward);
+}
+
+fn reencode(heading: &IssueHeading, kind: OpKind) -> Folded {
+    let born = genesis_of(heading.clone());
+    let next = wire(&spawned(&born, kind, 1));
+    fold(&[born, next]).expect("reencode")
+}
+
+fn heading_of(folded: &Folded) -> IssueHeading {
+    folded.issues[&("proj".to_string(), "proj-1".to_string())].clone()
+}
+
+fn clash_of<'a>(folded: &'a Folded, field: &str) -> Option<&'a vissue_core::oplog::Conflict> {
+    folded.conflicts.iter().find(|clash| clash.field == field)
+}
+
+fn line_is(text: &str, line: &str) -> bool {
+    text.lines().filter(|item| *item == line).count() == 1
+}
+
+/// Genesis and a scalar set value must use the same codec as the op that
+/// rewrites the drawer. Each row is one heading and the next op. Nothing
+/// is dropped or duplicated, and a clash is recorded when the base records
+/// one for a title. Re-encoding a line this code wrote yields that line.
 #[test]
 fn genesis_lines_survive_the_next_op() {
-    let mut deeds = plain_heading("proj-1", "Genesis");
-    deeds
+    let mut deed_heading = plain_heading("proj-1", "Genesis");
+    deed_heading
         .properties
         .insert("DEEDS".to_string(), "a  b".to_string());
-    deeds.property_order.push("DEEDS".to_string());
-    let deeds_born = genesis_of(deeds);
+    deed_heading.property_order.push("DEEDS".to_string());
+    let deeds_born = genesis_of(deed_heading);
     let deed = wire(&spawned(
         &deeds_born,
         OpKind::AddDeed {
@@ -1824,6 +1856,309 @@ fn genesis_lines_survive_the_next_op() {
             report.push_str(label);
             report.push('\n');
             report.push_str(&case_lost);
+        }
+    }
+
+    // 1. A rendered list reloads as its elements. `a  b` stays one element.
+    let mut listed = plain_heading("proj-1", "Genesis");
+    listed
+        .properties
+        .insert("DEEDS".to_string(), "acc1 acc2".to_string());
+    listed
+        .properties
+        .insert("BLOCKED_BY".to_string(), "a-1 a-2".to_string());
+    listed.property_order.push("DEEDS".to_string());
+    listed.property_order.push("BLOCKED_BY".to_string());
+    let listed_born = genesis_of(listed);
+    let add_acc = wire(&spawned(
+        &listed_born,
+        OpKind::AddDeed {
+            accession: "acc1".to_string(),
+        },
+        1,
+    ));
+    let add_block = wire(&spawned(
+        &listed_born,
+        OpKind::Link {
+            kind: "blocked-by".to_string(),
+            other: "a-1".to_string(),
+        },
+        2,
+    ));
+    both_ways(&[listed_born, add_acc, add_block], |folded| {
+        if deeds(folded).as_deref() != Some("acc1 acc2") {
+            report.push_str(&format!("deed list {:?}\n", deeds(folded)));
+        }
+        if blocked(folded).as_deref() != Some("a-1 a-2") {
+            report.push_str(&format!("blocker list {:?}\n", blocked(folded)));
+        }
+        if !folded.conflicts.is_empty() {
+            report.push_str(&format!("set clash {:?}\n", folded.conflicts));
+        }
+    });
+    let mut spaced_h = plain_heading("proj-1", "Genesis");
+    spaced_h
+        .properties
+        .insert("DEEDS".to_string(), "a  b".to_string());
+    spaced_h.property_order.push("DEEDS".to_string());
+    let spaced_born = genesis_of(spaced_h);
+    let spaced_add = wire(&spawned(
+        &spaced_born,
+        OpKind::AddDeed {
+            accession: "c".to_string(),
+        },
+        1,
+    ));
+    let spaced = fold(&[spaced_born, spaced_add]).expect("spaced deeds");
+    if deeds(&spaced).as_deref() != Some("\"a  b\" c") {
+        report.push_str(&format!("spaced deed {:?}\n", deeds(&spaced)));
+    }
+    let spaced_again = reencode(
+        &heading_of(&spaced),
+        OpKind::AddDeed {
+            accession: "c".to_string(),
+        },
+    );
+    if deeds(&spaced_again).as_deref() != Some("\"a  b\" c") {
+        report.push_str(&format!("set round trip {:?}\n", deeds(&spaced_again)));
+    }
+
+    // 2. A ballot line carries its rev, so two revs of one voter both survive.
+    let vote_root = wire(&Op::create("proj", "proj-1", "Votes", "seat").unwrap());
+    let yes = wire(&spawned(
+        &vote_root,
+        OpKind::Ballot {
+            voter: "ann".to_string(),
+            rev: "1".to_string(),
+            choice: "yes".to_string(),
+            stamp: "[2026-01-01 Thu]".to_string(),
+        },
+        1,
+    ));
+    let no = wire(&spawned(
+        &yes,
+        OpKind::Ballot {
+            voter: "ann".to_string(),
+            rev: "2".to_string(),
+            choice: "no".to_string(),
+            stamp: "[2026-01-02 Fri]".to_string(),
+        },
+        2,
+    ));
+    let voted = fold(&[vote_root, yes, no]).expect("ballots");
+    let vote_text = drawers(&voted, "proj-1");
+    let yes_line = "[rev=1] [2026-01-01 Thu] ann: yes";
+    let no_line = "[rev=2] [2026-01-02 Fri] ann: no";
+    if !line_is(&vote_text, yes_line) || !line_is(&vote_text, no_line) {
+        report.push_str(&format!("ballot write {vote_text}\n"));
+    }
+    let cara = reencode(
+        &heading_of(&voted),
+        OpKind::Ballot {
+            voter: "cara".to_string(),
+            rev: String::new(),
+            choice: "yes".to_string(),
+            stamp: "[2026-02-01 Sun]".to_string(),
+        },
+    );
+    let cara_text = drawers(&cara, "proj-1");
+    if !line_is(&cara_text, yes_line) || !line_is(&cara_text, no_line) {
+        report.push_str(&format!("ballot round trip {cara_text}\n"));
+    }
+    if !cara.conflicts.is_empty() {
+        report.push_str(&format!("ballot clash {:?}\n", cara.conflicts));
+    }
+
+    // 3. A revision is keyed by id. A simple line updates. Spaced ids stay distinct.
+    let mut alpha = plain_heading("proj-1", "Genesis");
+    alpha.extra_drawers = vec![":REVISIONS:\n1 alpha\n:END:\n".to_string()];
+    let alpha_born = genesis_of(alpha);
+    let beta = wire(&spawned(
+        &alpha_born,
+        OpKind::AddRevision {
+            rev_id: "1".to_string(),
+            summary: "beta".to_string(),
+        },
+        1,
+    ));
+    let updated = fold(&[alpha_born, beta]).expect("revision update");
+    let updated_text = drawers(&updated, "proj-1");
+    if !line_is(&updated_text, "1 beta") || updated_text.contains("1 alpha") {
+        report.push_str(&format!("revision update {updated_text}\n"));
+    }
+    if !updated.conflicts.is_empty() {
+        report.push_str(&format!("revision clash {:?}\n", updated.conflicts));
+    }
+    let rev_root = wire(&Op::create("proj", "proj-1", "Revs", "seat").unwrap());
+    let wide = wire(&spawned(
+        &rev_root,
+        OpKind::AddRevision {
+            rev_id: "1".to_string(),
+            summary: "2 3".to_string(),
+        },
+        1,
+    ));
+    let nested = wire(&spawned(
+        &wide,
+        OpKind::AddRevision {
+            rev_id: "1 2".to_string(),
+            summary: "x".to_string(),
+        },
+        2,
+    ));
+    let written_revs = fold(&[rev_root, wide, nested]).expect("revision lines");
+    let rev_text = drawers(&written_revs, "proj-1");
+    if !line_is(&rev_text, "1 \"2 3\"") || !line_is(&rev_text, "\"1 2\" x") {
+        report.push_str(&format!("revision write {rev_text}\n"));
+    }
+    let rev_again = reencode(
+        &heading_of(&written_revs),
+        OpKind::AddRevision {
+            rev_id: "1 2".to_string(),
+            summary: "x".to_string(),
+        },
+    );
+    let rev_again_text = drawers(&rev_again, "proj-1");
+    if !line_is(&rev_again_text, "1 \"2 3\"") || !line_is(&rev_again_text, "\"1 2\" x") {
+        report.push_str(&format!("revision round trip {rev_again_text}\n"));
+    }
+
+    // 4. Genesis is a writer of each target, retarget, and revision slot.
+    let anchor = wire(&Op::create("proj", "anchor-1", "Anchor", "seat").unwrap());
+    let mut frontier_h = plain_heading("proj-1", "Genesis");
+    frontier_h.extra_drawers = vec![
+        ":TARGETS:\nt1 status open\nt2 owner ada\nretarget old\n:END:\n".to_string(),
+        ":REVISIONS:\n9\n1 alpha\n:END:\n".to_string(),
+    ];
+    let frontier_born = genesis_of(frontier_h);
+    let shut = wire(&parented(
+        &anchor,
+        &frontier_born,
+        OpKind::SetTarget {
+            target_id: "t1".to_string(),
+            fields: vec![("status".to_string(), "shut".to_string())],
+        },
+        1,
+    ));
+    let moved = wire(&parented(
+        &anchor,
+        &frontier_born,
+        OpKind::Retarget {
+            target_id: "new".to_string(),
+        },
+        2,
+    ));
+    let hello = wire(&parented(
+        &anchor,
+        &frontier_born,
+        OpKind::AddRevision {
+            rev_id: "9".to_string(),
+            summary: "hello".to_string(),
+        },
+        3,
+    ));
+    let retitle = wire(&parented(
+        &anchor,
+        &frontier_born,
+        OpKind::SetField {
+            name: "title".to_string(),
+            value: "Other".to_string(),
+        },
+        4,
+    ));
+    both_ways(
+        &[anchor, frontier_born, shut, moved, hello, retitle],
+        |folded| {
+            let text = issue_text(folded);
+            for field in ["title", "target:t1:status", "retarget", "revision:9"] {
+                match clash_of(folded, field) {
+                    Some(clash) if clash.ops.len() == 2 => {}
+                    other => report.push_str(&format!("frontier {field} {other:?}\n")),
+                }
+            }
+            if folded.conflicts.len() != 4 {
+                report.push_str(&format!("frontier count {:?}\n", folded.conflicts));
+            }
+            if !text.contains("t2 owner ada") || !text.contains("1 alpha") {
+                report.push_str(&format!("frontier lost a line {text}\n"));
+            }
+            if folded.issues[&("proj".to_string(), "proj-1".to_string())].title != "Other" {
+                report.push_str("frontier title\n");
+            }
+        },
+    );
+
+    // 5. A line the loader cannot split is copied through the rewrite.
+    let mut raw_h = plain_heading("proj-1", "Genesis");
+    raw_h.extra_drawers = vec![
+        ":LINKS:\nsolo\nsee-also\nrelates kept\n:END:\n".to_string(),
+        ":TARGETS:\nbare\norphan\nt1 status open\n:END:\n".to_string(),
+        ":VOTES:\nnot a ballot\n:END:\n".to_string(),
+    ];
+    let raw_born = genesis_of(raw_h);
+    let raw_link = wire(&spawned(
+        &raw_born,
+        OpKind::Link {
+            kind: "relates".to_string(),
+            other: "new".to_string(),
+        },
+        1,
+    ));
+    let raw_target = wire(&spawned(
+        &raw_born,
+        OpKind::SetTarget {
+            target_id: "t2".to_string(),
+            fields: vec![("status".to_string(), "shut".to_string())],
+        },
+        2,
+    ));
+    let raw_vote = wire(&spawned(
+        &raw_born,
+        OpKind::Ballot {
+            voter: "bob".to_string(),
+            rev: String::new(),
+            choice: "yes".to_string(),
+            stamp: "[2026-01-03 Sat]".to_string(),
+        },
+        3,
+    ));
+    let raw_folded = fold(&[raw_born, raw_link, raw_target, raw_vote]).expect("raw lines");
+    let raw_text = issue_text(&raw_folded);
+    for needle in [
+        "solo",
+        "see-also",
+        "relates kept",
+        "relates new",
+        "bare",
+        "orphan",
+        "t1 status open",
+        "t2 status shut",
+        "not a ballot",
+    ] {
+        if !line_is(&raw_text, needle) {
+            report.push_str(&format!("raw lost {needle} in {raw_text}\n"));
+        }
+    }
+    let raw_again = reencode(
+        &heading_of(&raw_folded),
+        OpKind::Link {
+            kind: "relates".to_string(),
+            other: "new".to_string(),
+        },
+    );
+    let raw_again_text = issue_text(&raw_again);
+    for needle in [
+        "solo",
+        "see-also",
+        "bare",
+        "orphan",
+        "relates kept",
+        "relates new",
+    ] {
+        if !line_is(&raw_again_text, needle) {
+            report.push_str(&format!(
+                "raw round trip lost {needle} in {raw_again_text}\n"
+            ));
         }
     }
     assert!(report.is_empty(), "{report}");
