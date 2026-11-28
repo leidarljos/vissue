@@ -2237,13 +2237,23 @@ impl<'a> Seg<'a> {
         let count = ((tag >> 2) & 0x3fff_ffff) as usize;
         let data = ((tag >> 32) & 0xffff) as usize;
         let ptrs = ((tag >> 48) & 0xffff) as usize;
-        if count * (data + ptrs) != words {
+        let stride = data + ptrs;
+        // A zero stride makes the product zero for every count, so a short
+        // segment can claim 2^28 elements and the reserve aborts. Charge one
+        // word per element against the words still in the segment.
+        let spanned = count
+            .checked_mul(stride)
+            .ok_or_else(|| bad("a struct list does not match its tag"))?;
+        if spanned != words {
             return Err(bad("a struct list does not match its tag"));
         }
-        let mut out = Vec::with_capacity(count);
+        if stride == 0 && count > self.words.len().saturating_sub(at.saturating_add(1)) {
+            return Err(bad("a struct list does not match its tag"));
+        }
+        let mut out = Vec::new();
         for index in 0..count {
             out.push(St {
-                at: at + 1 + index * (data + ptrs),
+                at: at + 1 + index * stride,
                 data,
                 ptrs,
             });

@@ -186,6 +186,59 @@ fn a_non_canonical_segment_is_refused() {
 }
 
 #[test]
+fn a_zero_size_composite_claiming_too_many_elements_is_refused() {
+    let op = Op {
+        parents: Vec::new(),
+        lamport: 1,
+        seat: "seat".to_string(),
+        project: "proj".to_string(),
+        issue: IssueKey::derive("proj", "proj-1"),
+        kind: OpKind::SetTarget {
+            target_id: "t".to_string(),
+            fields: vec![("a".to_string(), "b".to_string())],
+        },
+        wall: 0,
+    };
+    let segment = op.canonical_segment().unwrap();
+    assert_eq!(segment.len(), 208);
+    let mut words: Vec<u64> = segment
+        .chunks_exact(8)
+        .map(|chunk| u64::from_le_bytes(chunk.try_into().unwrap()))
+        .collect();
+    let tag_at = words
+        .iter()
+        .position(|word| *word == (1u64 << 2) | (2u64 << 48))
+        .unwrap();
+    let ptr_at = words
+        .iter()
+        .enumerate()
+        .find_map(|(idx, word)| {
+            if (word & 3) != 1 || ((word >> 32) & 7) != 7 {
+                return None;
+            }
+            let raw = ((word >> 2) & 0x3fff_ffff) as u32;
+            let offset = if (raw & (1 << 29)) != 0 {
+                (raw | 0xc000_0000) as i32
+            } else {
+                raw as i32
+            };
+            let at = idx as i64 + 1 + i64::from(offset);
+            (usize::try_from(at).ok() == Some(tag_at)).then_some(idx)
+        })
+        .unwrap();
+    assert_eq!(words[ptr_at] >> 35, 2);
+    let offset_bits = (words[ptr_at] >> 2) & 0x3fff_ffff;
+    words[ptr_at] = 1 | (offset_bits << 2) | (7 << 32);
+    words[tag_at] = 1u64 << 30;
+    let mut crafted = Vec::new();
+    for word in &words {
+        crafted.extend_from_slice(&word.to_le_bytes());
+    }
+    assert_eq!(crafted.len(), 208);
+    assert!(Op::from_message_bytes(&framed(&crafted)).is_err());
+}
+
+#[test]
 fn a_non_derived_issue_key_is_refused() {
     let op = Op::create("proj", "proj-1", "Only", "seat").unwrap();
     let key = *IssueKey::derive("proj", "proj-1").as_bytes();
