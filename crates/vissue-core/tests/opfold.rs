@@ -5,6 +5,7 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::process::Command;
 
 use vissue_core::model::{IssueHeading, LogEntry};
 use vissue_core::oplog::{Folded, IssueKey, Op, OpId, OpKind, describe, fold};
@@ -236,6 +237,192 @@ fn a_zero_size_composite_claiming_too_many_elements_is_refused() {
     }
     assert_eq!(crafted.len(), 208);
     assert!(Op::from_message_bytes(&framed(&crafted)).is_err());
+}
+
+fn pointer_target(idx: usize, word: u64) -> Option<usize> {
+    if word & 3 > 1 {
+        return None;
+    }
+    let raw = ((word >> 2) & 0x3fff_ffff) as u32;
+    let offset = if raw & (1 << 29) != 0 {
+        (raw | 0xc000_0000) as i32
+    } else {
+        raw as i32
+    };
+    usize::try_from(idx as i64 + 1 + i64::from(offset)).ok()
+}
+
+fn retarget(from: usize, to: usize, template: u64) -> u64 {
+    let offset = to as i64 - from as i64 - 1;
+    assert!(
+        (-(1 << 29)..(1 << 29)).contains(&offset),
+        "offset {offset} from {from} to {to}"
+    );
+    let raw = (offset as u32 as u64) & 0x3fff_ffff;
+    (template & !(0x3fff_ffffu64 << 2)) | (raw << 2)
+}
+
+/// One set-target whose field texts all name a single blob.
+///
+/// `elements == 1` is the canonical segment. A larger count inserts pointer
+/// words and aims every text at that blob, which is not canonical.
+fn aliased_set_target(elements: usize, blob_len: usize) -> Vec<u8> {
+    assert!(elements >= 1);
+    let op = Op {
+        parents: Vec::new(),
+        lamport: 1,
+        seat: "seat".to_string(),
+        project: "proj".to_string(),
+        issue: IssueKey::derive("proj", "proj-1"),
+        kind: OpKind::SetTarget {
+            target_id: "t".to_string(),
+            fields: vec![("k".to_string(), "v".repeat(blob_len))],
+        },
+        wall: 0,
+    };
+    let segment = op.canonical_segment().unwrap();
+    let mut words: Vec<u64> = segment
+        .chunks_exact(8)
+        .map(|chunk| u64::from_le_bytes(chunk.try_into().unwrap()))
+        .collect();
+    let tag_at = words
+        .iter()
+        .position(|word| *word == (1u64 << 2) | (2u64 << 48))
+        .unwrap();
+    let name_word = words[tag_at + 1];
+    let value_word = words[tag_at + 2];
+    assert_ne!(name_word, 0);
+    assert_ne!(value_word, 0);
+    let name_at = pointer_target(tag_at + 1, name_word).unwrap();
+    let value_at = pointer_target(tag_at + 2, value_word).unwrap();
+    let name_bytes = (name_word >> 35) as usize;
+    assert_eq!(name_at, tag_at + 3);
+    assert_eq!(value_at, name_at + name_bytes.div_ceil(8));
+    let extra = (elements - 1) * 2;
+    let name_to = name_at + extra;
+    let value_to = value_at + extra;
+    words.splice(tag_at + 3..tag_at + 3, std::iter::repeat_n(0u64, extra));
+    let ptr_at = words
+        .iter()
+        .enumerate()
+        .find_map(|(idx, word)| {
+            if (word & 3) != 1 || ((word >> 32) & 7) != 7 {
+                return None;
+            }
+            (pointer_target(idx, *word) == Some(tag_at)).then_some(idx)
+        })
+        .unwrap();
+    let body = (elements as u64) * 2;
+    words[ptr_at] = (words[ptr_at] & ((1u64 << 35) - 1)) | (body << 35);
+    words[tag_at] = ((elements as u64) << 2) | (2u64 << 48);
+    let shared = if elements == 1 { name_to } else { value_to };
+    for index in 0..elements {
+        let base = tag_at + 1 + index * 2;
+        words[base] = retarget(
+            base,
+            shared,
+            if elements == 1 { name_word } else { value_word },
+        );
+        words[base + 1] = retarget(base + 1, value_to, value_word);
+    }
+    let mut crafted = Vec::with_capacity(words.len() * 8);
+    for word in &words {
+        crafted.extend_from_slice(&word.to_le_bytes());
+    }
+    framed(&crafted)
+}
+
+#[test]
+fn aliased_byte_pointers_are_refused_within_the_segment_budget() {
+    let name = "aliased_byte_pointers_are_refused_within_the_segment_budget";
+    if std::env::var_os("VISSUE_OP_ALIAS_CHILD").is_some() {
+        let bytes = aliased_set_target(12_000, 50_000);
+        assert!(bytes.len() < 1024 * 1024, "{}", bytes.len());
+        let err = Op::from_message_bytes(&bytes).unwrap_err();
+        assert!(
+            err.to_string().contains("op segment is not canonical"),
+            "{err}"
+        );
+        return;
+    }
+
+    let op = Op {
+        parents: Vec::new(),
+        lamport: 1,
+        seat: "seat".to_string(),
+        project: "proj".to_string(),
+        issue: IssueKey::derive("proj", "proj-1"),
+        kind: OpKind::SetTarget {
+            target_id: "t".to_string(),
+            fields: vec![("k".to_string(), "v".repeat(8))],
+        },
+        wall: 0,
+    };
+    assert_eq!(aliased_set_target(1, 8), op.message_bytes().unwrap());
+
+    let err = Op::from_message_bytes(&aliased_set_target(4, 32)).unwrap_err();
+    assert!(
+        err.to_string().contains("op segment is not canonical"),
+        "{err}"
+    );
+
+    let body = "b".repeat(200_000);
+    let wide_body = Op {
+        parents: Vec::new(),
+        lamport: 1,
+        seat: "seat".to_string(),
+        project: "proj".to_string(),
+        issue: IssueKey::derive("proj", "proj-1"),
+        kind: OpKind::SetBody { body },
+        wall: 0,
+    };
+    let decoded = Op::from_message_bytes(&wide_body.message_bytes().unwrap()).unwrap();
+    assert_eq!(decoded.id().unwrap(), wide_body.id().unwrap());
+    match decoded.kind {
+        OpKind::SetBody { body: got } => assert_eq!(got.len(), 200_000),
+        other => panic!("set-body, got {other:?}"),
+    }
+
+    let fields: Vec<(String, String)> = (0..4_000)
+        .map(|index| (format!("f{index:04}"), "v".to_string()))
+        .collect();
+    let wide_target = Op {
+        parents: Vec::new(),
+        lamport: 1,
+        seat: "seat".to_string(),
+        project: "proj".to_string(),
+        issue: IssueKey::derive("proj", "proj-1"),
+        kind: OpKind::SetTarget {
+            target_id: "t".to_string(),
+            fields,
+        },
+        wall: 0,
+    };
+    let segment = wide_target.canonical_segment().unwrap();
+    assert!(segment.len() >= 128_000, "{}", segment.len());
+    let decoded = Op::from_message_bytes(&wide_target.message_bytes().unwrap()).unwrap();
+    assert_eq!(decoded.id().unwrap(), wide_target.id().unwrap());
+
+    // 768 MiB. The crafted op asks for about a gigabyte of copies; this cap
+    // is what makes that decode abort. A follow budget of eight times the
+    // segment returns before the copy and fits under the cap.
+    let exe = std::env::current_exe().unwrap();
+    let out = Command::new("bash")
+        .arg("-c")
+        .arg("ulimit -v 786432 && exec \"$1\" --exact \"$2\"")
+        .arg("bash")
+        .arg(&exe)
+        .arg(name)
+        .env("VISSUE_OP_ALIAS_CHILD", "1")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success() && stdout.contains("1 passed"),
+        "status {:?}\n{stdout}\n{stderr}",
+        out.status
+    );
 }
 
 #[test]

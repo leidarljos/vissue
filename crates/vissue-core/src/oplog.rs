@@ -8,6 +8,7 @@
 //! Concurrent body edits always clash; fold does not merge them.
 //! Org files stay the source of truth; nothing here writes one.
 
+use std::cell::Cell;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -1859,7 +1860,10 @@ fn decode_segment(bytes: &[u8]) -> Result<Op> {
         word.copy_from_slice(chunk);
         words.push(u64::from_le_bytes(word));
     }
-    let seg = Seg { words: &words };
+    let seg = Seg {
+        words: &words,
+        budget: Cell::new(words.len().saturating_mul(TRAVERSAL_MULTIPLE)),
+    };
     let root = seg.read_ptr(0)?;
     let Ptr::Struct(st) = root else {
         return Err(bad("an op root is not a struct"));
@@ -1895,8 +1899,15 @@ fn decode_segment(bytes: &[u8]) -> Result<Op> {
     Ok(op)
 }
 
+// Cap'n Proto counts every pointer follow against one traversal limit so
+// overlapping pointers cannot amplify a message. The encoding spec allows
+// that limit to be a small multiple of the message; eight covers one tree
+// walk, since a canonical op reads each word at most once.
+const TRAVERSAL_MULTIPLE: usize = 8;
+
 struct Seg<'a> {
     words: &'a [u64],
+    budget: Cell<usize>,
 }
 
 struct St {
@@ -1940,6 +1951,7 @@ impl<'a> Seg<'a> {
                     return Err(bad("zero-size struct is not canonical"));
                 }
                 self.need(at, data + ptrs)?;
+                self.charge(data + ptrs)?;
                 Ok(Ptr::Struct(St { at, data, ptrs }))
             }
             1 => self.read_list(at, ((word >> 32) & 7) as u8, (word >> 35) as u32),
@@ -1953,6 +1965,9 @@ impl<'a> Seg<'a> {
                 let nbytes = count as usize;
                 let nwords = nbytes.div_ceil(8);
                 self.need(at, nwords)?;
+                // Charge before the copy. A second pointer at these words counts
+                // again, so aliases stop here instead of multiplying the blob.
+                self.charge(nwords)?;
                 let mut buf = Vec::with_capacity(nwords * 8);
                 for word in &self.words[at..at + nwords] {
                     buf.extend_from_slice(&word.to_le_bytes());
@@ -1961,21 +1976,28 @@ impl<'a> Seg<'a> {
                 Ok(Ptr::Bytes(buf))
             }
             6 => {
-                self.need(at, count as usize)?;
-                Ok(Ptr::Words {
-                    at,
-                    count: count as usize,
-                })
+                let n = count as usize;
+                self.need(at, n)?;
+                self.charge(n)?;
+                Ok(Ptr::Words { at, count: n })
             }
             7 => {
-                self.need(at, 1 + count as usize)?;
-                Ok(Ptr::Composite {
-                    at,
-                    words: count as usize,
-                })
+                let n = count as usize;
+                self.need(at, 1 + n)?;
+                self.charge(1 + n)?;
+                Ok(Ptr::Composite { at, words: n })
             }
             _ => Err(bad("unsupported list element in an op")),
         }
+    }
+
+    fn charge(&self, words: usize) -> Result<()> {
+        let left = self.budget.get();
+        if words > left {
+            return Err(bad("op segment is not canonical"));
+        }
+        self.budget.set(left - words);
+        Ok(())
     }
 
     fn need(&self, at: usize, words: usize) -> Result<()> {
@@ -2240,15 +2262,20 @@ impl<'a> Seg<'a> {
         let stride = data + ptrs;
         // A zero stride makes the product zero for every count, so a short
         // segment can claim 2^28 elements and the reserve aborts. Charge one
-        // word per element against the words still in the segment.
+        // word per element against the words still in the segment, on the
+        // same counter as every other follow.
         let spanned = count
             .checked_mul(stride)
             .ok_or_else(|| bad("a struct list does not match its tag"))?;
         if spanned != words {
             return Err(bad("a struct list does not match its tag"));
         }
-        if stride == 0 && count > self.words.len().saturating_sub(at.saturating_add(1)) {
-            return Err(bad("a struct list does not match its tag"));
+        if stride == 0 {
+            let room = self.words.len().saturating_sub(at.saturating_add(1));
+            if count > room || count > self.budget.get() {
+                return Err(bad("a struct list does not match its tag"));
+            }
+            self.charge(count)?;
         }
         let mut out = Vec::new();
         for index in 0..count {
