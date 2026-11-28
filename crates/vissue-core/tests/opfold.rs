@@ -9,7 +9,6 @@ use std::process::Command;
 
 use vissue_core::model::{IssueHeading, LogEntry};
 use vissue_core::oplog::{Folded, IssueKey, Op, OpId, OpKind, describe, fold};
-use vissue_core::ops::parse_ballot;
 use vissue_core::store::IssueDoc;
 
 fn wire(op: &Op) -> Op {
@@ -1713,12 +1712,8 @@ fn line_is(text: &str, line: &str) -> bool {
     text.lines().filter(|item| *item == line).count() == 1
 }
 
-/// Legacy lines stay as written, and a value the base line cannot spell is refused.
-///
-/// Quotes, comments, a doubled space, and a choice that contains a colon survive
-/// the next two ops with those bytes unchanged. A choice is the rest of the
-/// ballot line. Two voters on distinct revisions keep two lines in both input
-/// orders.
+/// Legacy drawer bytes stay, and a value is accepted only when the base
+/// writer and reader return that same value on one line.
 #[test]
 fn genesis_lines_survive_the_next_op() {
     let mut legacy = plain_heading("proj-1", "Genesis");
@@ -1726,23 +1721,46 @@ fn genesis_lines_survive_the_next_op() {
         .properties
         .insert("DEEDS".to_string(), "a  b".to_string());
     legacy.property_order.push("DEEDS".to_string());
-    let links = ":LINKS:\n# a note\nrelates \"kept\"\n:END:\n".to_string();
-    let revisions = ":REVISIONS:\n1 \"alpha\"\n1 2 3\n:END:\n".to_string();
-    let votes =
-        ":VOTES:\n# a vote note\n[2026-01-01 Thu] ann: ship: after the audit\n:END:\n".to_string();
-    let targets = ":TARGETS:\nretarget zzz\nt1 status \"open\"\n:END:\n".to_string();
+    let votes = "\
+:VOTES:
+# a vote note
+[2026-01-01 Thu] ann: ship: after the audit
+:END:
+";
+    let notes = ":NOTES:\nkeep-me\n:END:\n";
+    let clash_drawer = ":MERGE_CONFLICT:\n%old\n:END:\n";
+    let hidden = ":VOTES:\nzed: hidden\n:END:\n";
+    let revisions = "\
+:REVISIONS:
+1 alpha
+1 beta
+# a note
+1 \"alpha\"
+:END:
+";
+    let targets = "\
+:TARGETS:
+t1 status open
+t1 status shut
+retarget zzz
+:END:
+";
+    let links = ":LINKS:\n# a note\nrelates \"kept\"\n:END:\n";
     legacy.extra_drawers = vec![
-        links.clone(),
-        revisions.clone(),
-        votes.clone(),
-        targets.clone(),
+        votes.to_string(),
+        notes.to_string(),
+        clash_drawer.to_string(),
+        hidden.to_string(),
+        revisions.to_string(),
+        targets.to_string(),
+        links.to_string(),
     ];
-    let born = genesis_of(legacy);
-    let link = wire(&spawned(
+    let born = wire(&genesis_of(legacy));
+    let revision = wire(&spawned(
         &born,
-        OpKind::Link {
-            kind: "cites".to_string(),
-            other: "proj-2".to_string(),
+        OpKind::AddRevision {
+            rev_id: "2".to_string(),
+            summary: "gamma".to_string(),
         },
         1,
     ));
@@ -1756,164 +1774,203 @@ fn genesis_lines_survive_the_next_op() {
         },
         2,
     ));
-    both_ways(&[born.clone(), link, vote], |folded| {
+    let votes_after = "\
+:VOTES:
+# a vote note
+[2026-01-01 Thu] ann: ship: after the audit
+[2026-01-02 Fri] bob: yes
+:END:
+";
+    let revisions_after = "\
+:REVISIONS:
+1 alpha
+1 beta
+# a note
+1 \"alpha\"
+2 gamma
+:END:
+";
+    let born_id = born.id().unwrap();
+    both_ways(&[born, revision, vote], |folded| {
         let heading = heading_of(folded);
         assert_eq!(
             heading.properties.get("DEEDS").map(String::as_str),
-            Some("a  b"),
-            "doubled space was normalized"
+            Some("a  b")
         );
-        let text = heading.extra_drawers.concat();
-        for line in [
-            "# a note",
-            "relates \"kept\"",
-            "1 \"alpha\"",
-            "1 2 3",
-            "# a vote note",
-            "[2026-01-01 Thu] ann: ship: after the audit",
-            "retarget zzz",
-            "t1 status \"open\"",
-            "cites proj-2",
-            "[2026-01-02 Fri] bob: yes",
-        ] {
-            assert!(line_is(&text, line), "missing {line} in {text}");
+        assert_eq!(
+            heading.extra_drawers,
+            vec![
+                votes_after.to_string(),
+                notes.to_string(),
+                clash_drawer.to_string(),
+                hidden.to_string(),
+                revisions_after.to_string(),
+                targets.to_string(),
+                links.to_string(),
+            ]
+        );
+        for field in ["revision:1", "target:t1:status"] {
+            let clash = folded
+                .conflicts
+                .iter()
+                .find(|clash| clash.field == field)
+                .unwrap_or_else(|| panic!("{field} missing in {:?}", folded.conflicts));
+            assert!(clash.ops.contains(&born_id), "{field} {:?}", clash.ops);
         }
-        assert!(
-            !text.contains("\\\"kept\\\"") && !text.contains(":CODEC:"),
-            "{text}"
-        );
-        assert_eq!(drawer_text(&heading, "REVISIONS"), revisions);
-        assert_eq!(drawer_text(&heading, "TARGETS"), targets);
     });
 
     let root = wire(&Op::create("proj", "proj-1", "Title", "seat").unwrap());
-    let hi = wire(&spawned(
+    let open = wire(&spawned(
+        &root,
+        OpKind::SetTarget {
+            target_id: "retarget".to_string(),
+            fields: vec![("status".to_string(), "open".to_string())],
+        },
+        1,
+    ));
+    let shut = wire(&spawned(
+        &open,
+        OpKind::SetTarget {
+            target_id: "retarget".to_string(),
+            fields: vec![("status".to_string(), "closed".to_string())],
+        },
+        2,
+    ));
+    let folded = fold(&[root.clone(), open, shut]).unwrap();
+    let text = drawers(&folded, "proj-1");
+    assert!(line_is(&text, "retarget status closed"), "{text}");
+    assert!(!text.contains("retarget status open"), "{text}");
+    assert!(folded.conflicts.is_empty(), "{:?}", folded.conflicts);
+
+    let smith = wire(&spawned(
         &root,
         OpKind::Ballot {
-            voter: "ann".to_string(),
+            voter: "ann smith".to_string(),
             rev: String::new(),
-            choice: "say \"hi\"".to_string(),
+            choice: "yes".to_string(),
             stamp: "[2026-01-01 Thu]".to_string(),
         },
         1,
     ));
-    let slash = wire(&spawned(
+    let quoted = wire(&spawned(
         &root,
         OpKind::Ballot {
-            voter: "ann".to_string(),
-            rev: "r2".to_string(),
-            choice: "a\\b".to_string(),
+            voter: "ann\"x".to_string(),
+            rev: String::new(),
+            choice: "yes".to_string(),
             stamp: "[2026-01-01 Thu]".to_string(),
         },
         2,
     ));
-    let used = wire(&spawned(
+    let slash = wire(&spawned(
         &root,
         OpKind::Ballot {
-            voter: "bea".to_string(),
+            voter: "a\\b".to_string(),
             rev: String::new(),
-            choice: "ship used=none".to_string(),
+            choice: "yes".to_string(),
             stamp: "[2026-01-01 Thu]".to_string(),
         },
         3,
     ));
-    let spoken = fold(&[root.clone(), hi, slash, used]).unwrap();
-    let spoken_text = drawers(&spoken, "proj-1");
-    let hi_line = "[2026-01-01 Thu] ann: say \"hi\"";
-    let slash_line = "[rev=r2] [2026-01-01 Thu] ann: a\\b";
-    let used_line = "[2026-01-01 Thu] bea: ship used=none";
-    assert!(line_is(&spoken_text, hi_line), "{spoken_text}");
-    assert!(line_is(&spoken_text, slash_line), "{spoken_text}");
-    assert!(line_is(&spoken_text, used_line), "{spoken_text}");
-    assert_eq!(parse_ballot(hi_line).unwrap().choice, "say \"hi\"");
-    assert_eq!(parse_ballot(slash_line).unwrap().choice, "a\\b");
-    assert_eq!(parse_ballot(used_line).unwrap().choice, "ship");
-
-    let ann = wire(&spawned(
+    let tabbed = wire(&spawned(
         &root,
         OpKind::Ballot {
-            voter: "ann".to_string(),
-            rev: "1".to_string(),
-            choice: "yes".to_string(),
+            voter: "a\tb".to_string(),
+            rev: String::new(),
+            choice: "a\tb".to_string(),
             stamp: "[2026-01-01 Thu]".to_string(),
         },
         4,
     ));
-    let bob = wire(&spawned(
+    let deed = wire(&spawned(
         &root,
-        OpKind::Ballot {
-            voter: "bob".to_string(),
-            rev: "2".to_string(),
-            choice: "no".to_string(),
-            stamp: "[2026-01-01 Thu]".to_string(),
+        OpKind::AddDeed {
+            accession: "deed-a\"b".to_string(),
         },
         5,
     ));
-    let ann_line = "[rev=1] [2026-01-01 Thu] ann: yes";
-    let bob_line = "[rev=2] [2026-01-01 Thu] bob: no";
-    both_ways(&[root.clone(), ann, bob], |folded| {
-        let text = drawers(folded, "proj-1");
-        assert!(line_is(&text, ann_line), "{text}");
-        assert!(line_is(&text, bob_line), "{text}");
-        assert_eq!(folded.conflicts.len(), 0, "{:?}", folded.conflicts);
-    });
+    let link = wire(&spawned(
+        &root,
+        OpKind::Link {
+            kind: "blocked-by".to_string(),
+            other: "proj-a\"b".to_string(),
+        },
+        6,
+    ));
+    let cites = wire(&spawned(
+        &root,
+        OpKind::Link {
+            kind: "cites".to_string(),
+            other: "proj-a\"b".to_string(),
+        },
+        7,
+    ));
+    both_ways(
+        &[
+            root.clone(),
+            smith,
+            quoted,
+            slash,
+            tabbed,
+            deed,
+            link,
+            cites,
+        ],
+        |folded| {
+            let heading = heading_of(folded);
+            assert_eq!(
+                heading.properties.get("DEEDS").map(String::as_str),
+                Some("deed-a\"b")
+            );
+            assert_eq!(
+                heading.properties.get("BLOCKED_BY").map(String::as_str),
+                Some("proj-a\"b")
+            );
+            let text = heading.extra_drawers.concat();
+            for line in [
+                "[2026-01-01 Thu] ann smith: yes",
+                "[2026-01-01 Thu] ann\"x: yes",
+                "[2026-01-01 Thu] a\\b: yes",
+                "[2026-01-01 Thu] a\tb: a\tb",
+                "cites proj-a\"b",
+            ] {
+                assert!(line_is(&text, line), "missing {line} in {text}");
+            }
+        },
+    );
 
     let before = folded_bytes(&fold(std::slice::from_ref(&root)).unwrap());
     let refused: &[(&str, OpKind)] = &[
         (
-            "voter \"ann\\\"x\"",
-            OpKind::Ballot {
-                voter: "ann\"x".to_string(),
-                rev: String::new(),
-                choice: "yes".to_string(),
-                stamp: "[2026-01-01 Thu]".to_string(),
+            "property:NOTE",
+            OpKind::SetField {
+                name: "property:NOTE".to_string(),
+                value: "hello\n:DEEDS:    stolen".to_string(),
             },
         ),
         (
-            "voter \"a\\tb\"",
-            OpKind::Ballot {
-                voter: "a\tb".to_string(),
-                rev: String::new(),
-                choice: "yes".to_string(),
-                stamp: "[2026-01-01 Thu]".to_string(),
+            "property:NOTE",
+            OpKind::SetField {
+                name: "property:NOTE".to_string(),
+                value: "a\u{0001}b".to_string(),
             },
         ),
         (
-            "voter \"a\\\\b\"",
-            OpKind::Ballot {
-                voter: "a\\b".to_string(),
-                rev: String::new(),
-                choice: "yes".to_string(),
-                stamp: "[2026-01-01 Thu]".to_string(),
+            "property:NOTE",
+            OpKind::SetField {
+                name: "property:NOTE".to_string(),
+                value: String::new(),
             },
         ),
         (
-            "revision \"a\\\"b\"",
-            OpKind::Ballot {
-                voter: "ann".to_string(),
-                rev: "a\"b".to_string(),
-                choice: "yes".to_string(),
-                stamp: "[2026-01-01 Thu]".to_string(),
+            "property:ID",
+            OpKind::SetField {
+                name: "property:ID".to_string(),
+                value: "other-id".to_string(),
             },
         ),
         (
-            "revision \"1 2\"",
-            OpKind::AddRevision {
-                rev_id: "1 2".to_string(),
-                summary: "x".to_string(),
-            },
-        ),
-        (
-            "choice \"a\\tb\"",
-            OpKind::Ballot {
-                voter: "ann".to_string(),
-                rev: String::new(),
-                choice: "a\tb".to_string(),
-                stamp: "[2026-01-01 Thu]".to_string(),
-            },
-        ),
-        (
-            "choice \"a\\nb\"",
+            "choice",
             OpKind::Ballot {
                 voter: "ann".to_string(),
                 rev: String::new(),
@@ -1921,51 +1978,10 @@ fn genesis_lines_survive_the_next_op() {
                 stamp: "[2026-01-01 Thu]".to_string(),
             },
         ),
-        (
-            "field \"target:a:b:c\"",
-            OpKind::SetField {
-                name: "target:a:b:c".to_string(),
-                value: "hidden".to_string(),
-            },
-        ),
-        (
-            "field \"target::status\"",
-            OpKind::SetField {
-                name: "target::status".to_string(),
-                value: "hidden".to_string(),
-            },
-        ),
-        (
-            "field \"target:\\\"a:b\"",
-            OpKind::SetField {
-                name: "target:\"a:b".to_string(),
-                value: "hidden".to_string(),
-            },
-        ),
-        (
-            "field \"link:relates:x:y\"",
-            OpKind::SetField {
-                name: "link:relates:x:y".to_string(),
-                value: "hidden".to_string(),
-            },
-        ),
-        (
-            "link kind \"\"",
-            OpKind::Link {
-                kind: String::new(),
-                other: "kept".to_string(),
-            },
-        ),
-        (
-            "deed \"a  b\"",
-            OpKind::AddDeed {
-                accession: "a  b".to_string(),
-            },
-        ),
     ];
     for (snippet, kind) in refused {
         let op = spawned(&root, kind.clone(), 9);
-        let err = Op::from_message_bytes(&op.message_bytes().expect("encoded")).expect_err(snippet);
+        let err = Op::from_message_bytes(&op.message_bytes().expect(snippet)).expect_err(snippet);
         let text = err.to_string();
         assert!(text.contains(snippet), "{snippet} not in {text}");
         assert!(
@@ -1975,13 +1991,4 @@ fn genesis_lines_survive_the_next_op() {
     }
     let after = folded_bytes(&fold(std::slice::from_ref(&root)).unwrap());
     assert_eq!(before, after);
-}
-
-fn drawer_text(heading: &IssueHeading, name: &str) -> String {
-    heading
-        .extra_drawers
-        .iter()
-        .find(|drawer| drawer.starts_with(&format!(":{name}:")))
-        .cloned()
-        .unwrap_or_default()
 }

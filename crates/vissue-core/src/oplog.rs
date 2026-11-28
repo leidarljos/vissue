@@ -8,7 +8,7 @@
 //! Concurrent body edits always clash; fold does not merge them.
 //! Org files stay the source of truth; nothing here writes one.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -533,13 +533,8 @@ struct Live {
     project: String,
     short_id: String,
     heading: IssueHeading,
-    links: BTreeSet<(String, String)>,
-    ballots: BTreeMap<String, String>,
-    revisions: BTreeMap<String, String>,
-    targets: BTreeMap<(String, String), String>,
-    retarget: Option<String>,
-    /// Drawer lines the base reader does not take. A rewrite copies them verbatim.
-    raw: BTreeMap<String, BTreeSet<String>>,
+    /// Keys that already have two lines in the first drawer of that name.
+    dup_fields: Vec<String>,
     born_lamport: u64,
     born_id: OpId,
     /// Length of the `property_order` prefix fixed by create or genesis.
@@ -679,6 +674,18 @@ impl Mem {
                 .flatten()
                 .find(|live| live.born_id == *birth);
             push_conflict(&mut conflicts, frontier, live, field);
+        }
+        for lives in self.issues.values() {
+            for live in lives {
+                for field in &live.dup_fields {
+                    conflicts.push(Conflict {
+                        project: live.project.clone(),
+                        id: live.short_id.clone(),
+                        field: field.clone(),
+                        ops: vec![live.born_id],
+                    });
+                }
+            }
         }
         conflicts.sort_by(|a, b| {
             (&a.project, &a.id, &a.field, &a.ops).cmp(&(&b.project, &b.id, &b.field, &b.ops))
@@ -970,15 +977,15 @@ fn heading_writes(heading: &IssueHeading) -> Vec<(String, String)> {
     for (name, value) in &heading.properties {
         fields.push((format!("property:{name}"), value.clone()));
     }
-    let (ballots, _) = load_votes(heading);
+    let ballots = load_votes(heading);
     for (slot, line) in ballots {
         fields.push((slot, line));
     }
-    let (revisions, _) = load_revisions(heading);
+    let revisions = load_revisions(heading);
     for (rev, summary) in revisions {
         fields.push((format!("revision:{rev}"), summary));
     }
-    let (targets, retarget, _) = load_targets(heading);
+    let (targets, retarget) = load_targets(heading);
     for ((target, key), value) in targets {
         fields.push((format!("target:{target}:{key}"), value));
     }
@@ -1128,18 +1135,18 @@ fn canonical_field(name: &str) -> Result<String> {
         return Ok(name.to_string());
     }
     if let Some(key) = name.strip_prefix("property:") {
-        spellable_colon("field", key)?;
+        stores("pkey", key, "")?;
         return Ok(name.to_string());
     }
     if let Some(rev) = name.strip_prefix("revision:") {
-        spellable("revision", rev)?;
+        stores("revid", rev, "")?;
         return Ok(name.to_string());
     }
     if let Some(rest) = name.strip_prefix("target:") {
         let Some((id, field)) = rest.split_once(':') else {
             return Err(bad("unknown field"));
         };
-        if !token_ok_colon(id) || !token_ok_colon(field) {
+        if stores("tname", id, field).is_err() {
             return Err(bad(format!("field {name:?}")));
         }
         return Ok(name.to_string());
@@ -1148,18 +1155,14 @@ fn canonical_field(name: &str) -> Result<String> {
         let Some((kind, other)) = unkey("link:", name) else {
             return Err(bad(format!("field {name:?}")));
         };
-        spellable("link kind", &kind)?;
-        spellable("id", &other)?;
+        stores("link", &kind, &other)?;
         return Ok(name.to_string());
     }
     if name.starts_with("ballot:") {
         let Some((voter, rev)) = unkey("ballot:", name) else {
             return Err(bad(format!("field {name:?}")));
         };
-        spellable("voter", &voter)?;
-        if !rev.is_empty() {
-            spellable("revision", &rev)?;
-        }
+        stores("bvoter", &voter, &rev)?;
         return Ok(name.to_string());
     }
     Err(bad("unknown field"))
@@ -1182,39 +1185,50 @@ fn project(live: &mut Live, field: &str, value: &str) {
             };
         }
         "retarget" => {
-            live.retarget = Some(value.to_string());
-            rewrite_targets(live);
+            let written = retarget_line(value);
+            edit_first_drawer(&mut live.heading, "TARGETS", Some(written), |line| {
+                matches!(parse_target_line(line), Some(TargetLine::Retarget(_)))
+            });
         }
-        name if name.starts_with("property:") => {
-            set_property(live, &name["property:".len()..], value)
+        name if let Some(key) = name.strip_prefix("property:") => set_property(live, key, value),
+        name if let Some((voter, rev)) = unkey("ballot:", name) => {
+            edit_first_drawer(
+                &mut live.heading,
+                "VOTES",
+                Some(value.to_string()),
+                |line| {
+                    crate::ops::parse_ballot(line).is_some_and(|ballot| {
+                        ballot.agent == voter && ballot.rev.unwrap_or_default() == rev
+                    })
+                },
+            );
         }
-        name if name.starts_with("ballot:") => {
-            live.ballots.insert(name.to_string(), value.to_string());
-            rewrite_ballots(live);
-        }
-        name if name.starts_with("revision:") => {
-            let rev = &name["revision:".len()..];
-            rewrite_revisions(live, rev, value);
+        name if let Some(rev) = name.strip_prefix("revision:") => {
+            let written = revision_line(rev, value);
+            edit_first_drawer(&mut live.heading, "REVISIONS", Some(written), |line| {
+                parse_revision_line(line).is_some_and(|(id, _)| id == rev)
+            });
         }
         name if let Some((target, key)) = split_target(name) => {
-            live.targets.insert((target, key), value.to_string());
-            rewrite_targets(live);
+            let written = target_field_line(&target, &key, value);
+            edit_first_drawer(&mut live.heading, "TARGETS", Some(written), |line| {
+                matches!(
+                    parse_target_line(line),
+                    Some(TargetLine::Field(id, field, _)) if id == target && field == key
+                )
+            });
         }
         name if let Some((kind, other)) = unkey("link:", name) => {
-            if value.is_empty() {
-                live.links.remove(&(kind.clone(), other.clone()));
+            let written = link_line(&kind, &other);
+            let next = if value.is_empty() {
+                None
             } else {
-                live.links.insert((kind, other));
-            }
-            let mut lines: Vec<String> = live
-                .links
-                .iter()
-                .map(|(kind, other)| link_line(kind, other))
-                .collect();
-            push_raw(&live.raw, "LINKS", &mut lines);
-            lines.sort();
-            lines.dedup();
-            replace_drawer(&mut live.heading, "LINKS", &lines);
+                Some(written)
+            };
+            edit_first_drawer(&mut live.heading, "LINKS", next, |line| {
+                parse_link_line(line)
+                    .is_some_and(|(have_kind, have_other)| have_kind == kind && have_other == other)
+            });
         }
         _ => {}
     }
@@ -1249,79 +1263,135 @@ fn set_property(live: &mut Live, key: &str, value: &str) {
     }
 }
 
-fn rewrite_ballots(live: &mut Live) {
-    let mut lines: Vec<String> = live.ballots.values().cloned().collect();
-    push_raw(&live.raw, "VOTES", &mut lines);
-    lines.sort();
-    lines.dedup();
-    replace_drawer(&mut live.heading, "VOTES", &lines);
-}
-
-fn rewrite_revisions(live: &mut Live, rev: &str, summary: &str) {
-    live.revisions.insert(rev.to_string(), summary.to_string());
-    let mut lines: Vec<String> = live
-        .revisions
+/// Replace or append one line in the first drawer named `name`.
+///
+/// A second drawer of that name is left where it is. Every line that does not
+/// match stays byte-identical. Two matching lines are a conflict: neither is
+/// rewritten and nothing is inserted for that key.
+fn edit_first_drawer(
+    heading: &mut IssueHeading,
+    name: &str,
+    next: Option<String>,
+    matches: impl Fn(&str) -> bool,
+) {
+    let Some(at) = heading
+        .extra_drawers
         .iter()
-        .map(|(rev, summary)| revision_line(rev, summary))
+        .position(|drawer| crate::ops::drawer_name_is(drawer, name))
+    else {
+        if let Some(line) = next {
+            place_drawer(heading, format!(":{name}:\n{line}\n:END:\n"));
+        }
+        return;
+    };
+    let mut lines: Vec<String> = heading.extra_drawers[at]
+        .lines()
+        .map(str::to_string)
         .collect();
-    push_raw(&live.raw, "REVISIONS", &mut lines);
-    lines.sort();
-    lines.dedup();
-    replace_drawer(&mut live.heading, "REVISIONS", &lines);
-}
-
-fn rewrite_targets(live: &mut Live) {
-    let mut lines = Vec::new();
-    for ((target, key), value) in &live.targets {
-        lines.push(target_field_line(target, key, value));
-    }
-    if let Some(target) = &live.retarget {
-        lines.push(retarget_line(target));
-    }
-    push_raw(&live.raw, "TARGETS", &mut lines);
-    lines.sort();
-    lines.dedup();
-    replace_drawer(&mut live.heading, "TARGETS", &lines);
-}
-
-fn drawer_lines(heading: &IssueHeading, name: &str) -> Vec<String> {
-    heading
-        .extra_drawers
-        .iter()
-        .find(|drawer| drawer_named(drawer, name))
-        .map(|drawer| {
-            drawer
-                .lines()
-                .skip(1)
-                .filter(|line| !line.eq_ignore_ascii_case(":END:"))
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-fn replace_drawer(heading: &mut IssueHeading, name: &str, lines: &[String]) {
-    heading
-        .extra_drawers
-        .retain(|drawer| !drawer_named(drawer, name));
     if lines.is_empty() {
         return;
     }
-    let mut text = format!(":{name}:\n");
-    for line in lines {
-        text.push_str(line);
-        text.push('\n');
+    let end = lines
+        .iter()
+        .rposition(|line| line.trim().eq_ignore_ascii_case(":END:"))
+        .unwrap_or(lines.len());
+    let hits: Vec<usize> = (1..end)
+        .filter(|index| matches(lines[*index].trim()))
+        .collect();
+    match (hits.len(), next) {
+        (0, Some(line)) => lines.insert(end, line),
+        (1, Some(line)) => lines[hits[0]] = line,
+        (1, None) => {
+            lines.remove(hits[0]);
+        }
+        _ => return,
     }
-    text.push_str(":END:\n");
-    heading.extra_drawers.push(text);
-    heading.extra_drawers.sort();
+    let end = lines
+        .iter()
+        .rposition(|line| line.trim().eq_ignore_ascii_case(":END:"))
+        .unwrap_or(lines.len());
+    let any = (1..end).any(|index| !lines[index].trim().is_empty());
+    if !any {
+        heading.extra_drawers.remove(at);
+        return;
+    }
+    let mut text = lines.join("\n");
+    text.push('\n');
+    heading.extra_drawers[at] = text;
 }
 
-fn drawer_named(drawer: &str, name: &str) -> bool {
-    drawer
-        .lines()
-        .next()
-        .is_some_and(|line| line.trim().eq_ignore_ascii_case(&format!(":{name}:")))
+fn place_drawer(heading: &mut IssueHeading, drawer: String) {
+    let sorted = heading
+        .extra_drawers
+        .windows(2)
+        .all(|pair| pair[0] <= pair[1]);
+    if sorted {
+        let at = heading
+            .extra_drawers
+            .partition_point(|have| have.as_str() <= drawer.as_str());
+        heading.extra_drawers.insert(at, drawer);
+    } else {
+        heading.extra_drawers.push(drawer);
+    }
+}
+
+fn drawer_content(heading: &IssueHeading, name: &str) -> Vec<String> {
+    let Some(drawer) = heading
+        .extra_drawers
+        .iter()
+        .find(|drawer| crate::ops::drawer_name_is(drawer, name))
+    else {
+        return Vec::new();
+    };
+    let mut lines: Vec<&str> = drawer.lines().collect();
+    if lines
+        .last()
+        .is_some_and(|line| line.trim().eq_ignore_ascii_case(":END:"))
+    {
+        lines.pop();
+    }
+    if !lines.is_empty() {
+        lines.remove(0);
+    }
+    lines.into_iter().map(str::to_string).collect()
+}
+
+fn duplicate_fields(heading: &IssueHeading) -> Vec<String> {
+    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    let mut bump = |key: String| {
+        *counts.entry(key).or_default() += 1;
+    };
+    for line in drawer_content(heading, "REVISIONS") {
+        if let Some((id, _)) = parse_revision_line(line.trim()) {
+            bump(format!("revision:{id}"));
+        }
+    }
+    for line in drawer_content(heading, "TARGETS") {
+        match parse_target_line(line.trim()) {
+            Some(TargetLine::Field(id, key, _)) => bump(format!("target:{id}:{key}")),
+            Some(TargetLine::Retarget(_)) => bump("retarget".to_string()),
+            None => {}
+        }
+    }
+    for line in drawer_content(heading, "LINKS") {
+        if let Some((kind, other)) = parse_link_line(line.trim()) {
+            bump(keyed("link:", &kind, &other));
+        }
+    }
+    for line in drawer_content(heading, "VOTES") {
+        if let Some(ballot) = crate::ops::parse_ballot(line.trim()) {
+            bump(keyed(
+                "ballot:",
+                &ballot.agent,
+                &ballot.rev.unwrap_or_default(),
+            ));
+        }
+    }
+    counts
+        .into_iter()
+        .filter(|(_, count)| *count > 1)
+        .map(|(key, _)| key)
+        .collect()
 }
 
 fn append_log(mem: &mut Mem, id: OpId, op: &Op, entry: LogEntry) -> Result<()> {
@@ -1381,175 +1451,88 @@ fn one_char(value: &str) -> Result<char> {
     }
 }
 
-fn load_votes(heading: &IssueHeading) -> (BTreeMap<String, String>, BTreeSet<String>) {
+fn load_votes(heading: &IssueHeading) -> BTreeMap<String, String> {
     let mut votes = BTreeMap::new();
-    let mut raw = BTreeSet::new();
-    for line in drawer_lines(heading, "VOTES") {
-        if let Some(ballot) = crate::ops::parse_ballot(&line) {
+    for line in drawer_content(heading, "VOTES") {
+        if let Some(ballot) = crate::ops::parse_ballot(line.trim()) {
             let rev = ballot.rev.unwrap_or_default();
-            if token_ok(&ballot.agent) && (rev.is_empty() || token_ok(&rev)) {
-                votes.insert(keyed("ballot:", &ballot.agent, &rev), line);
-                continue;
-            }
+            votes.insert(keyed("ballot:", &ballot.agent, &rev), line);
         }
-        raw.insert(line);
     }
-    (votes, raw)
+    votes
 }
 
-fn load_revisions(heading: &IssueHeading) -> (BTreeMap<String, String>, BTreeSet<String>) {
+fn load_revisions(heading: &IssueHeading) -> BTreeMap<String, String> {
     let mut revisions = BTreeMap::new();
-    let mut raw = BTreeSet::new();
-    for line in drawer_lines(heading, "REVISIONS") {
-        if let Some((id, summary)) = structured_revision(&line) {
+    for line in drawer_content(heading, "REVISIONS") {
+        if let Some((id, summary)) = parse_revision_line(line.trim()) {
             revisions.insert(id, summary);
-        } else {
-            raw.insert(line);
         }
     }
-    (revisions, raw)
+    revisions
 }
 
-fn structured_revision(line: &str) -> Option<(String, String)> {
-    if let Some((id, summary)) = line.split_once(' ') {
-        if token_ok(id)
-            && !summary.is_empty()
-            && !summary
-                .chars()
-                .any(|ch| ch.is_whitespace() || ch.is_control())
-        {
-            return Some((id.to_string(), summary.to_string()));
-        }
-        return None;
-    }
-    if token_ok(line) {
-        Some((line.to_string(), String::new()))
-    } else {
-        None
-    }
-}
-
-fn load_links(heading: &IssueHeading) -> (BTreeSet<(String, String)>, BTreeSet<String>) {
-    let mut links = BTreeSet::new();
-    let mut raw = BTreeSet::new();
-    for line in drawer_lines(heading, "LINKS") {
-        if let Some(pair) = structured_link(&line) {
-            links.insert(pair);
-        } else {
-            raw.insert(line);
-        }
-    }
-    (links, raw)
-}
-
-fn structured_link(line: &str) -> Option<(String, String)> {
-    let (kind, other) = line.split_once(' ')?;
-    if token_ok(kind) && token_ok(other) {
-        Some((kind.to_string(), other.to_string()))
-    } else {
-        None
-    }
-}
-
-fn load_targets(
-    heading: &IssueHeading,
-) -> (
-    BTreeMap<(String, String), String>,
-    Option<String>,
-    BTreeSet<String>,
-) {
+fn load_targets(heading: &IssueHeading) -> (BTreeMap<(String, String), String>, Option<String>) {
     let mut targets = BTreeMap::new();
     let mut retarget = None;
-    let mut raw = BTreeSet::new();
-    for line in drawer_lines(heading, "TARGETS") {
-        if let Some(id) = line.strip_prefix("retarget ") {
-            if token_ok(id) {
-                retarget = Some(id.to_string());
-            } else {
-                raw.insert(line);
+    for line in drawer_content(heading, "TARGETS") {
+        match parse_target_line(line.trim()) {
+            Some(TargetLine::Field(id, key, value)) => {
+                targets.insert((id, key), value);
             }
-            continue;
+            Some(TargetLine::Retarget(id)) => retarget = Some(id),
+            None => {}
         }
-        if let Some((target, key, value)) = structured_target(&line) {
-            targets.insert((target, key), value);
-            continue;
-        }
-        raw.insert(line);
     }
-    (targets, retarget, raw)
+    (targets, retarget)
 }
 
-fn structured_target(line: &str) -> Option<(String, String, String)> {
-    let (target, rest) = line.split_once(' ')?;
-    let (key, value) = rest.split_once(' ')?;
-    if token_ok_colon(target) && token_ok_colon(key) && !value.chars().any(char::is_control) {
-        Some((target.to_string(), key.to_string(), value.to_string()))
-    } else {
-        None
-    }
+enum TargetLine {
+    Retarget(String),
+    Field(String, String, String),
 }
 
-fn push_raw(raw: &BTreeMap<String, BTreeSet<String>>, drawer: &str, lines: &mut Vec<String>) {
-    let Some(extra) = raw.get(drawer) else {
-        return;
+fn parse_revision_line(line: &str) -> Option<(String, String)> {
+    if line.is_empty() || line.contains('\n') {
+        return None;
+    }
+    let (id, summary) = match line.split_once(' ') {
+        Some((id, summary)) => (id, summary),
+        None => (line, ""),
     };
-    lines.extend(extra.iter().cloned());
+    if id.is_empty() || revision_line(id, summary) != line {
+        return None;
+    }
+    Some((id.to_string(), summary.to_string()))
 }
 
-fn kept_lines(
-    votes: BTreeSet<String>,
-    revisions: BTreeSet<String>,
-    links: BTreeSet<String>,
-    targets: BTreeSet<String>,
-) -> BTreeMap<String, BTreeSet<String>> {
-    let mut raw = BTreeMap::new();
-    if !votes.is_empty() {
-        raw.insert("VOTES".to_string(), votes);
+fn parse_link_line(line: &str) -> Option<(String, String)> {
+    let (kind, other) = line.split_once(' ')?;
+    if kind.is_empty() || other.is_empty() || link_line(kind, other) != line {
+        return None;
     }
-    if !revisions.is_empty() {
-        raw.insert("REVISIONS".to_string(), revisions);
-    }
-    if !links.is_empty() {
-        raw.insert("LINKS".to_string(), links);
-    }
-    if !targets.is_empty() {
-        raw.insert("TARGETS".to_string(), targets);
-    }
-    raw
+    Some((kind.to_string(), other.to_string()))
 }
 
-fn token_ok(value: &str) -> bool {
-    !value.is_empty()
-        && !value
-            .chars()
-            .any(|ch| ch.is_whitespace() || ch.is_control() || ch == '"' || ch == '\\')
-}
-
-fn token_ok_colon(value: &str) -> bool {
-    token_ok(value) && !value.contains(':')
-}
-
-fn spellable(field: &str, value: &str) -> Result<()> {
-    if token_ok(value) {
-        Ok(())
-    } else {
-        Err(bad(format!("{field} {value:?}")))
+fn parse_target_line(line: &str) -> Option<TargetLine> {
+    let (id, rest) = line.split_once(' ')?;
+    if id.is_empty() {
+        return None;
     }
-}
-
-fn spellable_colon(field: &str, value: &str) -> Result<()> {
-    if token_ok_colon(value) {
-        Ok(())
-    } else {
-        Err(bad(format!("{field} {value:?}")))
+    if let Some((key, value)) = rest.split_once(' ') {
+        if key.is_empty() || value.is_empty() || target_field_line(id, key, value) != line {
+            return None;
+        }
+        return Some(TargetLine::Field(
+            id.to_string(),
+            key.to_string(),
+            value.to_string(),
+        ));
     }
-}
-
-fn spellable_choice(value: &str) -> Result<()> {
-    if value.trim().is_empty() || value.chars().any(char::is_control) {
-        return Err(bad(format!("choice {value:?}")));
+    if id == "retarget" && retarget_line(rest) == line {
+        return Some(TargetLine::Retarget(rest.to_string()));
     }
-    Ok(())
+    None
 }
 
 /// Name of one `(left, right)` pair.
@@ -1576,10 +1559,10 @@ fn unkey(prefix: &str, name: &str) -> Option<(String, String)> {
 fn split_target(name: &str) -> Option<(String, String)> {
     let rest = name.strip_prefix("target:")?;
     let (target, key) = rest.split_once(':')?;
-    if token_ok_colon(target) && token_ok_colon(key) {
-        Some((target.to_string(), key.to_string()))
-    } else {
+    if target.is_empty() || key.is_empty() || target.contains(':') || key.contains(':') {
         None
+    } else {
+        Some((target.to_string(), key.to_string()))
     }
 }
 
@@ -1597,18 +1580,14 @@ fn list_elements(value: &str) -> Vec<String> {
 }
 
 fn vote_line(rev: &str, stamp: &str, voter: &str, choice: &str) -> String {
-    let mut line = String::new();
-    if !rev.is_empty() {
-        line.push_str("[rev=");
-        line.push_str(rev);
-        line.push_str("] ");
-    }
-    line.push_str(stamp);
-    line.push(' ');
-    line.push_str(voter);
-    line.push_str(": ");
-    line.push_str(choice);
-    line
+    crate::ops::ballot_line(&crate::ops::Ballot {
+        agent: voter.to_string(),
+        choice: choice.to_string(),
+        stamp: stamp.to_string(),
+        used: None,
+        confidence: None,
+        rev: (!rev.is_empty()).then(|| rev.to_string()),
+    })
 }
 
 fn revision_line(rev: &str, summary: &str) -> String {
@@ -1640,87 +1619,426 @@ fn require_derived(project: &str, short_id: &str, key: IssueKey) -> Result<()> {
 
 fn check_op(op: &Op) -> Result<()> {
     match &op.kind {
-        OpKind::Create { short_id, .. } => {
-            spellable("id", short_id)?;
+        OpKind::Create {
+            short_id,
+            title,
+            state,
+            priority,
+        } => {
+            stores("id", short_id, "")?;
+            stores("title", title, "")?;
+            stores("state", state, "")?;
+            one_char(priority)?;
             require_derived(&op.project, short_id, op.issue)
         }
         OpKind::GenesisImport { heading, .. } => {
-            spellable("id", &heading.id)?;
+            stores("id", &heading.id, "")?;
             require_derived(&op.project, &heading.id, op.issue)
         }
         OpKind::SetField { name, value } | OpKind::Resolve { field: name, value } => {
             canonical_field(name)?;
-            if name == "retarget" {
-                spellable("retarget", value)?;
-            }
-            Ok(())
+            stores("set", name, value)
         }
         OpKind::Ballot {
             voter,
             rev,
             choice,
             stamp,
-        } => {
-            spellable("voter", voter)?;
-            if !rev.is_empty() {
-                spellable("revision", rev)?;
-            }
-            spellable_choice(choice)?;
-            if stamp.is_empty() || stamp.chars().any(char::is_control) {
-                return Err(bad(format!("stamp {stamp:?}")));
-            }
-            Ok(())
-        }
+        } => ballot_ok(voter, rev, choice, stamp),
         OpKind::AddRevision { rev_id, summary } => {
-            spellable("revision", rev_id)?;
-            if !summary.is_empty()
-                && summary
-                    .chars()
-                    .any(|ch| ch.is_whitespace() || ch.is_control())
-            {
-                return Err(bad(format!("summary {summary:?}")));
-            }
-            Ok(())
+            stores("revid", rev_id, "")?;
+            stores("summary", rev_id, summary)
         }
         OpKind::SetTarget { target_id, fields } => {
-            spellable_colon("target id", target_id)?;
+            if fields.is_empty() {
+                return stores("tset", target_id, &format!("id\0{target_id}"));
+            }
             for (name, value) in fields {
-                spellable_colon("target field", name)?;
-                if value.chars().any(char::is_control) {
-                    return Err(bad(format!("target field {value:?}")));
-                }
+                stores("tset", target_id, &format!("{name}\0{value}"))?;
             }
             Ok(())
         }
-        OpKind::Retarget { target_id } => spellable("retarget", target_id),
-        OpKind::AddDeed { accession } => spellable("deed", accession),
-        OpKind::Link { kind, other } => {
-            spellable("link kind", kind)?;
-            spellable("id", other)?;
-            Ok(())
+        OpKind::Retarget { target_id } => stores("retarget", target_id, ""),
+        OpKind::AddDeed { accession } => stores("deed", accession, ""),
+        OpKind::Link { kind, other } => stores("link", kind, other),
+        OpKind::AppendLog { entry } => log_ok(entry),
+        OpKind::SetBody { body } => stores("body", body, ""),
+        OpKind::Retire { reason } => {
+            if reason.is_empty() {
+                Ok(())
+            } else {
+                stores("note", reason, "")
+            }
         }
-        OpKind::AppendLog { .. } | OpKind::SetBody { .. } | OpKind::Retire { .. } => Ok(()),
     }
+}
+
+/// A value is kept when the base writer and the base reader agree on it.
+fn stores(kind: &str, left: &str, right: &str) -> Result<()> {
+    let err = match kind {
+        "id" | "title" | "state" | "body" | "tags" | "statistics" | "revid" | "retarget"
+        | "note" | "deed" => format!("{kind} {left:?}"),
+        "pkey" => format!("field \"property:{left}\""),
+        "property" => format!("property:{left} {right:?}"),
+        "summary" => format!("summary {right:?}"),
+        "link" => String::new(),
+        "tname" | "tset" | "tvalue" | "set" | "bvoter" => String::new(),
+        _ => format!("{kind} {left:?}"),
+    };
+    match kind {
+        "id" | "title" | "state" | "body" => {
+            if kind != "body" && (left.is_empty() || breaks_a_line(left)) {
+                return Err(bad(err));
+            }
+            let heading = match kind {
+                "id" => fresh_heading(left, "Title", "TODO", 'B'),
+                "title" => fresh_heading("proj-1", left, "TODO", 'B'),
+                "state" => fresh_heading("proj-1", "Title", left, 'B'),
+                _ => {
+                    let mut heading = fresh_heading("proj-1", "Title", "TODO", 'B');
+                    heading.body = left.to_string();
+                    heading
+                }
+            };
+            org(&err, heading, |heading| match kind {
+                "id" => {
+                    heading.id == left
+                        && heading.properties.get("ID").map(String::as_str) == Some(left)
+                }
+                "title" => heading.title == left,
+                "state" => heading.state == left,
+                _ => heading.body == left,
+            })
+        }
+        "tags" => {
+            if breaks_a_line(left) {
+                return Err(bad(err));
+            }
+            let tags: Vec<String> = left.split_whitespace().map(str::to_string).collect();
+            if !left.is_empty() && tags.join(" ") != left.trim() {
+                return Err(bad(err));
+            }
+            let mut heading = fresh_heading("proj-1", "Title", "TODO", 'B');
+            heading.org_tags = tags;
+            let want = left.split_whitespace().collect::<Vec<_>>().join(" ");
+            org(&err, heading, move |heading| {
+                heading.org_tags.join(" ") == want
+            })
+        }
+        "statistics" => {
+            if breaks_a_line(left) {
+                return Err(bad(err));
+            }
+            let mut heading = fresh_heading("proj-1", "Title", "TODO", 'B');
+            heading.statistics = (!left.is_empty()).then(|| left.to_string());
+            org(&err, heading, |heading| {
+                heading.statistics.as_deref().unwrap_or("") == left
+            })
+        }
+        "pkey" => {
+            if left.is_empty()
+                || left == "ID"
+                || left
+                    .chars()
+                    .any(|ch| ch.is_whitespace() || ch == ':' || ch.is_control())
+            {
+                Err(bad(err))
+            } else {
+                Ok(())
+            }
+        }
+        "property" => {
+            stores("pkey", left, "")?;
+            if right.is_empty() || breaks_a_line(right) {
+                return Err(bad(err));
+            }
+            let mut heading = fresh_heading("proj-1", "Title", "TODO", 'B');
+            heading
+                .properties
+                .insert(left.to_string(), right.to_string());
+            heading.property_order.push(left.to_string());
+            org(&err, heading, |heading| {
+                heading.properties.get(left).map(String::as_str) == Some(right)
+            })
+        }
+        "revid" => {
+            let line = revision_line(left, "s");
+            let ok = !left.is_empty()
+                && !breaks_a_line(left)
+                && !left.chars().any(char::is_whitespace)
+                && parse_revision_line(&line)
+                    .is_some_and(|(id, summary)| id == left && summary == "s");
+            if ok {
+                Ok(())
+            } else {
+                Err(bad(format!("revision {left:?}")))
+            }
+        }
+        "summary" => {
+            let line = revision_line(left, right);
+            let same =
+                parse_revision_line(&line).is_some_and(|(id, got)| id == left && got == right);
+            if !breaks_a_line(right) && line.lines().count() == 1 && same {
+                Ok(())
+            } else {
+                Err(bad(err))
+            }
+        }
+        "retarget" => {
+            let line = retarget_line(left);
+            let same =
+                matches!(parse_target_line(&line), Some(TargetLine::Retarget(id)) if id == left);
+            if !left.is_empty() && !breaks_a_line(left) && same {
+                Ok(())
+            } else {
+                Err(bad(err))
+            }
+        }
+        "tname" => {
+            if !target_name_ok(left, right) {
+                return Err(bad(format!("field \"target:{left}:{right}\"")));
+            }
+            stores("tvalue", left, &format!("{right}\0v"))
+                .map_err(|_| bad(format!("field \"target:{left}:{right}\"")))
+        }
+        "tset" => {
+            let Some((field, value)) = right.split_once('\0') else {
+                return Err(bad(format!("field \"target:{left}\"")));
+            };
+            stores("tname", left, field)?;
+            stores("tvalue", left, &format!("{field}\0{value}"))
+        }
+        "tvalue" => {
+            let Some((field, value)) = right.split_once('\0') else {
+                return Err(bad("target field \"\""));
+            };
+            let line = target_field_line(left, field, value);
+            let same = matches!(
+                parse_target_line(&line),
+                Some(TargetLine::Field(id, key, got)) if id == left && key == field && got == value
+            );
+            if !value.is_empty() && !breaks_a_line(value) && line.lines().count() == 1 && same {
+                Ok(())
+            } else {
+                Err(bad(format!("target field {value:?}")))
+            }
+        }
+        "deed" => {
+            if left.is_empty() || breaks_a_line(left) {
+                return Err(bad(err));
+            }
+            let mut heading = fresh_heading("proj-1", "Title", "TODO", 'B');
+            heading
+                .properties
+                .insert("DEEDS".to_string(), left.to_string());
+            heading.property_order.push("DEEDS".to_string());
+            org(&err, heading, |heading| {
+                heading.deeds() == [left.to_string()]
+            })
+        }
+        "link" => {
+            if left.is_empty() || breaks_a_line(left) || left.chars().any(char::is_whitespace) {
+                return Err(bad(format!("link kind {left:?}")));
+            }
+            let err = format!("id {right:?}");
+            if right.is_empty() || breaks_a_line(right) {
+                return Err(bad(err));
+            }
+            if left == "blocked-by" {
+                let mut heading = fresh_heading("proj-1", "Title", "TODO", 'B');
+                heading
+                    .properties
+                    .insert("BLOCKED_BY".to_string(), right.to_string());
+                heading.property_order.push("BLOCKED_BY".to_string());
+                return org(&err, heading, |heading| {
+                    heading.blocked_by() == [right.to_string()]
+                });
+            }
+            let line = link_line(left, right);
+            if line.lines().count() == 1
+                && parse_link_line(&line) == Some((left.to_string(), right.to_string()))
+            {
+                Ok(())
+            } else {
+                Err(bad(err))
+            }
+        }
+        "note" => {
+            if left.is_empty() || breaks_a_line(left) {
+                return Err(bad(err));
+            }
+            let entry = LogEntry {
+                timestamp: "[2026-01-01 Thu 00:00]".to_string(),
+                from_state: None,
+                to_state: None,
+                note: Some(left.to_string()),
+                raw: None,
+            };
+            let line = entry.render();
+            if line.lines().count() == 1
+                && crate::model::parse_log_line(&line).note.as_deref() == Some(left)
+            {
+                Ok(())
+            } else {
+                Err(bad(err))
+            }
+        }
+        "bvoter" => {
+            if left.is_empty() || left.contains(": ") || breaks_a_line(left) {
+                return Err(bad(format!("voter {left:?}")));
+            }
+            if right.is_empty() {
+                Ok(())
+            } else {
+                stores("revid", right, "")
+            }
+        }
+        "set" => match left {
+            "title" | "state" | "body" | "tags" | "statistics" | "retarget" => {
+                stores(left, right, "")
+            }
+            "priority" => {
+                let ch = one_char(right)?;
+                org(
+                    &format!("priority {right:?}"),
+                    fresh_heading("proj-1", "Title", "TODO", ch),
+                    |h| h.priority == ch,
+                )
+            }
+            name if let Some(key) = name.strip_prefix("property:") => {
+                stores("property", key, right)
+            }
+            name if let Some(rev) = name.strip_prefix("revision:") => stores("summary", rev, right),
+            name if let Some((target, key)) = split_target(name) => {
+                stores("tvalue", &target, &format!("{key}\0{right}"))
+            }
+            name if name.starts_with("link:") => {
+                if right.is_empty() || !breaks_a_line(right) {
+                    Ok(())
+                } else {
+                    Err(bad(format!("id {right:?}")))
+                }
+            }
+            name if let Some((voter, rev)) = unkey("ballot:", name) => {
+                if breaks_a_line(right) {
+                    return Err(bad(format!("choice {right:?}")));
+                }
+                let Some(parsed) = crate::ops::parse_ballot(right) else {
+                    return Err(bad(format!("voter {voter:?}")));
+                };
+                if parsed.agent == voter && parsed.rev.unwrap_or_default() == rev {
+                    Ok(())
+                } else {
+                    Err(bad(format!("voter {voter:?}")))
+                }
+            }
+            _ => Ok(()),
+        },
+        _ => Err(bad(err)),
+    }
+}
+
+fn target_name_ok(id: &str, field: &str) -> bool {
+    !id.is_empty()
+        && !field.is_empty()
+        && !id.contains(':')
+        && !field.contains(':')
+        && !id.chars().any(char::is_whitespace)
+        && !field.chars().any(char::is_whitespace)
+        && !breaks_a_line(id)
+        && !breaks_a_line(field)
+}
+
+fn ballot_ok(voter: &str, rev: &str, choice: &str, stamp: &str) -> Result<()> {
+    stores("bvoter", voter, rev)?;
+    if choice.trim().is_empty() || breaks_a_line(choice) {
+        return Err(bad(format!("choice {choice:?}")));
+    }
+    if stamp.is_empty() || stamp.chars().any(char::is_control) {
+        return Err(bad(format!("stamp {stamp:?}")));
+    }
+    let line = vote_line(rev, stamp, voter, choice);
+    let Some(parsed) = crate::ops::parse_ballot(&line) else {
+        return Err(bad(format!("voter {voter:?}")));
+    };
+    if line.lines().count() != 1 || parsed.choice != choice {
+        return Err(bad(format!("choice {choice:?}")));
+    }
+    if parsed.agent != voter {
+        return Err(bad(format!("voter {voter:?}")));
+    }
+    if parsed.rev.unwrap_or_default() == rev {
+        Ok(())
+    } else {
+        Err(bad(format!("revision {rev:?}")))
+    }
+}
+
+fn log_ok(entry: &LogEntry) -> Result<()> {
+    if let Some(note) = &entry.note {
+        stores("note", note, "")?;
+    }
+    if entry.render().lines().count() == 1 {
+        Ok(())
+    } else {
+        Err(bad(format!(
+            "note {:?}",
+            entry.note.as_deref().unwrap_or("")
+        )))
+    }
+}
+
+fn breaks_a_line(value: &str) -> bool {
+    value
+        .chars()
+        .any(|ch| ch == '\n' || ch == '\r' || (ch.is_control() && ch != '\t'))
+}
+
+fn cached(key: &str, run: impl FnOnce() -> Result<()>) -> Result<()> {
+    thread_local! {
+        static CACHE: RefCell<HashMap<String, Option<String>>> = RefCell::new(HashMap::new());
+    }
+    if let Some(hit) = CACHE.with(|cache| cache.borrow().get(key).cloned()) {
+        return hit.map_or(Ok(()), |msg| Err(bad(msg)));
+    }
+    let result = run();
+    let stored = result.as_ref().err().map(ToString::to_string);
+    CACHE.with(|cache| cache.borrow_mut().insert(key.to_string(), stored));
+    result
+}
+
+fn org(err: &str, heading: IssueHeading, same: impl Fn(&IssueHeading) -> bool) -> Result<()> {
+    let key = format!("{err}\0{}", heading.render());
+    cached(&key, || {
+        let rendered = heading.render();
+        let before = rendered.lines().count();
+        let doc = crate::store::IssueDoc::parse(
+            "proj",
+            std::path::PathBuf::from("issues.org"),
+            &rendered,
+        )
+        .map_err(|_| bad(err.to_string()))?;
+        if doc.headings.len() != 1 {
+            return Err(bad(err.to_string()));
+        }
+        let parsed = doc.headings.into_iter().next().unwrap();
+        if parsed.render().lines().count() == before && same(&parsed) {
+            Ok(())
+        } else {
+            Err(bad(err.to_string()))
+        }
+    })
 }
 
 impl Live {
     fn from_op(op: &Op, short_id: &str, heading: IssueHeading, id: OpId) -> Self {
-        let (ballots, raw_votes) = load_votes(&heading);
-        let (revisions, raw_revisions) = load_revisions(&heading);
-        let (links, raw_links) = load_links(&heading);
-        let (targets, retarget, raw_targets) = load_targets(&heading);
-        let raw = kept_lines(raw_votes, raw_revisions, raw_links, raw_targets);
+        let dup_fields = duplicate_fields(&heading);
         let order_fixed = heading.property_order.len();
         Self {
             project: op.project.clone(),
             short_id: short_id.to_string(),
             heading,
-            links,
-            ballots,
-            revisions,
-            targets,
-            retarget,
-            raw,
+            dup_fields,
             born_lamport: op.lamport,
             born_id: id,
             order_fixed,
@@ -2635,12 +2953,7 @@ mod tests {
             project: "proj".to_string(),
             short_id: "shared".to_string(),
             heading: fresh_heading("shared", title, "TODO", 'B'),
-            links: BTreeSet::new(),
-            ballots: BTreeMap::new(),
-            revisions: BTreeMap::new(),
-            targets: BTreeMap::new(),
-            retarget: None,
-            raw: BTreeMap::new(),
+            dup_fields: Vec::new(),
             born_lamport: lamport,
             born_id: OpId([0; 32]),
             order_fixed: 1,

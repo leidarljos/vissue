@@ -1908,7 +1908,7 @@ fn read_ballots(h: &IssueHeading) -> (Vec<Ballot>, Vec<String>) {
 /// contain it; [`vote`] refuses an identity that does. A revision is only the
 /// `[rev=TOKEN]` prefix. Choice text that contains ` rev=` stays the choice:
 /// a line written before revisions opens with the timestamp, never `[rev=`.
-pub fn parse_ballot(line: &str) -> Option<Ballot> {
+pub(crate) fn parse_ballot(line: &str) -> Option<Ballot> {
     let (line, rev) = peel_stored_rev(line);
     let (stamp, rest) = line.strip_prefix('[')?.split_once("] ")?;
     let (agent, choice) = rest.split_once(": ")?;
@@ -2037,7 +2037,7 @@ fn peel_stored_rev(line: &str) -> (&str, Option<String>) {
 /// One ballot as the drawer writes it. Absent tails are omitted, so a ballot
 /// with no revision is the line it was before the field existed. A revision
 /// is a `[rev=TOKEN]` prefix, which those older lines do not start with.
-fn ballot_line(ballot: &Ballot) -> String {
+pub(crate) fn ballot_line(ballot: &Ballot) -> String {
     let mut line = String::new();
     if let Some(rev) = &ballot.rev {
         line.push_str("[rev=");
