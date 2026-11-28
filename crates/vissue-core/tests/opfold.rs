@@ -1686,3 +1686,145 @@ fn concurrent_ops_fold_to_the_same_bytes_in_every_order() {
     });
     assert_eq!(seen, 362_880);
 }
+
+fn genesis_of(heading: IssueHeading) -> Op {
+    wire(&describe("proj", &[heading]).unwrap().pop().unwrap())
+}
+
+fn issue_text(folded: &Folded) -> String {
+    let heading = &folded.issues[&("proj".to_string(), "proj-1".to_string())];
+    let mut text = String::new();
+    for value in heading.properties.values() {
+        text.push_str(value);
+        text.push('\n');
+    }
+    text.push_str(&heading.extra_drawers.concat());
+    text
+}
+
+/// Genesis and a scalar set value must use the same keys as the op that
+/// rewrites the drawer. Each row is one heading and the next op; every
+/// input order keeps the genesis line.
+#[test]
+fn genesis_lines_survive_the_next_op() {
+    let mut deeds = plain_heading("proj-1", "Genesis");
+    deeds
+        .properties
+        .insert("DEEDS".to_string(), "a  b".to_string());
+    deeds.property_order.push("DEEDS".to_string());
+    let deeds_born = genesis_of(deeds);
+    let deed = wire(&spawned(
+        &deeds_born,
+        OpKind::AddDeed {
+            accession: "c".to_string(),
+        },
+        1,
+    ));
+
+    let mut linked = plain_heading("proj-1", "Genesis");
+    linked.extra_drawers = vec![
+        ":LINKS:\nrelates kept\n:END:\n".to_string(),
+        ":TARGETS:\nt1 status open\n:END:\n".to_string(),
+    ];
+    let linked_born = genesis_of(linked);
+    let link = wire(&spawned(
+        &linked_born,
+        OpKind::Link {
+            kind: "relates".to_string(),
+            other: "new".to_string(),
+        },
+        1,
+    ));
+    let target = wire(&spawned(
+        &linked_born,
+        OpKind::SetTarget {
+            target_id: "t2".to_string(),
+            fields: vec![("status".to_string(), "shut".to_string())],
+        },
+        2,
+    ));
+
+    let mut revised = plain_heading("proj-1", "Genesis");
+    revised.extra_drawers = vec![":REVISIONS:\n1 2 3\n1 2 x\n:END:\n".to_string()];
+    let revised_born = genesis_of(revised);
+    let revision = wire(&spawned(
+        &revised_born,
+        OpKind::AddRevision {
+            rev_id: "9".to_string(),
+            summary: "z".to_string(),
+        },
+        1,
+    ));
+
+    let mut voted = plain_heading("proj-1", "Genesis");
+    voted.extra_drawers = vec![
+        ":VOTES:\n[rev=1] [2026-01-01 Thu] ann: yes\n[rev=2] [2026-01-02 Fri] ann: no\n:END:\n"
+            .to_string(),
+    ];
+    let voted_born = genesis_of(voted);
+    let ballot = wire(&spawned(
+        &voted_born,
+        OpKind::Ballot {
+            voter: "bob".to_string(),
+            rev: String::new(),
+            choice: "yes".to_string(),
+            stamp: "[2026-01-03 Sat]".to_string(),
+        },
+        1,
+    ));
+
+    let rows: [(&str, Vec<Op>, &[&str]); 4] = [
+        ("deeds", vec![deeds_born, deed], &["a  b"]),
+        (
+            "links and targets",
+            vec![linked_born, link, target],
+            &["relates kept", "t1 status open"],
+        ),
+        (
+            "revisions",
+            vec![revised_born, revision],
+            &["1 2 3", "1 2 x"],
+        ),
+        (
+            "votes",
+            vec![voted_born, ballot],
+            &["[rev=1]", "ann: yes", "[rev=2]", "ann: no"],
+        ),
+    ];
+    let mut report = String::new();
+    for (label, mut ops, needles) in rows {
+        let mut expected: Option<Vec<u8>> = None;
+        let mut case_lost = String::new();
+        permute(&mut ops, 0, &mut |order| {
+            if !case_lost.is_empty() {
+                return;
+            }
+            let Ok(folded) = fold(order) else {
+                case_lost.push_str("fold error\n");
+                return;
+            };
+            if !folded.conflicts.is_empty() {
+                case_lost.push_str(&format!("clash {:?}\n", folded.conflicts));
+            }
+            let text = issue_text(&folded);
+            for needle in needles {
+                if !text.contains(needle) {
+                    case_lost.push_str(&format!("lost {needle} in {text}\n"));
+                }
+            }
+            let bytes = folded_bytes(&folded);
+            if let Some(first) = &expected
+                && first != &bytes
+            {
+                case_lost.push_str("orders differ\n");
+            }
+            expected = Some(bytes);
+        });
+        if !case_lost.is_empty() {
+            report.push_str(label);
+            report.push('\n');
+            report.push_str(&case_lost);
+        }
+    }
+    assert!(report.is_empty(), "{report}");
+}

@@ -555,9 +555,10 @@ struct UnionSet {
 impl UnionSet {
     fn from_scalar(source: OpId, value: &str) -> Self {
         let mut set = Self::default();
-        for element in tokens(Some(value)) {
-            set.insert(source, &element);
-        }
+        // Same element as `insert`. A scalar or a genesis value is one
+        // accession, including its spaces; splitting it would drop them
+        // on the next add.
+        set.insert(source, value);
         set
     }
 
@@ -1174,7 +1175,7 @@ fn project(live: &mut Live, field: &str, value: &str) {
                 let lines: Vec<String> = live
                     .links
                     .iter()
-                    .map(|(kind, other)| format!("{kind} {other}"))
+                    .map(|(kind, other)| link_line(kind, other))
                     .collect();
                 replace_drawer(&mut live.heading, "LINKS", &lines);
             }
@@ -1223,7 +1224,7 @@ fn rewrite_revisions(live: &mut Live, rev: &str, summary: &str) {
     let lines: Vec<String> = live
         .revisions
         .iter()
-        .map(|(rev, summary)| format!("{rev} {summary}"))
+        .map(|(rev, summary)| revision_line(rev, summary))
         .collect();
     replace_drawer(&mut live.heading, "REVISIONS", &lines);
 }
@@ -1231,10 +1232,10 @@ fn rewrite_revisions(live: &mut Live, rev: &str, summary: &str) {
 fn rewrite_targets(live: &mut Live) {
     let mut lines = Vec::new();
     for ((target, key), value) in &live.targets {
-        lines.push(format!("{target} {key} {value}"));
+        lines.push(target_field_line(target, key, value));
     }
     if let Some(target) = &live.retarget {
-        lines.push(format!("retarget {target}"));
+        lines.push(retarget_line(target));
     }
     lines.sort();
     replace_drawer(&mut live.heading, "TARGETS", &lines);
@@ -1340,9 +1341,10 @@ fn one_char(value: &str) -> Result<char> {
 fn load_votes(heading: &IssueHeading) -> BTreeMap<String, String> {
     let mut votes = BTreeMap::new();
     for line in drawer_lines(heading, "VOTES") {
-        let key = crate::ops::parse_ballot(&line)
-            .map(|ballot| ballot_slot(&ballot.agent, ""))
-            .unwrap_or_else(|| format!("line:{line}"));
+        let key = match crate::ops::parse_ballot(&line) {
+            Some(ballot) => ballot_slot(&ballot.agent, ballot.rev.as_deref().unwrap_or("")),
+            None => format!("line:{line}"),
+        };
         votes.insert(key, line);
     }
     votes
@@ -1351,10 +1353,78 @@ fn load_votes(heading: &IssueHeading) -> BTreeMap<String, String> {
 fn load_revisions(heading: &IssueHeading) -> BTreeMap<String, String> {
     let mut revisions = BTreeMap::new();
     for line in drawer_lines(heading, "REVISIONS") {
-        let (rev, summary) = line.split_once(' ').unwrap_or((line.as_str(), ""));
-        revisions.insert(rev.to_string(), summary.to_string());
+        let (rev, summary) = revision_parts(&line);
+        revisions.insert(rev, summary);
     }
     revisions
+}
+
+fn load_links(heading: &IssueHeading) -> BTreeSet<(String, String)> {
+    let mut links = BTreeSet::new();
+    for line in drawer_lines(heading, "LINKS") {
+        if let Some(pair) = parse_link_line(&line) {
+            links.insert(pair);
+        }
+    }
+    links
+}
+
+fn load_targets(heading: &IssueHeading) -> (BTreeMap<(String, String), String>, Option<String>) {
+    let mut targets = BTreeMap::new();
+    let mut retarget = None;
+    for line in drawer_lines(heading, "TARGETS") {
+        if let Some(id) = line.strip_prefix("retarget ") {
+            retarget = Some(id.to_string());
+            continue;
+        }
+        let Some((target, rest)) = line.split_once(' ') else {
+            continue;
+        };
+        let Some((key, value)) = rest.split_once(' ') else {
+            continue;
+        };
+        if target.is_empty() || key.is_empty() {
+            continue;
+        }
+        targets.insert((target.to_string(), key.to_string()), value.to_string());
+    }
+    (targets, retarget)
+}
+
+fn link_line(kind: &str, other: &str) -> String {
+    format!("{kind} {other}")
+}
+
+fn parse_link_line(line: &str) -> Option<(String, String)> {
+    let (kind, other) = line.split_once(' ')?;
+    if kind.is_empty() || other.is_empty() {
+        return None;
+    }
+    Some((kind.to_string(), other.to_string()))
+}
+
+fn target_field_line(target: &str, key: &str, value: &str) -> String {
+    format!("{target} {key} {value}")
+}
+
+fn retarget_line(target: &str) -> String {
+    format!("retarget {target}")
+}
+
+/// `{id} {summary}`. An empty summary is a genesis line kept whole.
+fn revision_line(rev: &str, summary: &str) -> String {
+    if summary.is_empty() {
+        rev.to_string()
+    } else {
+        format!("{rev} {summary}")
+    }
+}
+
+/// The id and the summary may both contain spaces, so the first space is
+/// not the id. `1 2 3` and `1 2 x` would share `1` and the next rewrite
+/// would drop a line. The line is the id; [`revision_line`] writes it back.
+fn revision_parts(line: &str) -> (String, String) {
+    (line.to_string(), String::new())
 }
 
 fn ballot_slot(voter: &str, rev: &str) -> String {
@@ -1390,29 +1460,23 @@ impl Live {
     fn from_op(op: &Op, short_id: &str, heading: IssueHeading, id: OpId) -> Self {
         let ballots = load_votes(&heading);
         let revisions = load_revisions(&heading);
+        let links = load_links(&heading);
+        let (targets, retarget) = load_targets(&heading);
         let order_fixed = heading.property_order.len();
         Self {
             project: op.project.clone(),
             short_id: short_id.to_string(),
             heading,
-            links: BTreeSet::new(),
+            links,
             ballots,
             revisions,
-            targets: BTreeMap::new(),
-            retarget: None,
+            targets,
+            retarget,
             born_lamport: op.lamport,
             born_id: id,
             order_fixed,
         }
     }
-}
-
-fn tokens(value: Option<&str>) -> BTreeSet<String> {
-    value
-        .unwrap_or("")
-        .split_whitespace()
-        .map(str::to_string)
-        .collect()
 }
 
 fn hex16(bytes: &[u8; 16]) -> String {
