@@ -685,12 +685,17 @@ impl Mem {
                 "issue",
             );
         }
+        // One lookup per field. A scan of every issue for each frontier
+        // entry walks the tracker once per field. The first live for a
+        // birth id is the row that scan returned.
+        let mut by_birth: HashMap<OpId, &Live> = HashMap::new();
+        for lives in self.issues.values() {
+            for live in lives {
+                by_birth.entry(live.born_id).or_insert(live);
+            }
+        }
         for ((birth, field), frontier) in &self.frontiers {
-            let live = self
-                .issues
-                .values()
-                .flatten()
-                .find(|live| live.born_id == *birth);
+            let live = by_birth.get(birth).copied();
             // A duplicated key is reported once, with every line's op.
             if live.is_some_and(|live| live.dup_fields.iter().any(|name| name == field)) {
                 continue;
@@ -3456,5 +3461,45 @@ mod tests {
         assert_eq!(plain.id, "shared");
         assert_eq!(later.title, "Beta");
         assert_eq!(later.id, "shared~2");
+    }
+
+    fn title_writer(byte: u8, lamport: u64, value: &str) -> Writer {
+        Writer {
+            id: OpId([byte; 32]),
+            lamport,
+            value: value.to_string(),
+            unite: false,
+            owned: false,
+            union: UnionSet::default(),
+            removed: std::collections::HashSet::new(),
+        }
+    }
+
+    #[test]
+    fn two_lives_sharing_a_born_id_clash_on_the_first_row() {
+        // One issue vec. Push order is the first row, then the last row.
+        let birth = OpId([9; 32]);
+        let key = IssueKey::derive("proj", "shared");
+        let mut first = live("First", 1);
+        first.short_id = "title:first-row".to_string();
+        first.born_id = birth;
+        let mut last = live("Last", 2);
+        last.short_id = "title:last-row".to_string();
+        last.born_id = birth;
+        let mut mem = Mem::default();
+        let rows = mem.issues.entry(key).or_default();
+        rows.push(first);
+        rows.push(last);
+        let mut frontier = Frontier::default();
+        frontier.writers.push(title_writer(1, 3, "one"));
+        frontier.writers.push(title_writer(2, 4, "two"));
+        mem.frontiers.insert((birth, "title".to_string()), frontier);
+        let folded = mem.finish();
+        assert_eq!(folded.conflicts.len(), 1);
+        let clash = &folded.conflicts[0];
+        assert_eq!(clash.field, "title");
+        assert_eq!(clash.id, "title:first-row");
+        assert_eq!(clash.project, "proj");
+        assert_eq!(clash.ops.len(), 2);
     }
 }
