@@ -10,6 +10,7 @@ use std::process::Command;
 use vissue_core::model::{IssueHeading, LogEntry};
 use vissue_core::oplog::{Folded, IssueKey, Op, OpId, OpKind, describe, fold};
 use vissue_core::store::IssueDoc;
+use vissue_core::target::target_id;
 
 fn wire(op: &Op) -> Op {
     let bytes = op.message_bytes().unwrap();
@@ -2161,5 +2162,317 @@ fn genesis_lines_survive_the_next_op() {
             ));
         }
     }
+
+    // 6. A minted target id is one token. The field key quotes a colon
+    // inside it, and the drawer line keeps the id whole. Clash count is
+    // what one causal write records: none.
+    let main_id = target_id("origin", "main");
+    let dev_id = target_id("origin", "dev");
+    let mut minted = plain_heading("proj-1", "Genesis");
+    minted.extra_drawers = vec![format!(":TARGETS:\n{main_id} status open\n:END:\n")];
+    let minted_born = genesis_of(minted);
+    let other_target = wire(&spawned(
+        &minted_born,
+        OpKind::SetTarget {
+            target_id: dev_id.clone(),
+            fields: vec![("status".to_string(), "shut".to_string())],
+        },
+        1,
+    ));
+    let main_open = format!("{main_id} status open");
+    let dev_shut = format!("{dev_id} status shut");
+    let minted_ops = [minted_born, other_target];
+    both_ways(&minted_ops, |folded| {
+        let text = issue_text(folded);
+        for line in [&main_open, &dev_shut] {
+            if !line_is(&text, line) {
+                report.push_str(&format!("minted lost {line} in {text}\n"));
+            }
+        }
+        if text.lines().any(|line| line.starts_with("sha256 ")) {
+            report.push_str(&format!("minted split {text}\n"));
+        }
+        if !folded.conflicts.is_empty() {
+            report.push_str(&format!("minted clash {:?}\n", folded.conflicts));
+        }
+    });
+    let minted_again = reencode(
+        &heading_of(&fold(&minted_ops).expect("minted")),
+        OpKind::SetTarget {
+            target_id: dev_id.clone(),
+            fields: vec![("status".to_string(), "shut".to_string())],
+        },
+    );
+    let minted_again_text = issue_text(&minted_again);
+    for line in [&main_open, &dev_shut] {
+        if !line_is(&minted_again_text, line) {
+            report.push_str(&format!(
+                "minted round trip lost {line} in {minted_again_text}\n"
+            ));
+        }
+    }
+
+    let mut same = plain_heading("proj-1", "Genesis");
+    same.extra_drawers = vec![format!(":TARGETS:\n{main_id} status open\n:END:\n")];
+    let same_born = genesis_of(same);
+    let shut_same = wire(&spawned(
+        &same_born,
+        OpKind::SetTarget {
+            target_id: main_id.clone(),
+            fields: vec![("status".to_string(), "shut".to_string())],
+        },
+        1,
+    ));
+    let main_shut = format!("{main_id} status shut");
+    both_ways(&[same_born, shut_same], |folded| {
+        let text = issue_text(folded);
+        if !line_is(&text, &main_shut) || line_is(&text, &main_open) {
+            report.push_str(&format!("same target {text}\n"));
+        }
+        if text.lines().any(|line| line.starts_with("sha256 ")) {
+            report.push_str(&format!("same target split {text}\n"));
+        }
+        if !folded.conflicts.is_empty() {
+            report.push_str(&format!("same target clash {:?}\n", folded.conflicts));
+        }
+    });
+
+    // 7. An id spelled `retarget` is a field, not the retarget record.
+    // Three tokens are a field. The retarget record is the two-token line.
+    let mut word = plain_heading("proj-1", "Genesis");
+    word.extra_drawers = vec![":TARGETS:\nretarget status open\n:END:\n".to_string()];
+    let word_born = genesis_of(word);
+    let moved_word = wire(&spawned(
+        &word_born,
+        OpKind::Retarget {
+            target_id: "zzz".to_string(),
+        },
+        1,
+    ));
+    let word_ops = [word_born, moved_word];
+    both_ways(&word_ops, |folded| {
+        let text = issue_text(folded);
+        for line in ["retarget status open", "retarget zzz"] {
+            if !line_is(&text, line) {
+                report.push_str(&format!("keyword lost {line} in {text}\n"));
+            }
+        }
+        if !folded.conflicts.is_empty() {
+            report.push_str(&format!("keyword clash {:?}\n", folded.conflicts));
+        }
+    });
+    let word_again = reencode(
+        &heading_of(&fold(&word_ops).expect("keyword")),
+        OpKind::Retarget {
+            target_id: "zzz".to_string(),
+        },
+    );
+    let word_again_text = issue_text(&word_again);
+    for line in ["retarget status open", "retarget zzz"] {
+        if !line_is(&word_again_text, line) {
+            report.push_str(&format!(
+                "keyword round trip lost {line} in {word_again_text}\n"
+            ));
+        }
+    }
+
+    // 8. Legacy list text decodes to the ids `split_id_list` returns.
+    // A tab, a comma, a backslash, and a lone quote stay those ids.
+    let mut tabbed = plain_heading("proj-1", "Genesis");
+    tabbed
+        .properties
+        .insert("DEEDS".to_string(), "acc1\tacc2".to_string());
+    tabbed.property_order.push("DEEDS".to_string());
+    let tab_born = genesis_of(tabbed);
+    let tab_add = wire(&spawned(
+        &tab_born,
+        OpKind::AddDeed {
+            accession: "zz".to_string(),
+        },
+        1,
+    ));
+    let tab_ops = [tab_born, tab_add];
+    both_ways(&tab_ops, |folded| {
+        let heading = &folded.issues[&("proj".to_string(), "proj-1".to_string())];
+        if heading.deeds() != ["acc1".to_string(), "acc2".to_string(), "zz".to_string()] {
+            report.push_str(&format!("tab deeds {:?}\n", heading.deeds()));
+        }
+        if deeds(folded).as_deref() != Some("acc1 acc2 zz") {
+            report.push_str(&format!("tab property {:?}\n", deeds(folded)));
+        }
+        if !folded.conflicts.is_empty() {
+            report.push_str(&format!("tab clash {:?}\n", folded.conflicts));
+        }
+    });
+    let tab_again = reencode(
+        &heading_of(&fold(&tab_ops).expect("tab")),
+        OpKind::AddDeed {
+            accession: "zz".to_string(),
+        },
+    );
+    if deeds(&tab_again).as_deref() != Some("acc1 acc2 zz") {
+        report.push_str(&format!("tab round trip {:?}\n", deeds(&tab_again)));
+    }
+
+    let mut commas = plain_heading("proj-1", "Genesis");
+    commas
+        .properties
+        .insert("BLOCKED_BY".to_string(), "a-1,a-2".to_string());
+    commas.property_order.push("BLOCKED_BY".to_string());
+    let comma_born = genesis_of(commas);
+    let comma_add = wire(&spawned(
+        &comma_born,
+        OpKind::Link {
+            kind: "blocked-by".to_string(),
+            other: "a-1".to_string(),
+        },
+        1,
+    ));
+    both_ways(&[comma_born, comma_add], |folded| {
+        if blocked(folded).as_deref() != Some("a-1 a-2") {
+            report.push_str(&format!("comma property {:?}\n", blocked(folded)));
+        }
+        let heading = &folded.issues[&("proj".to_string(), "proj-1".to_string())];
+        if heading.blocked_by() != ["a-1".to_string(), "a-2".to_string()] {
+            report.push_str(&format!("comma ids {:?}\n", heading.blocked_by()));
+        }
+        if !folded.conflicts.is_empty() {
+            report.push_str(&format!("comma clash {:?}\n", folded.conflicts));
+        }
+    });
+
+    let mut slashed = plain_heading("proj-1", "Genesis");
+    slashed
+        .properties
+        .insert("DEEDS".to_string(), "a\\b".to_string());
+    slashed.property_order.push("DEEDS".to_string());
+    let slash_born = genesis_of(slashed);
+    let slash_add = wire(&spawned(
+        &slash_born,
+        OpKind::AddDeed {
+            accession: "zz".to_string(),
+        },
+        1,
+    ));
+    both_ways(&[slash_born, slash_add], |folded| {
+        let heading = &folded.issues[&("proj".to_string(), "proj-1".to_string())];
+        if heading.deeds() != ["a\\b".to_string(), "zz".to_string()] {
+            report.push_str(&format!("slash deeds {:?}\n", heading.deeds()));
+        }
+        if deeds(folded).as_deref() != Some("a\\b zz") {
+            report.push_str(&format!("slash property {:?}\n", deeds(folded)));
+        }
+        if !folded.conflicts.is_empty() {
+            report.push_str(&format!("slash clash {:?}\n", folded.conflicts));
+        }
+    });
+
+    let mut quoted = plain_heading("proj-1", "Genesis");
+    quoted
+        .properties
+        .insert("DEEDS".to_string(), "\"".to_string());
+    quoted.property_order.push("DEEDS".to_string());
+    let quote_born = genesis_of(quoted);
+    let quote_add = wire(&spawned(
+        &quote_born,
+        OpKind::AddDeed {
+            accession: "zz".to_string(),
+        },
+        1,
+    ));
+    both_ways(&[quote_born, quote_add], |folded| {
+        let heading = &folded.issues[&("proj".to_string(), "proj-1".to_string())];
+        if heading.deeds() != ["\"".to_string(), "zz".to_string()] {
+            report.push_str(&format!("quote deeds {:?}\n", heading.deeds()));
+        }
+        if deeds(folded).as_deref() != Some("\" zz") {
+            report.push_str(&format!("quote property {:?}\n", deeds(folded)));
+        }
+        if !folded.conflicts.is_empty() {
+            report.push_str(&format!("quote clash {:?}\n", folded.conflicts));
+        }
+    });
+
+    let mut wrapped = plain_heading("proj-1", "Genesis");
+    wrapped
+        .properties
+        .insert("DEEDS".to_string(), "\"acc1\"".to_string());
+    wrapped.property_order.push("DEEDS".to_string());
+    let wrapped_born = genesis_of(wrapped);
+    let wrapped_add = wire(&spawned(
+        &wrapped_born,
+        OpKind::AddDeed {
+            accession: "zz".to_string(),
+        },
+        1,
+    ));
+    both_ways(&[wrapped_born, wrapped_add], |folded| {
+        let heading = &folded.issues[&("proj".to_string(), "proj-1".to_string())];
+        if heading.deeds() != ["\"acc1\"".to_string(), "zz".to_string()] {
+            report.push_str(&format!("wrapped deeds {:?}\n", heading.deeds()));
+        }
+        if !folded.conflicts.is_empty() {
+            report.push_str(&format!("wrapped clash {:?}\n", folded.conflicts));
+        }
+    });
+
+    // 9. A newline in a link, a target value, a retarget id, or a ballot
+    // choice is escaped by the same quote the deed codec uses. The tail
+    // is not a second line. One causal write records no clash.
+    let newline_rows: [(&str, OpKind, &str); 4] = [
+        (
+            "link",
+            OpKind::Link {
+                kind: "relates".to_string(),
+                other: "a\nb".to_string(),
+            },
+            "relates \"a\\nb\"",
+        ),
+        (
+            "target value",
+            OpKind::SetTarget {
+                target_id: "t1".to_string(),
+                fields: vec![("status".to_string(), "a\nb".to_string())],
+            },
+            "t1 status \"a\\nb\"",
+        ),
+        (
+            "retarget",
+            OpKind::Retarget {
+                target_id: "a\nb".to_string(),
+            },
+            "retarget \"a\\nb\"",
+        ),
+        (
+            "ballot",
+            OpKind::Ballot {
+                voter: "ann".to_string(),
+                rev: String::new(),
+                choice: "a\nb".to_string(),
+                stamp: "[2026-01-01 Thu]".to_string(),
+            },
+            "[2026-01-01 Thu] ann: \"a\\nb\"",
+        ),
+    ];
+    for (label, kind, line) in newline_rows {
+        let born = genesis_of(plain_heading("proj-1", "Genesis"));
+        let next = wire(&spawned(&born, kind.clone(), 1));
+        let ops = [born, next];
+        both_ways(&ops, |folded| {
+            let text = issue_text(folded);
+            if !line_is(&text, line) || text.lines().any(|item| item == "b") {
+                report.push_str(&format!("newline {label} {text}\n"));
+            }
+            if !folded.conflicts.is_empty() {
+                report.push_str(&format!("newline {label} clash {:?}\n", folded.conflicts));
+            }
+        });
+        let again = reencode(&heading_of(&fold(&ops).expect(label)), kind);
+        let again_text = issue_text(&again);
+        if !line_is(&again_text, line) || again_text.lines().any(|item| item == "b") {
+            report.push_str(&format!("newline round trip {label} {again_text}\n"));
+        }
+    }
+
     assert!(report.is_empty(), "{report}");
 }

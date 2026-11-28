@@ -781,10 +781,16 @@ fn apply(mem: &mut Mem, id: OpId, op: &Op) -> Result<()> {
         }
         OpKind::SetTarget { target_id, fields } => {
             if fields.is_empty() {
-                return write_named(mem, id, op, &format!("target:{target_id}:id"), target_id);
+                return write_named(
+                    mem,
+                    id,
+                    op,
+                    &pair_field("target:", target_id, "id"),
+                    target_id,
+                );
             }
             for (name, value) in fields {
-                write_named(mem, id, op, &format!("target:{target_id}:{name}"), value)?;
+                write_named(mem, id, op, &pair_field("target:", target_id, name), value)?;
             }
             Ok(())
         }
@@ -968,7 +974,7 @@ fn heading_writes(heading: &IssueHeading) -> Vec<(String, String)> {
     }
     let (targets, retarget, _) = load_targets(heading);
     for ((target, key), value) in targets {
-        fields.push((format!("target:{target}:{key}"), value));
+        fields.push((pair_field("target:", &target, &key), value));
     }
     if let Some(target) = retarget {
         fields.push(("retarget".to_string(), target));
@@ -1162,20 +1168,17 @@ fn project(live: &mut Live, field: &str, value: &str) {
             rewrite_revisions(live, rev, value);
         }
         name if name.starts_with("target:") => {
-            let rest = &name["target:".len()..];
-            if let Some((target, key)) = rest.split_once(':') {
-                live.targets
-                    .insert((target.to_string(), key.to_string()), value.to_string());
+            if let Some((target, key)) = split_pair(&name["target:".len()..]) {
+                live.targets.insert((target, key), value.to_string());
                 rewrite_targets(live);
             }
         }
         name if name.starts_with("link:") => {
-            let rest = &name["link:".len()..];
-            if let Some((kind, other)) = rest.split_once(':') {
+            if let Some((kind, other)) = split_pair(&name["link:".len()..]) {
                 if value.is_empty() {
-                    live.links.remove(&(kind.to_string(), other.to_string()));
+                    live.links.remove(&(kind, other));
                 } else {
-                    live.links.insert((kind.to_string(), other.to_string()));
+                    live.links.insert((kind, other));
                 }
                 let mut lines: Vec<String> = live
                     .links
@@ -1335,7 +1338,7 @@ fn add_link(mem: &mut Mem, id: OpId, op: &Op, kind: &str, other: &str) -> Result
     if kind == "blocked-by" {
         return write_union(mem, id, op, "property:BLOCKED_BY", other);
     }
-    write_union(mem, id, op, &format!("link:{kind}:{other}"), other)
+    write_union(mem, id, op, &pair_field("link:", kind, other), other)
 }
 
 fn one_char(value: &str) -> Result<char> {
@@ -1401,20 +1404,15 @@ fn load_targets(
     let mut retarget = None;
     let mut raw = BTreeSet::new();
     for line in drawer_lines(heading, "TARGETS") {
-        if let Some(id) = line.strip_prefix("retarget ")
-            && !id.is_empty()
-        {
-            retarget = Some(id.to_string());
+        if let Some((target, key, value)) = parse_target_line(&line) {
+            targets.insert((target, key), value);
             continue;
         }
-        match parse_target_line(&line) {
-            Some((target, key, value)) => {
-                targets.insert((target, key), value);
-            }
-            None => {
-                raw.insert(line);
-            }
+        if let Some(id) = parse_retarget_line(&line) {
+            retarget = Some(id);
+            continue;
         }
+        raw.insert(line);
     }
     (targets, retarget, raw)
 }
@@ -1444,19 +1442,14 @@ fn kept_lines(
     raw
 }
 
-/// A list token that contains the separator is a git-config quoted string.
-/// Simple tokens stay bare, so `acc1 acc2` decodes unchanged.
+/// A token that contains whitespace is a git-config quoted string.
+/// A quote or a backslash stays bare: those bytes are part of the id,
+/// and [`crate::org::split_id_list`] does not treat them as syntax.
 fn needs_quote(text: &str) -> bool {
-    text.is_empty()
-        || text
-            .chars()
-            .any(|ch| ch.is_whitespace() || ch == '"' || ch == '\\')
+    text.chars().any(char::is_whitespace)
 }
 
-fn quote_token(text: &str) -> String {
-    if !needs_quote(text) {
-        return text.to_string();
-    }
+fn quote_wrapped(text: &str) -> String {
     let mut out = String::from("\"");
     for ch in text.chars() {
         match ch {
@@ -1474,6 +1467,68 @@ fn quote_token(text: &str) -> String {
     out
 }
 
+fn quote_token(text: &str) -> String {
+    if needs_quote(text) {
+        quote_wrapped(text)
+    } else {
+        text.to_string()
+    }
+}
+
+/// One side of a `prefix{left}:{right}` field. A colon is quoted so the
+/// separator stays the one unquoted colon. `t1` and `status` stay bare,
+/// so the field is still `target:t1:status`.
+fn pair_side(text: &str) -> String {
+    if text.is_empty() || text.contains([':', '"', '\\']) || needs_quote(text) {
+        quote_wrapped(text)
+    } else {
+        text.to_string()
+    }
+}
+
+fn pair_field(prefix: &str, left: &str, right: &str) -> String {
+    format!("{prefix}{}:{}", pair_side(left), pair_side(right))
+}
+
+fn take_side(text: &str) -> Option<(String, &str)> {
+    let mut chars = text.char_indices();
+    let (_, first) = chars.next()?;
+    if first != '"' {
+        let end = text.find(':').unwrap_or(text.len());
+        if end == 0 {
+            return None;
+        }
+        return Some((text[..end].to_string(), &text[end..]));
+    }
+    let mut out = String::new();
+    while let Some((index, ch)) = chars.next() {
+        match ch {
+            '\\' => {
+                let (_, esc) = chars.next()?;
+                match esc {
+                    'n' => out.push('\n'),
+                    't' => out.push('\t'),
+                    'b' => out.push('\u{0008}'),
+                    other => out.push(other),
+                }
+            }
+            '"' => return Some((out, &text[index + ch.len_utf8()..])),
+            other => out.push(other),
+        }
+    }
+    None
+}
+
+fn split_pair(rest: &str) -> Option<(String, String)> {
+    let (left, rest) = take_side(rest)?;
+    let rest = rest.strip_prefix(':')?;
+    let (right, tail) = take_side(rest)?;
+    if !tail.is_empty() || left.is_empty() || right.is_empty() {
+        return None;
+    }
+    Some((left, right))
+}
+
 fn encode_elements<'a>(elements: impl IntoIterator<Item = &'a str>) -> String {
     let mut out = String::new();
     for (index, element) in elements.into_iter().enumerate() {
@@ -1485,22 +1540,44 @@ fn encode_elements<'a>(elements: impl IntoIterator<Item = &'a str>) -> String {
     out
 }
 
-/// Inverse of [`encode_elements`] for bytes this code wrote.
+/// Inverse of [`encode_elements`].
 ///
-/// A value with no quote and no backslash is a list of simple tokens when
-/// every token is non-empty (`acc1 acc2`). A doubled space is one element
-/// (`a  b`), which a whitespace split would destroy.
+/// A value this writer produced re-encodes to itself, including `"a  b" c`.
+/// Anything else is the org id list: commas and every whitespace run
+/// separate, and a quote or a backslash stays in the token. A doubled
+/// space with no comma and no other whitespace is one element (`a  b`).
 fn decode_elements(value: &str) -> Vec<String> {
     if value.is_empty() {
         return Vec::new();
     }
-    if !value.contains(['"', '\\']) {
-        if value.split(' ').any(str::is_empty) {
-            return vec![value.to_string()];
-        }
-        return value.split(' ').map(str::to_string).collect();
+    if let Some(elements) = codec_list(value) {
+        return elements;
     }
-    parse_quoted_elements(value)
+    if !value.contains(['"', ','])
+        && !value.chars().any(|ch| ch.is_whitespace() && ch != ' ')
+        && value.split(' ').any(str::is_empty)
+    {
+        return vec![value.to_string()];
+    }
+    crate::org::split_id_list(value)
+}
+
+/// Quoted text this codec wrote. A legacy `"acc1"` re-encodes to `acc1`,
+/// so it is not this form and the quote characters stay in the id.
+fn codec_list(value: &str) -> Option<Vec<String>> {
+    if !value.contains('"') {
+        return None;
+    }
+    let elements = parse_quoted_elements(value);
+    if elements.is_empty() || elements.iter().any(String::is_empty) {
+        return None;
+    }
+    let encoded = encode_elements(elements.iter().map(String::as_str));
+    if encoded == value {
+        Some(elements)
+    } else {
+        None
+    }
 }
 
 fn parse_quoted_elements(value: &str) -> Vec<String> {
@@ -1547,11 +1624,7 @@ fn parse_quoted_elements(value: &str) -> Vec<String> {
 }
 
 fn link_line(kind: &str, other: &str) -> String {
-    if needs_quote(kind) || other.contains(['"', '\\']) {
-        format!("{} {}", quote_token(kind), quote_token(other))
-    } else {
-        format!("{kind} {other}")
-    }
+    format!("{} {}", quote_token(kind), quote_token(other))
 }
 
 fn parse_link_line(line: &str) -> Option<(String, String)> {
@@ -1570,16 +1643,12 @@ fn parse_link_line(line: &str) -> Option<(String, String)> {
 }
 
 fn target_field_line(target: &str, key: &str, value: &str) -> String {
-    if needs_quote(target) || needs_quote(key) || value.contains(['"', '\\']) {
-        format!(
-            "{} {} {}",
-            quote_token(target),
-            quote_token(key),
-            quote_token(value)
-        )
-    } else {
-        format!("{target} {key} {value}")
-    }
+    format!(
+        "{} {} {}",
+        quote_token(target),
+        quote_token(key),
+        quote_token(value)
+    )
 }
 
 fn parse_target_line(line: &str) -> Option<(String, String, String)> {
@@ -1598,8 +1667,26 @@ fn parse_target_line(line: &str) -> Option<(String, String, String)> {
     Some((target.to_string(), key.to_string(), value.to_string()))
 }
 
+fn parse_retarget_line(line: &str) -> Option<String> {
+    let rest = line.strip_prefix("retarget ")?;
+    if rest.is_empty() {
+        return None;
+    }
+    if rest.contains(['"', '\\']) {
+        let tokens = parse_quoted_elements(rest);
+        if tokens.len() == 1 && !tokens[0].is_empty() {
+            return Some(tokens[0].clone());
+        }
+        return None;
+    }
+    if rest.contains(' ') {
+        return None;
+    }
+    Some(rest.to_string())
+}
+
 fn retarget_line(target: &str) -> String {
-    format!("retarget {target}")
+    format!("retarget {}", quote_token(target))
 }
 
 /// `{id} {summary}`. A token that contains a space is quoted, so `1 alpha`
@@ -1642,6 +1729,7 @@ fn revision_parts(line: &str) -> Option<(String, String)> {
 /// The ballot line `parse_ballot` reads. The revision is a `[rev=TOKEN]`
 /// prefix, the same bytes the org writer stores.
 fn vote_line(rev: &str, stamp: &str, voter: &str, choice: &str) -> String {
+    let choice = quote_token(choice);
     if rev.is_empty() {
         format!("{stamp} {voter}: {choice}")
     } else {
