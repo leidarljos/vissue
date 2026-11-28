@@ -1667,8 +1667,8 @@ fn concurrent_ops_fold_to_the_same_bytes_in_every_order() {
         let revisions = drawers.find(":REVISIONS:").expect("revisions drawer");
         let votes = drawers.find(":VOTES:").expect("votes drawer");
         assert!(revisions < votes, "{drawers}");
-        assert!(drawers.contains("1 \"2 3\""), "{drawers}");
-        assert!(drawers.contains("\"1 2\" x"), "{drawers}");
+        assert!(drawers.contains("\"1\" \"2 3\""), "{drawers}");
+        assert!(drawers.contains("\"1 2\" \"x\""), "{drawers}");
         assert!(drawers.contains("[2026-04-01 Wed] ann: yes"), "{drawers}");
         let mut sorted = heading.extra_drawers.clone();
         sorted.sort();
@@ -1811,7 +1811,7 @@ fn genesis_lines_survive_the_next_op() {
         (
             "links and targets",
             vec![linked_born, link, target],
-            &["relates kept", "t1 status open"],
+            &["\"relates\" \"kept\"", "\"t1\" \"status\" \"open\""],
         ),
         (
             "revisions",
@@ -1984,7 +1984,7 @@ fn genesis_lines_survive_the_next_op() {
     ));
     let updated = fold(&[alpha_born, beta]).expect("revision update");
     let updated_text = drawers(&updated, "proj-1");
-    if !line_is(&updated_text, "1 beta") || updated_text.contains("1 alpha") {
+    if !line_is(&updated_text, "\"1\" \"beta\"") || updated_text.contains("1 alpha") {
         report.push_str(&format!("revision update {updated_text}\n"));
     }
     if !updated.conflicts.is_empty() {
@@ -2009,7 +2009,7 @@ fn genesis_lines_survive_the_next_op() {
     ));
     let written_revs = fold(&[rev_root, wide, nested]).expect("revision lines");
     let rev_text = drawers(&written_revs, "proj-1");
-    if !line_is(&rev_text, "1 \"2 3\"") || !line_is(&rev_text, "\"1 2\" x") {
+    if !line_is(&rev_text, "\"1\" \"2 3\"") || !line_is(&rev_text, "\"1 2\" \"x\"") {
         report.push_str(&format!("revision write {rev_text}\n"));
     }
     let rev_again = reencode(
@@ -2020,7 +2020,7 @@ fn genesis_lines_survive_the_next_op() {
         },
     );
     let rev_again_text = drawers(&rev_again, "proj-1");
-    if !line_is(&rev_again_text, "1 \"2 3\"") || !line_is(&rev_again_text, "\"1 2\" x") {
+    if !line_is(&rev_again_text, "\"1\" \"2 3\"") || !line_is(&rev_again_text, "\"1 2\" \"x\"") {
         report.push_str(&format!("revision round trip {rev_again_text}\n"));
     }
 
@@ -2080,7 +2080,7 @@ fn genesis_lines_survive_the_next_op() {
             if folded.conflicts.len() != 4 {
                 report.push_str(&format!("frontier count {:?}\n", folded.conflicts));
             }
-            if !text.contains("t2 owner ada") || !text.contains("1 alpha") {
+            if !text.contains("\"t2\" \"owner\" \"ada\"") || !text.contains("\"1\" \"alpha\"") {
                 report.push_str(&format!("frontier lost a line {text}\n"));
             }
             if folded.issues[&("proj".to_string(), "proj-1".to_string())].title != "Other" {
@@ -2128,12 +2128,12 @@ fn genesis_lines_survive_the_next_op() {
     for needle in [
         "solo",
         "see-also",
-        "relates kept",
-        "relates new",
+        "\"relates\" \"kept\"",
+        "\"relates\" \"new\"",
         "bare",
         "orphan",
-        "t1 status open",
-        "t2 status shut",
+        "\"t1\" \"status\" \"open\"",
+        "\"t2\" \"status\" \"shut\"",
         "not a ballot",
     ] {
         if !line_is(&raw_text, needle) {
@@ -2153,8 +2153,8 @@ fn genesis_lines_survive_the_next_op() {
         "see-also",
         "bare",
         "orphan",
-        "relates kept",
-        "relates new",
+        "\"relates\" \"kept\"",
+        "\"relates\" \"new\"",
     ] {
         if !line_is(&raw_again_text, needle) {
             report.push_str(&format!(
@@ -2179,8 +2179,8 @@ fn genesis_lines_survive_the_next_op() {
         },
         1,
     ));
-    let main_open = format!("{main_id} status open");
-    let dev_shut = format!("{dev_id} status shut");
+    let main_open = format!("\"{main_id}\" \"status\" \"open\"");
+    let dev_shut = format!("\"{dev_id}\" \"status\" \"shut\"");
     let minted_ops = [minted_born, other_target];
     both_ways(&minted_ops, |folded| {
         let text = issue_text(folded);
@@ -2223,7 +2223,7 @@ fn genesis_lines_survive_the_next_op() {
         },
         1,
     ));
-    let main_shut = format!("{main_id} status shut");
+    let main_shut = format!("\"{main_id}\" \"status\" \"shut\"");
     both_ways(&[same_born, shut_same], |folded| {
         let text = issue_text(folded);
         if !line_is(&text, &main_shut) || line_is(&text, &main_open) {
@@ -2252,7 +2252,7 @@ fn genesis_lines_survive_the_next_op() {
     let word_ops = [word_born, moved_word];
     both_ways(&word_ops, |folded| {
         let text = issue_text(folded);
-        for line in ["retarget status open", "retarget zzz"] {
+        for line in ["\"retarget\" \"status\" \"open\"", "\"retarget\" \"zzz\""] {
             if !line_is(&text, line) {
                 report.push_str(&format!("keyword lost {line} in {text}\n"));
             }
@@ -2268,7 +2268,7 @@ fn genesis_lines_survive_the_next_op() {
         },
     );
     let word_again_text = issue_text(&word_again);
-    for line in ["retarget status open", "retarget zzz"] {
+    for line in ["\"retarget\" \"status\" \"open\"", "\"retarget\" \"zzz\""] {
         if !line_is(&word_again_text, line) {
             report.push_str(&format!(
                 "keyword round trip lost {line} in {word_again_text}\n"
@@ -2426,7 +2426,7 @@ fn genesis_lines_survive_the_next_op() {
                 kind: "relates".to_string(),
                 other: "a\nb".to_string(),
             },
-            "relates \"a\\nb\"",
+            "\"relates\" \"a\\nb\"",
         ),
         (
             "target value",
@@ -2434,14 +2434,14 @@ fn genesis_lines_survive_the_next_op() {
                 target_id: "t1".to_string(),
                 fields: vec![("status".to_string(), "a\nb".to_string())],
             },
-            "t1 status \"a\\nb\"",
+            "\"t1\" \"status\" \"a\\nb\"",
         ),
         (
             "retarget",
             OpKind::Retarget {
                 target_id: "a\nb".to_string(),
             },
-            "retarget \"a\\nb\"",
+            "\"retarget\" \"a\\nb\"",
         ),
         (
             "ballot",
@@ -2471,6 +2471,458 @@ fn genesis_lines_survive_the_next_op() {
         let again_text = issue_text(&again);
         if !line_is(&again_text, line) || again_text.lines().any(|item| item == "b") {
             report.push_str(&format!("newline round trip {label} {again_text}\n"));
+        }
+    }
+
+    // A legacy token that starts with a quote keeps those characters.
+    // The next write marks the drawer and quotes every token.
+    let mut quoted_h = plain_heading("proj-1", "Genesis");
+    quoted_h.extra_drawers = vec![
+        ":LINKS:\n# a note\nrelates \"kept\"\n:END:\n".to_string(),
+        ":TARGETS:\nt1 status \"open\"\n\"t1\" status open\nretarget \"zzz\"\n:END:\n".to_string(),
+        ":REVISIONS:\n1 \"alpha\"\n\"\n:END:\n".to_string(),
+    ];
+    let quoted_born = genesis_of(quoted_h);
+    let quoted_link = wire(&spawned(
+        &quoted_born,
+        OpKind::Link {
+            kind: "see-also".to_string(),
+            other: "x".to_string(),
+        },
+        1,
+    ));
+    let quoted_target = wire(&spawned(
+        &quoted_born,
+        OpKind::SetTarget {
+            target_id: "t2".to_string(),
+            fields: vec![("status".to_string(), "shut".to_string())],
+        },
+        2,
+    ));
+    let quoted_rev = wire(&spawned(
+        &quoted_born,
+        OpKind::AddRevision {
+            rev_id: "9".to_string(),
+            summary: "z".to_string(),
+        },
+        3,
+    ));
+    let quoted_ops = [quoted_born, quoted_link, quoted_target, quoted_rev];
+    let quoted_lines = [
+        "# a note",
+        "\"relates\" \"\\\"kept\\\"\"",
+        "\"see-also\" \"x\"",
+        "\"t1\" \"status\" \"\\\"open\\\"\"",
+        "\"\\\"t1\\\"\" \"status\" \"open\"",
+        "\"retarget\" \"\\\"zzz\\\"\"",
+        "\"t2\" \"status\" \"shut\"",
+        "\"1\" \"\\\"alpha\\\"\"",
+        "\"\\\"\"",
+        "\"9\" \"z\"",
+    ];
+    both_ways(&quoted_ops, |folded| {
+        let text = issue_text(folded);
+        if text.lines().filter(|line| *line == ":CODEC: 1").count() != 3 {
+            report.push_str(&format!("quote marker {text}\n"));
+        }
+        for line in quoted_lines {
+            if !line_is(&text, line) {
+                report.push_str(&format!("quote kept lost {line} in {text}\n"));
+            }
+        }
+        for stripped in ["relates kept", "t1 status open", "1 alpha", "retarget zzz"] {
+            if line_is(&text, stripped) {
+                report.push_str(&format!("quote stripped {stripped} in {text}\n"));
+            }
+        }
+        if text.contains("# \"a note\"") {
+            report.push_str(&format!("comment quoted {text}\n"));
+        }
+        if !folded.conflicts.is_empty() {
+            report.push_str(&format!("quote kept clash {:?}\n", folded.conflicts));
+        }
+    });
+    let quoted_again = reencode(
+        &heading_of(&fold(&quoted_ops).expect("quoted legacy")),
+        OpKind::Link {
+            kind: "see-also".to_string(),
+            other: "x".to_string(),
+        },
+    );
+    let quoted_again_text = issue_text(&quoted_again);
+    for line in quoted_lines {
+        if !line_is(&quoted_again_text, line) {
+            report.push_str(&format!(
+                "quote fixed point lost {line} in {quoted_again_text}\n"
+            ));
+        }
+    }
+
+    // `a  b c` is three ids. A leading or trailing space is not part of an id.
+    let space_rows: [(&str, &str, &[&str]); 7] = [
+        ("double", "a  b c", &["a", "b", "c", "zz"]),
+        (
+            "double acc",
+            "acc1 acc2  acc3",
+            &["acc1", "acc2", "acc3", "zz"],
+        ),
+        ("leading", " deed-a", &["deed-a", "zz"]),
+        ("trailing", "deed-a ", &["deed-a", "zz"]),
+        ("both spaces", " deed-a ", &["deed-a", "zz"]),
+        (
+            "leading pair",
+            " deed-a deed-b",
+            &["deed-a", "deed-b", "zz"],
+        ),
+        (
+            "trailing pair",
+            "deed-a deed-b ",
+            &["deed-a", "deed-b", "zz"],
+        ),
+    ];
+    for (label, raw, ids) in space_rows {
+        let want: Vec<String> = ids.iter().map(|id| (*id).to_string()).collect();
+        let mut heading = plain_heading("proj-1", "Genesis");
+        heading
+            .properties
+            .insert("DEEDS".to_string(), raw.to_string());
+        heading.property_order.push("DEEDS".to_string());
+        let born = genesis_of(heading);
+        let add = wire(&spawned(
+            &born,
+            OpKind::AddDeed {
+                accession: "zz".to_string(),
+            },
+            1,
+        ));
+        let ops = [born, add];
+        both_ways(&ops, |folded| {
+            let heading = &folded.issues[&("proj".to_string(), "proj-1".to_string())];
+            if heading.deeds() != want {
+                report.push_str(&format!("space {label} deeds {:?}\n", heading.deeds()));
+            }
+            if !folded.conflicts.is_empty() {
+                report.push_str(&format!("space {label} clash {:?}\n", folded.conflicts));
+            }
+        });
+        let again = reencode(
+            &heading_of(&fold(&ops).expect(label)),
+            OpKind::AddDeed {
+                accession: "zz".to_string(),
+            },
+        );
+        let again_ids = again.issues[&("proj".to_string(), "proj-1".to_string())].deeds();
+        if again_ids != want {
+            report.push_str(&format!("space {label} fixed {again_ids:?}\n"));
+        }
+    }
+
+    // A choice with a space or a colon stays the text parse_ballot returns.
+    for choice in ["keep both", "ship it", "ship: after the audit"] {
+        let root = wire(&Op::create("proj", "proj-1", "Vote", "seat").unwrap());
+        let cast = wire(&spawned(
+            &root,
+            OpKind::Ballot {
+                voter: "ann".to_string(),
+                rev: String::new(),
+                choice: choice.to_string(),
+                stamp: "[2026-01-01 Thu]".to_string(),
+            },
+            1,
+        ));
+        let ops = [root, cast];
+        let line = format!("[2026-01-01 Thu] ann: {choice}");
+        both_ways(&ops, |folded| {
+            let text = drawers(folded, "proj-1");
+            if !line_is(&text, &line) || text.contains(&format!("ann: \"{choice}\"")) {
+                report.push_str(&format!("choice {choice} {text}\n"));
+            }
+            if !folded.conflicts.is_empty() {
+                report.push_str(&format!("choice {choice} clash {:?}\n", folded.conflicts));
+            }
+        });
+        let again = reencode(
+            &heading_of(&fold(&ops).expect(choice)),
+            OpKind::Ballot {
+                voter: "ann".to_string(),
+                rev: String::new(),
+                choice: choice.to_string(),
+                stamp: "[2026-01-01 Thu]".to_string(),
+            },
+        );
+        if !line_is(&drawers(&again, "proj-1"), &line) {
+            report.push_str(&format!(
+                "choice fixed {choice} {}\n",
+                drawers(&again, "proj-1")
+            ));
+        }
+    }
+    let mut legacy_vote = plain_heading("proj-1", "Genesis");
+    legacy_vote.extra_drawers =
+        vec![":VOTES:\n[2026-01-01 Thu] ann: ship: after the audit\n:END:\n".to_string()];
+    let legacy_born = genesis_of(legacy_vote);
+    let legacy_line = "[2026-01-01 Thu] ann: ship: after the audit";
+    let bob = wire(&spawned(
+        &legacy_born,
+        OpKind::Ballot {
+            voter: "bob".to_string(),
+            rev: String::new(),
+            choice: "yes".to_string(),
+            stamp: "[2026-01-03 Sat]".to_string(),
+        },
+        1,
+    ));
+    let legacy_ops = [legacy_born, bob];
+    both_ways(&legacy_ops, |folded| {
+        let text = drawers(folded, "proj-1");
+        if !line_is(&text, legacy_line) || text.contains("ann: \"ship: after the audit\"") {
+            report.push_str(&format!("legacy choice {text}\n"));
+        }
+        if !folded.conflicts.is_empty() {
+            report.push_str(&format!("legacy choice clash {:?}\n", folded.conflicts));
+        }
+    });
+    let recast = reencode(
+        &heading_of(&fold(&legacy_ops).expect("legacy choice")),
+        OpKind::Ballot {
+            voter: "ann".to_string(),
+            rev: String::new(),
+            choice: "ship: after the audit".to_string(),
+            stamp: "[2026-02-01 Sun]".to_string(),
+        },
+    );
+    let recast_text = drawers(&recast, "proj-1");
+    if !recast_text.contains("ann: ship: after the audit")
+        || recast_text.contains("ann: \"ship: after the audit\"")
+    {
+        report.push_str(&format!("recast choice {recast_text}\n"));
+    }
+
+    // A newline in the voter, revision, or stamp stays one line.
+    let break_rows: [(&str, OpKind, &str, &str); 3] = [
+        (
+            "voter",
+            OpKind::Ballot {
+                voter: "an\nn".to_string(),
+                rev: String::new(),
+                choice: "yes".to_string(),
+                stamp: "[2026-01-01 Thu]".to_string(),
+            },
+            "[2026-01-01 Thu] \"an\\nn\": yes",
+            "n: yes",
+        ),
+        (
+            "rev",
+            OpKind::Ballot {
+                voter: "ann".to_string(),
+                rev: "a\nb".to_string(),
+                choice: "yes".to_string(),
+                stamp: "[2026-01-01 Thu]".to_string(),
+            },
+            "[rev=\"a\\nb\"] [2026-01-01 Thu] ann: yes",
+            "b] [2026-01-01 Thu] ann: yes",
+        ),
+        (
+            "stamp",
+            OpKind::Ballot {
+                voter: "ann".to_string(),
+                rev: String::new(),
+                choice: "yes".to_string(),
+                stamp: "[2026-01-01 Thu]\nextra".to_string(),
+            },
+            "\"[2026-01-01 Thu]\\nextra\" ann: yes",
+            "extra ann: yes",
+        ),
+    ];
+    for (label, kind, line, fragment) in break_rows {
+        let root = wire(&Op::create("proj", "proj-1", "Vote", "seat").unwrap());
+        let cast = wire(&spawned(&root, kind.clone(), 1));
+        let ops = [root, cast];
+        both_ways(&ops, |folded| {
+            let text = drawers(folded, "proj-1");
+            if !line_is(&text, line) || line_is(&text, fragment) {
+                report.push_str(&format!("break {label} {text}\n"));
+            }
+            if !folded.conflicts.is_empty() {
+                report.push_str(&format!("break {label} clash {:?}\n", folded.conflicts));
+            }
+        });
+        let again = reencode(&heading_of(&fold(&ops).expect(label)), kind);
+        let again_text = drawers(&again, "proj-1");
+        if !line_is(&again_text, line) || line_is(&again_text, fragment) {
+            report.push_str(&format!("break fixed {label} {again_text}\n"));
+        }
+    }
+
+    // An empty target id or an empty field name is kept.
+    let empty_root = wire(&Op::create("proj", "proj-1", "Empty", "seat").unwrap());
+    let empty_id = wire(&spawned(
+        &empty_root,
+        OpKind::SetTarget {
+            target_id: String::new(),
+            fields: vec![("status".to_string(), "open".to_string())],
+        },
+        1,
+    ));
+    let empty_ops = [empty_root, empty_id];
+    let empty_line = "\"\" \"status\" \"open\"";
+    both_ways(&empty_ops, |folded| {
+        let text = drawers(folded, "proj-1");
+        if !line_is(&text, empty_line) {
+            report.push_str(&format!("empty id {text}\n"));
+        }
+        if !folded.conflicts.is_empty() {
+            report.push_str(&format!("empty id clash {:?}\n", folded.conflicts));
+        }
+    });
+    let empty_again = reencode(
+        &heading_of(&fold(&empty_ops).expect("empty id")),
+        OpKind::SetTarget {
+            target_id: String::new(),
+            fields: vec![("status".to_string(), "open".to_string())],
+        },
+    );
+    if !line_is(&drawers(&empty_again, "proj-1"), empty_line) {
+        report.push_str(&format!(
+            "empty id fixed {}\n",
+            drawers(&empty_again, "proj-1")
+        ));
+    }
+    let named_root = wire(&Op::create("proj", "proj-1", "Empty", "seat").unwrap());
+    let named = wire(&spawned(
+        &named_root,
+        OpKind::SetTarget {
+            target_id: "t1".to_string(),
+            fields: vec![
+                ("status".to_string(), "open".to_string()),
+                (String::new(), "hidden".to_string()),
+            ],
+        },
+        1,
+    ));
+    let named_ops = [named_root, named];
+    let named_lines = ["\"t1\" \"status\" \"open\"", "\"t1\" \"\" \"hidden\""];
+    both_ways(&named_ops, |folded| {
+        let text = drawers(folded, "proj-1");
+        for line in named_lines {
+            if !line_is(&text, line) {
+                report.push_str(&format!("empty field lost {line} in {text}\n"));
+            }
+        }
+        if !folded.conflicts.is_empty() {
+            report.push_str(&format!("empty field clash {:?}\n", folded.conflicts));
+        }
+    });
+    let named_again = reencode(
+        &heading_of(&fold(&named_ops).expect("empty field")),
+        OpKind::SetTarget {
+            target_id: "t1".to_string(),
+            fields: vec![
+                ("status".to_string(), "open".to_string()),
+                (String::new(), "hidden".to_string()),
+            ],
+        },
+    );
+    let named_again_text = drawers(&named_again, "proj-1");
+    for line in named_lines {
+        if !line_is(&named_again_text, line) {
+            report.push_str(&format!(
+                "empty field fixed lost {line} in {named_again_text}\n"
+            ));
+        }
+    }
+
+    // voter `ann:work` and voter `ann` on rev `work` are different ballots.
+    let collide_root = wire(&Op::create("proj", "proj-1", "Votes", "seat").unwrap());
+    let work_yes = OpKind::Ballot {
+        voter: "ann:work".to_string(),
+        rev: String::new(),
+        choice: "yes".to_string(),
+        stamp: "[2026-01-01 Thu]".to_string(),
+    };
+    let ann_no = OpKind::Ballot {
+        voter: "ann".to_string(),
+        rev: "work".to_string(),
+        choice: "no".to_string(),
+        stamp: "[2026-01-02 Fri]".to_string(),
+    };
+    let work_line = "[2026-01-01 Thu] ann:work: yes";
+    let ann_line = "[rev=work] [2026-01-02 Fri] ann: no";
+    let causal_yes = wire(&spawned(&collide_root, work_yes.clone(), 1));
+    let causal_no = wire(&spawned(&causal_yes, ann_no.clone(), 2));
+    both_ways(&[collide_root.clone(), causal_yes, causal_no], |folded| {
+        let text = drawers(folded, "proj-1");
+        if !line_is(&text, work_line) || !line_is(&text, ann_line) {
+            report.push_str(&format!("causal ballots {text}\n"));
+        }
+        if !folded.conflicts.is_empty() {
+            report.push_str(&format!("causal ballots clash {:?}\n", folded.conflicts));
+        }
+    });
+    for (wall_yes, wall_no) in [(1_i64, 2_i64), (2, 1)] {
+        let yes = wire(&spawned(&collide_root, work_yes.clone(), wall_yes));
+        let no = wire(&spawned(&collide_root, ann_no.clone(), wall_no));
+        both_ways(&[collide_root.clone(), yes, no], |folded| {
+            let text = drawers(folded, "proj-1");
+            if !line_is(&text, work_line) || !line_is(&text, ann_line) {
+                report.push_str(&format!("concurrent ballots {text}\n"));
+            }
+            if folded
+                .conflicts
+                .iter()
+                .any(|clash| clash.field == "ballot:ann:work")
+                || !folded.conflicts.is_empty()
+            {
+                report.push_str(&format!(
+                    "concurrent ballots clash {:?}\n",
+                    folded.conflicts
+                ));
+            }
+        });
+    }
+    let mut genesis_votes = plain_heading("proj-1", "Genesis");
+    genesis_votes.extra_drawers = vec![
+        ":VOTES:\n[2026-01-01 Thu] ann:work: yes\n[rev=work] [2026-01-02 Fri] ann: no\n:END:\n"
+            .to_string(),
+    ];
+    let votes_born = genesis_of(genesis_votes);
+    let bob_vote = wire(&spawned(
+        &votes_born,
+        OpKind::Ballot {
+            voter: "bob".to_string(),
+            rev: String::new(),
+            choice: "yes".to_string(),
+            stamp: "[2026-01-03 Sat]".to_string(),
+        },
+        1,
+    ));
+    let votes_ops = [votes_born, bob_vote];
+    both_ways(&votes_ops, |folded| {
+        let text = drawers(folded, "proj-1");
+        for line in [work_line, ann_line, "[2026-01-03 Sat] bob: yes"] {
+            if !line_is(&text, line) {
+                report.push_str(&format!("genesis ballots lost {line} in {text}\n"));
+            }
+        }
+        if !folded.conflicts.is_empty() {
+            report.push_str(&format!("genesis ballots clash {:?}\n", folded.conflicts));
+        }
+    });
+    let votes_again = reencode(
+        &heading_of(&fold(&votes_ops).expect("genesis ballots")),
+        OpKind::Ballot {
+            voter: "bob".to_string(),
+            rev: String::new(),
+            choice: "yes".to_string(),
+            stamp: "[2026-01-03 Sat]".to_string(),
+        },
+    );
+    let votes_again_text = drawers(&votes_again, "proj-1");
+    for line in [work_line, ann_line, "[2026-01-03 Sat] bob: yes"] {
+        if !line_is(&votes_again_text, line) {
+            report.push_str(&format!(
+                "genesis ballots fixed lost {line} in {votes_again_text}\n"
+            ));
         }
     }
 

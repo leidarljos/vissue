@@ -773,8 +773,7 @@ fn apply(mem: &mut Mem, id: OpId, op: &Op) -> Result<()> {
             stamp,
         } => {
             let line = vote_line(rev, stamp, voter, choice);
-            let slot = ballot_slot(voter, rev);
-            write_named(mem, id, op, &format!("ballot:{slot}"), &line)
+            write_named(mem, id, op, &pair_field("ballot:", voter, rev), &line)
         }
         OpKind::AddRevision { rev_id, summary } => {
             write_named(mem, id, op, &format!("revision:{rev_id}"), summary)
@@ -1186,6 +1185,7 @@ fn project(live: &mut Live, field: &str, value: &str) {
                     .map(|(kind, other)| link_line(kind, other))
                     .collect();
                 push_raw(&live.raw, "LINKS", &mut lines);
+                seal(&mut lines);
                 replace_drawer(&mut live.heading, "LINKS", &lines);
             }
         }
@@ -1225,6 +1225,7 @@ fn set_property(live: &mut Live, key: &str, value: &str) {
 fn rewrite_ballots(live: &mut Live) {
     let mut lines: Vec<String> = live.ballots.values().cloned().collect();
     lines.sort();
+    seal(&mut lines);
     replace_drawer(&mut live.heading, "VOTES", &lines);
 }
 
@@ -1236,6 +1237,7 @@ fn rewrite_revisions(live: &mut Live, rev: &str, summary: &str) {
         .map(|(rev, summary)| revision_line(rev, summary))
         .collect();
     push_raw(&live.raw, "REVISIONS", &mut lines);
+    seal(&mut lines);
     replace_drawer(&mut live.heading, "REVISIONS", &lines);
 }
 
@@ -1249,6 +1251,7 @@ fn rewrite_targets(live: &mut Live) {
     }
     push_raw(&live.raw, "TARGETS", &mut lines);
     lines.sort();
+    seal(&mut lines);
     replace_drawer(&mut live.heading, "TARGETS", &lines);
 }
 
@@ -1283,6 +1286,33 @@ fn replace_drawer(heading: &mut IssueHeading, name: &str, lines: &[String]) {
     text.push_str(":END:\n");
     heading.extra_drawers.push(text);
     heading.extra_drawers.sort();
+}
+
+/// First content line of a drawer this codec wrote.
+///
+/// Base `parse_heading` copies an extra drawer through `:END:` and does not
+/// read interior lines as keys. `:CODEC: 1` does not match `opens_a_drawer`
+/// because it does not end in `:`, so a file round-trip keeps the bytes.
+const CODEC_MARK: &str = ":CODEC: 1";
+
+fn seal(lines: &mut Vec<String>) {
+    if lines.is_empty() || lines.first().is_some_and(|line| line == CODEC_MARK) {
+        return;
+    }
+    lines.insert(0, CODEC_MARK.to_string());
+}
+
+fn drawer_body(heading: &IssueHeading, name: &str) -> (bool, Vec<String>) {
+    let mut lines = drawer_lines(heading, name);
+    let marked = lines.first().is_some_and(|line| line == CODEC_MARK);
+    if marked {
+        lines.remove(0);
+    }
+    (marked, lines)
+}
+
+fn is_comment_line(line: &str) -> bool {
+    line.starts_with('#')
 }
 
 fn drawer_named(drawer: &str, name: &str) -> bool {
@@ -1351,9 +1381,14 @@ fn one_char(value: &str) -> Result<char> {
 
 fn load_votes(heading: &IssueHeading) -> BTreeMap<String, String> {
     let mut votes = BTreeMap::new();
-    for line in drawer_lines(heading, "VOTES") {
-        let key = match crate::ops::parse_ballot(&line) {
-            Some(ballot) => ballot_slot(&ballot.agent, ballot.rev.as_deref().unwrap_or("")),
+    let (marked, lines) = drawer_body(heading, "VOTES");
+    for line in lines {
+        if is_comment_line(&line) {
+            votes.insert(format!("line:{line}"), line);
+            continue;
+        }
+        let key = match vote_key_parts(&line, marked) {
+            Some((voter, rev)) => ballot_slot(&voter, &rev),
             None => format!("line:{line}"),
         };
         votes.insert(key, line);
@@ -1364,8 +1399,9 @@ fn load_votes(heading: &IssueHeading) -> BTreeMap<String, String> {
 fn load_revisions(heading: &IssueHeading) -> (BTreeMap<String, String>, BTreeSet<String>) {
     let mut revisions = BTreeMap::new();
     let mut raw = BTreeSet::new();
-    for line in drawer_lines(heading, "REVISIONS") {
-        match revision_parts(&line) {
+    let (marked, lines) = drawer_body(heading, "REVISIONS");
+    for line in lines {
+        match revision_parts(&line, marked) {
             Some((rev, summary)) => {
                 revisions.insert(rev, summary);
             }
@@ -1380,8 +1416,9 @@ fn load_revisions(heading: &IssueHeading) -> (BTreeMap<String, String>, BTreeSet
 fn load_links(heading: &IssueHeading) -> (BTreeSet<(String, String)>, BTreeSet<String>) {
     let mut links = BTreeSet::new();
     let mut raw = BTreeSet::new();
-    for line in drawer_lines(heading, "LINKS") {
-        match parse_link_line(&line) {
+    let (marked, lines) = drawer_body(heading, "LINKS");
+    for line in lines {
+        match parse_link_line(&line, marked) {
             Some(pair) => {
                 links.insert(pair);
             }
@@ -1403,12 +1440,13 @@ fn load_targets(
     let mut targets = BTreeMap::new();
     let mut retarget = None;
     let mut raw = BTreeSet::new();
-    for line in drawer_lines(heading, "TARGETS") {
-        if let Some((target, key, value)) = parse_target_line(&line) {
+    let (marked, lines) = drawer_body(heading, "TARGETS");
+    for line in lines {
+        if let Some((target, key, value)) = parse_target_line(&line, marked) {
             targets.insert((target, key), value);
             continue;
         }
-        if let Some(id) = parse_retarget_line(&line) {
+        if let Some(id) = parse_retarget_line(&line, marked) {
             retarget = Some(id);
             continue;
         }
@@ -1523,10 +1561,32 @@ fn split_pair(rest: &str) -> Option<(String, String)> {
     let (left, rest) = take_side(rest)?;
     let rest = rest.strip_prefix(':')?;
     let (right, tail) = take_side(rest)?;
-    if !tail.is_empty() || left.is_empty() || right.is_empty() {
+    if !tail.is_empty() {
         return None;
     }
     Some((left, right))
+}
+
+/// Every token of a marked line, including an empty one. A bare token is
+/// not this form.
+fn marked_tokens(line: &str) -> Option<Vec<String>> {
+    let mut rest = line;
+    let mut out = Vec::new();
+    loop {
+        if rest.is_empty() {
+            break;
+        }
+        if !rest.starts_with('"') {
+            return None;
+        }
+        let (token, tail) = take_side(rest)?;
+        out.push(token);
+        if tail.is_empty() {
+            break;
+        }
+        rest = tail.strip_prefix(' ')?;
+    }
+    if out.is_empty() { None } else { Some(out) }
 }
 
 fn encode_elements<'a>(elements: impl IntoIterator<Item = &'a str>) -> String {
@@ -1543,9 +1603,9 @@ fn encode_elements<'a>(elements: impl IntoIterator<Item = &'a str>) -> String {
 /// Inverse of [`encode_elements`].
 ///
 /// A value this writer produced re-encodes to itself, including `"a  b" c`.
-/// Anything else is the org id list: commas and every whitespace run
-/// separate, and a quote or a backslash stays in the token. A doubled
-/// space with no comma and no other whitespace is one element (`a  b`).
+/// Anything else is [`crate::org::split_id_list`]: a leading or trailing
+/// space is not part of an id. The one exception is the locked residue
+/// `a  b` (exactly two words and one doubled space), which stays one element.
 fn decode_elements(value: &str) -> Vec<String> {
     if value.is_empty() {
         return Vec::new();
@@ -1553,13 +1613,18 @@ fn decode_elements(value: &str) -> Vec<String> {
     if let Some(elements) = codec_list(value) {
         return elements;
     }
-    if !value.contains(['"', ','])
-        && !value.chars().any(|ch| ch.is_whitespace() && ch != ' ')
-        && value.split(' ').any(str::is_empty)
-    {
+    if locked_double_space(value) {
         return vec![value.to_string()];
     }
     crate::org::split_id_list(value)
+}
+
+fn locked_double_space(value: &str) -> bool {
+    if value.contains([',', '"']) || value.chars().any(|ch| ch.is_whitespace() && ch != ' ') {
+        return false;
+    }
+    let parts: Vec<&str> = value.split(' ').collect();
+    parts.len() == 3 && !parts[0].is_empty() && parts[1].is_empty() && !parts[2].is_empty()
 }
 
 /// Quoted text this codec wrote. A legacy `"acc1"` re-encodes to `acc1`,
@@ -1623,13 +1688,20 @@ fn parse_quoted_elements(value: &str) -> Vec<String> {
     out
 }
 
-fn link_line(kind: &str, other: &str) -> String {
-    format!("{} {}", quote_token(kind), quote_token(other))
+fn quote_always(text: &str) -> String {
+    quote_wrapped(text)
 }
 
-fn parse_link_line(line: &str) -> Option<(String, String)> {
-    if line.contains(['"', '\\']) {
-        let tokens = parse_quoted_elements(line);
+fn link_line(kind: &str, other: &str) -> String {
+    format!("{} {}", quote_always(kind), quote_always(other))
+}
+
+fn parse_link_line(line: &str, marked: bool) -> Option<(String, String)> {
+    if is_comment_line(line) {
+        return None;
+    }
+    if marked {
+        let tokens = marked_tokens(line)?;
         if tokens.len() == 2 && !tokens[0].is_empty() && !tokens[1].is_empty() {
             return Some((tokens[0].clone(), tokens[1].clone()));
         }
@@ -1645,16 +1717,19 @@ fn parse_link_line(line: &str) -> Option<(String, String)> {
 fn target_field_line(target: &str, key: &str, value: &str) -> String {
     format!(
         "{} {} {}",
-        quote_token(target),
-        quote_token(key),
-        quote_token(value)
+        quote_always(target),
+        quote_always(key),
+        quote_always(value)
     )
 }
 
-fn parse_target_line(line: &str) -> Option<(String, String, String)> {
-    if line.contains(['"', '\\']) {
-        let tokens = parse_quoted_elements(line);
-        if tokens.len() == 3 && !tokens[0].is_empty() && !tokens[1].is_empty() {
+fn parse_target_line(line: &str, marked: bool) -> Option<(String, String, String)> {
+    if is_comment_line(line) {
+        return None;
+    }
+    if marked {
+        let tokens = marked_tokens(line)?;
+        if tokens.len() == 3 {
             return Some((tokens[0].clone(), tokens[1].clone(), tokens[2].clone()));
         }
         return None;
@@ -1667,50 +1742,41 @@ fn parse_target_line(line: &str) -> Option<(String, String, String)> {
     Some((target.to_string(), key.to_string(), value.to_string()))
 }
 
-fn parse_retarget_line(line: &str) -> Option<String> {
-    let rest = line.strip_prefix("retarget ")?;
-    if rest.is_empty() {
-        return None;
-    }
-    if rest.contains(['"', '\\']) {
-        let tokens = parse_quoted_elements(rest);
-        if tokens.len() == 1 && !tokens[0].is_empty() {
-            return Some(tokens[0].clone());
+fn parse_retarget_line(line: &str, marked: bool) -> Option<String> {
+    if marked {
+        let tokens = marked_tokens(line)?;
+        if tokens.len() == 2 && tokens[0] == "retarget" {
+            return Some(tokens[1].clone());
         }
         return None;
     }
-    if rest.contains(' ') {
+    let rest = line.strip_prefix("retarget ")?;
+    if rest.is_empty() || rest.contains(' ') {
         return None;
     }
     Some(rest.to_string())
 }
 
 fn retarget_line(target: &str) -> String {
-    format!("retarget {}", quote_token(target))
+    format!("{} {}", quote_always("retarget"), quote_always(target))
 }
 
-/// `{id} {summary}`. A token that contains a space is quoted, so `1 alpha`
-/// stays two bare tokens and `1 2` is not read back as id `1`.
+/// Marked form quotes both sides. An unmarked line with a second space is
+/// one id (`1 2 3` beside `1 2 x`).
 fn revision_line(rev: &str, summary: &str) -> String {
     if summary.is_empty() {
-        quote_token(rev)
+        quote_always(rev)
     } else {
-        format!("{} {}", quote_token(rev), quote_token(summary))
+        format!("{} {}", quote_always(rev), quote_always(summary))
     }
 }
 
-/// Id and summary for one revision line.
-///
-/// A simple line is one bare id and one bare summary (`1 alpha`, or `9`
-/// alone). A line with a second space and no quotes is one id (`1 2 3`
-/// beside `1 2 x`). Quotes are the form [`revision_line`] writes when a
-/// token contains the separator.
-fn revision_parts(line: &str) -> Option<(String, String)> {
-    if line.is_empty() {
+fn revision_parts(line: &str, marked: bool) -> Option<(String, String)> {
+    if is_comment_line(line) || line.is_empty() {
         return None;
     }
-    if line.contains(['"', '\\']) {
-        let tokens = parse_quoted_elements(line);
+    if marked {
+        let tokens = marked_tokens(line)?;
         return match tokens.as_slice() {
             [id] => Some((id.clone(), String::new())),
             [id, summary] => Some((id.clone(), summary.clone())),
@@ -1726,23 +1792,87 @@ fn revision_parts(line: &str) -> Option<(String, String)> {
     }
 }
 
-/// The ballot line `parse_ballot` reads. The revision is a `[rev=TOKEN]`
-/// prefix, the same bytes the org writer stores.
-fn vote_line(rev: &str, stamp: &str, voter: &str, choice: &str) -> String {
-    let choice = quote_token(choice);
-    if rev.is_empty() {
-        format!("{stamp} {voter}: {choice}")
+fn breaks_line(text: &str) -> bool {
+    text.chars()
+        .any(|ch| matches!(ch, '\n' | '\t' | '"' | '\\'))
+}
+
+fn quote_if_breaks(text: &str) -> String {
+    if breaks_line(text) {
+        quote_wrapped(text)
     } else {
-        format!("[rev={rev}] {stamp} {voter}: {choice}")
+        text.to_string()
     }
 }
 
-fn ballot_slot(voter: &str, rev: &str) -> String {
-    if rev.is_empty() {
-        voter.to_string()
-    } else {
-        format!("{voter}:{rev}")
+/// Whole text is one quoted token. Otherwise the bytes stay.
+fn unwrap_token(text: &str) -> String {
+    if !text.starts_with('"') {
+        return text.to_string();
     }
+    match take_side(text) {
+        Some((decoded, tail)) if tail.is_empty() => decoded,
+        _ => text.to_string(),
+    }
+}
+
+/// Voter and revision [`parse_ballot`] would return, with quoted tokens
+/// decoded when the drawer is marked. The choice stays the base reader's text.
+fn vote_key_parts(line: &str, marked: bool) -> Option<(String, String)> {
+    if let Some(ballot) = crate::ops::parse_ballot(line) {
+        let voter = if marked {
+            unwrap_token(&ballot.agent)
+        } else {
+            ballot.agent
+        };
+        let rev = ballot.rev.unwrap_or_default();
+        let rev = if marked { unwrap_token(&rev) } else { rev };
+        return Some((voter, rev));
+    }
+    if !marked {
+        return None;
+    }
+    let (rev, rest) = if let Some(rest) = line.strip_prefix("[rev=") {
+        let (token, tail) = rest.split_once("] ")?;
+        (unwrap_token(token), tail)
+    } else {
+        (String::new(), line)
+    };
+    if !rest.starts_with('"') {
+        return None;
+    }
+    let (_stamp, tail) = take_side(rest)?;
+    let rest = tail.strip_prefix(' ')?;
+    let (voter, _choice) = rest.split_once(": ")?;
+    Some((unwrap_token(voter), rev))
+}
+
+/// The ballot line [`crate::ops::parse_ballot`] reads.
+///
+/// A choice is bare, including spaces and colons, so that reader returns the
+/// words that were voted. A newline, tab, quote, or backslash in the choice,
+/// voter, revision, or stamp is quoted so the vote stays one line.
+fn vote_line(rev: &str, stamp: &str, voter: &str, choice: &str) -> String {
+    let choice = quote_if_breaks(choice);
+    let voter = quote_if_breaks(voter);
+    let stamp = if breaks_line(stamp) {
+        quote_wrapped(stamp)
+    } else {
+        stamp.to_string()
+    };
+    let rev_prefix = if rev.is_empty() {
+        String::new()
+    } else {
+        format!("[rev={}] ", quote_if_breaks(rev))
+    };
+    format!("{rev_prefix}{stamp} {voter}: {choice}")
+}
+
+/// Field key for one ballot. Each side uses [`pair_side`], so `ann:work`
+/// with an empty revision is not `ann` on revision `work`.
+fn ballot_slot(voter: &str, rev: &str) -> String {
+    let field = pair_field("ballot:", voter, rev);
+    field["ballot:".len()..].to_string()
 }
 
 fn require_derived(project: &str, short_id: &str, key: IssueKey) -> Result<()> {
