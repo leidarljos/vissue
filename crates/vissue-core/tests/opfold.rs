@@ -2081,11 +2081,11 @@ retarget zzz
         template.kind.clone(),
         5,
     );
-    let mut ballot_lines = vec![
+    let mut ballot_lines = [
         (ann.lamport, ann.id().unwrap(), "[2026-01-01 Thu] ann: yes"),
         (bob.lamport, bob.id().unwrap(), "[2026-01-01 Thu] bob: no"),
     ];
-    let mut revision_lines = vec![
+    let mut revision_lines = [
         (alpha.lamport, alpha.id().unwrap(), "1 alpha"),
         (beta.lamport, beta.id().unwrap(), "2 beta"),
     ];
@@ -2226,9 +2226,6 @@ cites proj-2
 :END:
 ";
     for (clear, add) in [clear_first.unwrap(), add_first.unwrap()] {
-        let birth_id = clear_birth.id().unwrap();
-        let clear_id = clear.id().unwrap();
-        let add_id = add.id().unwrap();
         both_ways(&[clear_birth.clone(), clear, add], |folded| {
             let links = folded.issues[&("proj".to_string(), "proj-1".to_string())]
                 .extra_drawers
@@ -2236,11 +2233,14 @@ cites proj-2
                 .find(|drawer| drawer.starts_with(":LINKS:"))
                 .map(String::as_str);
             assert_eq!(links, Some(clear_lines));
-            let clash = clash_ids(folded, "link:5:citesproj-2");
-            assert!(clash.contains(&birth_id), "{clash:?}");
-            assert!(clash.contains(&clear_id), "{clash:?}");
-            assert!(clash.contains(&add_id), "{clash:?}");
-            assert_eq!(clash.len(), 3, "{clash:?}");
+            assert!(
+                folded
+                    .conflicts
+                    .iter()
+                    .all(|clash| clash.field != "link:5:citesproj-2"),
+                "one remaining line is not a clash: {:?}",
+                folded.conflicts
+            );
         });
     }
 
@@ -2546,6 +2546,246 @@ ok
         describe("proj", &[injected]).is_err(),
         "a drawer past :END: folded"
     );
+    two_adds_and_a_clear_share_one_drawer();
+    a_pre_birth_descendant_keeps_every_line();
+    a_drawer_type_without_a_headline_tag_folds();
+
     let after = folded_bytes(&fold(std::slice::from_ref(&root)).unwrap());
     assert_eq!(before, after);
+}
+
+fn two_adds_and_a_clear_share_one_drawer() {
+    let dup_link = "\
+:LINKS:
+# link-note
+cites proj-2
+cites proj-2
+cites proj-9
+:END:
+";
+    let mut two_adds = plain_heading("proj-1", "Dup");
+    two_adds.extra_drawers = vec![dup_link.to_string()];
+    let two_birth = genesis_of(two_adds);
+    let two_template = Op::create("proj", "proj-1", "Dup", "seat").unwrap();
+    let add_kind = OpKind::Link {
+        kind: "cites".to_string(),
+        other: "proj-2".to_string(),
+    };
+    let clear_kind = OpKind::SetField {
+        name: "link:5:citesproj-2".to_string(),
+        value: String::new(),
+    };
+    let mut clear_before = None;
+    let mut clear_after = None;
+    let mut clear_between = None;
+    for left in 0..16 {
+        for right in 0..16 {
+            for clear_wall in 0..16 {
+                let left_add = child(&[&two_birth], &two_template, add_kind.clone(), left);
+                let right_add = child(&[&two_birth], &two_template, add_kind.clone(), right);
+                let clear = child(&[&two_birth], &two_template, clear_kind.clone(), clear_wall);
+                let left_id = left_add.id().unwrap();
+                let right_id = right_add.id().unwrap();
+                let clear_id = clear.id().unwrap();
+                if left_id == right_id {
+                    continue;
+                }
+                let set = (two_birth.clone(), left_add, right_add, clear);
+                if clear_id < left_id && clear_id < right_id && clear_before.is_none() {
+                    clear_before = Some(set);
+                } else if clear_id > left_id && clear_id > right_id && clear_after.is_none() {
+                    clear_after = Some(set);
+                } else if ((left_id < clear_id && clear_id < right_id)
+                    || (right_id < clear_id && clear_id < left_id))
+                    && clear_between.is_none()
+                {
+                    clear_between = Some(set);
+                }
+                if clear_before.is_some() && clear_after.is_some() && clear_between.is_some() {
+                    break;
+                }
+            }
+            if clear_before.is_some() && clear_after.is_some() && clear_between.is_some() {
+                break;
+            }
+        }
+        if clear_before.is_some() && clear_after.is_some() && clear_between.is_some() {
+            break;
+        }
+    }
+    let mut two_drawers = Vec::new();
+    for (birth, left_add, right_add, clear) in [
+        clear_before.expect("clear sorts first"),
+        clear_between.expect("clear sorts between the adds"),
+        clear_after.expect("clear sorts last"),
+    ] {
+        let ids = [
+            birth.id().unwrap(),
+            left_add.id().unwrap(),
+            right_add.id().unwrap(),
+            clear.id().unwrap(),
+        ];
+        let mut ops = vec![birth, left_add, right_add, clear];
+        let mut seen = None;
+        permute(&mut ops, 0, &mut |order| {
+            let folded = fold(order).expect("two adds and a clear");
+            let text = drawers(&folded, "proj-1");
+            assert_eq!(
+                text.lines().filter(|line| *line == "cites proj-2").count(),
+                2,
+                "{text}"
+            );
+            assert!(line_is(&text, "# link-note"), "{text}");
+            assert!(line_is(&text, "cites proj-9"), "{text}");
+            let clash = clash_ids(&folded, "link:5:citesproj-2");
+            assert_eq!(clash.len(), 4, "{clash:?}");
+            for id in ids {
+                assert!(clash.contains(&id), "{clash:?}");
+            }
+            match &seen {
+                None => seen = Some(text),
+                Some(first) => assert_eq!(first, &text),
+            }
+        });
+        two_drawers.push(seen.expect("a drawer"));
+    }
+    assert_eq!(two_drawers[0], two_drawers[1]);
+    assert_eq!(two_drawers[0], two_drawers[2]);
+    let observed_add = child(&[&two_birth], &two_template, add_kind.clone(), 1);
+    let observed_clear = child(&[&observed_add], &two_template, clear_kind.clone(), 2);
+    let observed = fold(&[two_birth.clone(), observed_add, observed_clear]).unwrap();
+    let observed_text = drawers(&observed, "proj-1");
+    assert_eq!(
+        observed_text
+            .lines()
+            .filter(|line| *line == "cites proj-2")
+            .count(),
+        0,
+        "{observed_text}"
+    );
+    assert!(line_is(&observed_text, "cites proj-9"), "{observed_text}");
+    assert!(
+        observed
+            .conflicts
+            .iter()
+            .all(|clash| clash.field != "link:5:citesproj-2"),
+        "{:?}",
+        observed.conflicts
+    );
+}
+
+fn a_pre_birth_descendant_keeps_every_line() {
+    let two_template = Op::create("proj", "proj-1", "Dup", "seat").unwrap();
+    let add_kind = OpKind::Link {
+        kind: "cites".to_string(),
+        other: "proj-2".to_string(),
+    };
+    let anchor = wire(&Op::create("proj", "proj-0", "Anchor", "seat").unwrap());
+    let title = child(
+        &[&anchor],
+        &anchor,
+        OpKind::SetField {
+            name: "title".to_string(),
+            value: "Renamed".to_string(),
+        },
+        1,
+    );
+    let mut pre_heading = plain_heading("proj-1", "Dup");
+    pre_heading.extra_drawers = vec![
+        "\
+:LINKS:
+# link-note
+cites proj-2
+cites proj-2
+
+cites proj-9
+:END:
+"
+        .to_string(),
+        ":NOTES:\nkeep-me\n:END:\n".to_string(),
+        ":LINKS:\nsecond-drawer\n:END:\n".to_string(),
+    ];
+    let pre_kind = OpKind::GenesisImport {
+        heading: Box::new(pre_heading),
+        residue: String::new(),
+    };
+    let mut child_first = None;
+    let mut birth_first = None;
+    for birth_wall in 0..20 {
+        for first_wall in 0..12 {
+            for second_wall in 0..12 {
+                let birth = child(&[&title], &two_template, pre_kind.clone(), birth_wall);
+                let first = child(&[&anchor], &two_template, add_kind.clone(), first_wall);
+                let second = child(&[&first], &two_template, add_kind.clone(), second_wall);
+                let birth_id = birth.id().unwrap();
+                let second_id = second.id().unwrap();
+                if second_id < birth_id && child_first.is_none() {
+                    child_first = Some((birth.clone(), first.clone(), second.clone()));
+                }
+                if birth_id < second_id && birth_first.is_none() {
+                    birth_first = Some((birth, first, second));
+                }
+                if child_first.is_some() && birth_first.is_some() {
+                    break;
+                }
+            }
+            if child_first.is_some() && birth_first.is_some() {
+                break;
+            }
+        }
+        if child_first.is_some() && birth_first.is_some() {
+            break;
+        }
+    }
+    let mut pre_drawers = Vec::new();
+    for (birth, first, second) in [
+        child_first.expect("the child sorts before the birth"),
+        birth_first.expect("the birth sorts before the child"),
+    ] {
+        let birth_id = birth.id().unwrap();
+        let first_id = first.id().unwrap();
+        let second_id = second.id().unwrap();
+        let mut ops = vec![anchor.clone(), title.clone(), birth, first, second];
+        let mut seen = None;
+        permute(&mut ops, 0, &mut |order| {
+            let folded = fold(order).expect("pre-birth descendants");
+            let text = drawers(&folded, "proj-1");
+            assert_eq!(
+                text.lines().filter(|line| *line == "cites proj-2").count(),
+                4,
+                "{text}"
+            );
+            assert!(text.contains("keep-me"), "{text}");
+            assert!(text.contains("second-drawer"), "{text}");
+            assert!(line_is(&text, "# link-note"), "{text}");
+            let clash = clash_ids(&folded, "link:5:citesproj-2");
+            assert!(clash.contains(&birth_id), "{clash:?}");
+            assert!(clash.contains(&first_id), "{clash:?}");
+            assert!(clash.contains(&second_id), "{clash:?}");
+            assert_eq!(clash.len(), 3, "{clash:?}");
+            match &seen {
+                None => seen = Some(text),
+                Some(first) => assert_eq!(first, &text),
+            }
+        });
+        pre_drawers.push(seen.expect("a pre-birth drawer"));
+    }
+    assert_eq!(pre_drawers[0], pre_drawers[1]);
+}
+
+fn a_drawer_type_without_a_headline_tag_folds() {
+    let typed = "\
+* TODO [#B] Typed
+:PROPERTIES:
+:ID:         proj-1
+:TYPE:       bug
+:END:
+";
+    let typed_doc = IssueDoc::parse("proj", PathBuf::from("issues.org"), typed).unwrap();
+    assert!(typed_doc.headings[0].org_tags.is_empty());
+    let typed_folded = fold(&describe("proj", &typed_doc.headings).unwrap()).unwrap();
+    assert_eq!(
+        typed_folded.issues[&("proj".to_string(), "proj-1".to_string())],
+        typed_doc.headings[0]
+    );
 }

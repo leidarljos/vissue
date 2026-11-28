@@ -1,0 +1,11 @@
+* NIT A new drawer is inserted into a sorted drawer list
+On d46b1201, place_drawer inserts at the sorted index when the drawer list is already ordered, so :NOTES: then :WORK: plus one ballot becomes :NOTES:, :VOTES:, :WORK:. Base write_ballots appends (ops.rs:2098 at 7484709c). The permutation test locks that sorted order (:REVISIONS: before :VOTES:), so this stays queued.
+
+* NIT AppendLog sorts log lines it did not write
+On d46b1201, append_log and absorb_logs sort the whole logbook, so a genesis log older then newer plus a note middle folds to newer, middle, older. Base note inserts at the front (ops.rs:1591 at 7484709c) and leaves the other lines. opfold.rs expects the newer note first, so dropping the sort is not a local change.
+
+* NIT A zero byte in a title has no op id
+A title containing U+0000 round-trips through the org reader. Fold returns an error: Cap'n Proto text is NUL-terminated, so an interior zero is the end of the string. text_node rejects it. The same title with U+0001 folds.
+
+* NIT A duplicated key with only its birth is a one-op clash
+A genesis whose only extra lines are two copies of one key folds to one conflict, and that conflict's ops list is the birth alone. Both lines stay in the drawer. A key that still has more than one line lists every op that wrote it, and here the birth is the only writer.

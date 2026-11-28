@@ -524,6 +524,9 @@ struct Mem {
     frontiers: HashMap<(OpId, String), Frontier>,
     /// Field writes that have not seen a birth of their issue yet.
     pending: HashMap<(IssueKey, String), Frontier>,
+    /// Link, revision, ballot, and target writes in fold order.
+    /// A birth replays the ones that did not observe an earlier birth.
+    dup_log: HashMap<IssueKey, Vec<DupWrite>>,
     /// Births of one short id. Two writers here are the short-id clash.
     issue_frontier: HashMap<IssueKey, Frontier>,
     pending_logs: HashMap<IssueKey, Vec<LogEntry>>,
@@ -535,14 +538,22 @@ struct Live {
     heading: IssueHeading,
     /// Keys that already have two lines in the first drawer of that name.
     dup_fields: Vec<String>,
-    /// Later ops that appended a line on one of those keys, with lamport.
-    dup_later: Vec<(String, u64, OpId)>,
-    /// Lines appended on a duplicated key. A clear leaves this many matches.
-    kept_tail: BTreeMap<String, usize>,
+    /// Writer of each matching line, in drawer order. Genesis lines use the birth.
+    line_tags: BTreeMap<String, Vec<OpId>>,
+    /// Ops that wrote a duplicated key, including a clear.
+    dup_ops: Vec<(String, u64, OpId)>,
     born_lamport: u64,
     born_id: OpId,
     /// Length of the `property_order` prefix fixed by create or genesis.
     order_fixed: usize,
+}
+
+#[derive(Clone)]
+struct DupWrite {
+    field: String,
+    id: OpId,
+    lamport: u64,
+    value: String,
 }
 
 #[derive(Clone, Default)]
@@ -612,8 +623,6 @@ struct Writer {
     id: OpId,
     lamport: u64,
     value: String,
-    /// The text the op named. `value` is the merged display after a replace.
-    raw: String,
     /// Pure unions are not a clash. Elements live in `union`.
     unite: bool,
     /// When set, `union` is this writer's own elements and `value` is the merged display.
@@ -691,17 +700,14 @@ impl Mem {
         for lives in self.issues.values() {
             for live in lives {
                 for field in &live.dup_fields {
+                    // One line is the folded value. Two lines name every writer.
+                    if field_hit_count(&live.heading, field) < 2 {
+                        continue;
+                    }
                     let mut writers = vec![(live.born_lamport, live.born_id)];
-                    for (name, lamport, id) in &live.dup_later {
+                    for (name, lamport, id) in &live.dup_ops {
                         if name == field {
                             writers.push((*lamport, *id));
-                        }
-                    }
-                    // The frontier is the folded set of writers. Walk order
-                    // drops a clear and a write that arrived before the birth.
-                    if let Some(frontier) = self.frontiers.get(&(live.born_id, field.clone())) {
-                        for writer in &frontier.writers {
-                            writers.push((writer.lamport, writer.id));
                         }
                     }
                     writers.sort();
@@ -710,7 +716,7 @@ impl Mem {
                         project: live.project.clone(),
                         id: live.short_id.clone(),
                         field: field.clone(),
-                        ops: writers.into_iter().map(|(_, id)| id).collect(),
+                        ops: writers.into_iter().map(|(_, op)| op).collect(),
                     });
                 }
             }
@@ -923,25 +929,13 @@ fn install_issue(
             .unwrap_or_default();
         let display = converge(&mut slot, &ancestors, id, op.lamport, value, false);
         let duplicated = live.dup_fields.iter().any(|name| name == field);
-        if duplicated {
-            let mut extras: Vec<(u64, OpId, String)> = slot
-                .writers
-                .iter()
-                .filter(|writer| writer.id != id)
-                .map(|writer| (writer.lamport, writer.id, writer.raw.clone()))
-                .collect();
-            extras.sort();
-            for (lamport, writer_id, written) in extras {
-                if project(&mut live, field, &written) {
-                    live.dup_later.push((field.clone(), lamport, writer_id));
-                }
-            }
-        } else if slot.writers.iter().any(|writer| writer.id != id) {
+        if !duplicated && slot.writers.iter().any(|writer| writer.id != id) {
             project(&mut live, field, &display);
         }
         mem.frontiers.insert((id, field.clone()), slot);
     }
     absorb_pending(mem, key, id, &mut live, &written);
+    replay_dup(mem, key, &mut live);
     absorb_logs(mem, key, &mut live);
     mem.issues.entry(key).or_default().push(live);
     Ok(())
@@ -973,14 +967,9 @@ fn absorb_pending(
             continue;
         };
         if live.dup_fields.iter().any(|have| have == &name) {
-            let mut writers = slot.writers.clone();
-            writers.sort_by_key(|writer| (writer.lamport, writer.id));
-            for writer in writers {
-                project(live, &name, &writer.raw);
-            }
-        } else {
-            project(live, &name, &frontier_display(&slot));
+            continue;
         }
+        project(live, &name, &frontier_display(&slot));
         mem.frontiers.insert((id, name), slot);
     }
 }
@@ -1089,6 +1078,14 @@ fn write_field(
     if field == "priority" {
         one_char(value)?;
     }
+    if drawer_of(&field).is_some() {
+        mem.dup_log.entry(op.issue).or_default().push(DupWrite {
+            field: field.clone(),
+            id,
+            lamport: op.lamport,
+            value: value.to_string(),
+        });
+    }
     let ancestors = mem.ancestors.get(&id).cloned().unwrap_or_default();
     let births: Vec<OpId> = mem
         .issues
@@ -1117,12 +1114,17 @@ fn write_field(
             && let Some(live) = lives.iter_mut().find(|live| live.born_id == birth)
         {
             let duplicated = live.dup_fields.iter().any(|name| name == &field);
-            let shown = if duplicated { value } else { display.as_str() };
-            if project(live, &field, shown) {
-                if !duplicated {
-                    live.dup_fields.push(field.clone());
+            if duplicated {
+                write_dup(live, &field, id, op.lamport, value, &ancestors);
+            } else if project(live, &field, display.as_str()) {
+                live.dup_fields.push(field.clone());
+                live.dup_ops.push((field.clone(), op.lamport, id));
+                let hits = field_hit_count(&live.heading, &field);
+                let mut tags = vec![live.born_id; hits.saturating_sub(1)];
+                if hits > 0 {
+                    tags.push(id);
                 }
-                live.dup_later.push((field.clone(), op.lamport, id));
+                live.line_tags.insert(field.clone(), tags);
             }
         }
     }
@@ -1190,7 +1192,6 @@ fn converge(
         id,
         lamport,
         value: stored,
-        raw: value.to_string(),
         unite,
         owned,
         union,
@@ -1319,19 +1320,15 @@ fn project(live: &mut Live, field: &str, value: &str) -> bool {
                     .is_some_and(|(have_kind, have_other)| have_kind == kind && have_other == other)
             };
             if value.is_empty() {
-                let keep = live.kept_tail.get(name).copied().unwrap_or(0);
-                return clear_link_lines(&mut live.heading, keep, hit);
+                drop_matching_lines(&mut live.heading, "LINKS", hit);
+                return false;
             }
-            let appended = edit_first_drawer(
+            edit_first_drawer(
                 &mut live.heading,
                 "LINKS",
                 Some(link_line(&kind, &other)),
                 hit,
-            );
-            if appended {
-                *live.kept_tail.entry(name.to_string()).or_default() += 1;
-            }
-            appended
+            )
         }
         _ => false,
     }
@@ -1366,53 +1363,227 @@ fn set_property(live: &mut Live, key: &str, value: &str) {
     }
 }
 
-/// Remove the matches a clear observed. Appended lines sit at the end;
-/// `keep` of them stay. One match uses the same remove as a unique key.
-fn clear_link_lines(
+/// Drop every line `hit` accepts. A unique clear's display is empty, so no
+/// copy of that key remains. Lines that do not match stay.
+fn drop_matching_lines(heading: &mut IssueHeading, drawer: &str, hit: impl Fn(&str) -> bool) {
+    edit_drawer(heading, drawer, |lines, end| {
+        let hits: Vec<usize> = (1..end).filter(|index| hit(lines[*index].trim())).collect();
+        for index in hits.into_iter().rev() {
+            lines.remove(index);
+        }
+    });
+}
+
+/// Replay drawer writes that did not observe an earlier birth of `key`.
+/// Parents are already ahead of their children in `dup_log`.
+fn replay_dup(mem: &Mem, key: IssueKey, live: &mut Live) {
+    let Some(log) = mem.dup_log.get(&key).cloned() else {
+        return;
+    };
+    let earlier: HashSet<OpId> = mem
+        .issues
+        .get(&key)
+        .map(|lives| lives.iter().map(|item| item.born_id).collect())
+        .unwrap_or_default();
+    for write in log {
+        if !live.dup_fields.iter().any(|name| name == &write.field) {
+            continue;
+        }
+        let ancestors = mem.ancestors.get(&write.id).cloned().unwrap_or_default();
+        if ancestors.iter().any(|id| earlier.contains(id)) {
+            continue;
+        }
+        write_dup(
+            live,
+            &write.field,
+            write.id,
+            write.lamport,
+            &write.value,
+            &ancestors,
+        );
+    }
+}
+
+/// Append a line, or drop lines whose writer this op observed.
+/// The same set of ops yields the same lines in any delivery order.
+fn write_dup(
+    live: &mut Live,
+    field: &str,
+    id: OpId,
+    lamport: u64,
+    value: &str,
+    ancestors: &HashSet<OpId>,
+) {
+    live.dup_ops.push((field.to_string(), lamport, id));
+    if !live.line_tags.contains_key(field) {
+        let hits = field_hit_count(&live.heading, field);
+        live.line_tags
+            .insert(field.to_string(), vec![live.born_id; hits]);
+    }
+    if field.starts_with("link:") && value.is_empty() {
+        let mut tags = live.line_tags.remove(field).unwrap_or_default();
+        drop_observed(&mut live.heading, field, &mut tags, ancestors);
+        live.line_tags.insert(field.to_string(), tags);
+        return;
+    }
+    let Some(line) = dup_line(field, value) else {
+        return;
+    };
+    append_field_line(&mut live.heading, field, &line);
+    if let Some(tags) = live.line_tags.get_mut(field) {
+        tags.push(id);
+    }
+}
+
+fn dup_line(field: &str, value: &str) -> Option<String> {
+    if let Some((kind, other)) = unkey("link:", field) {
+        return Some(link_line(&kind, &other));
+    }
+    if let Some(rev) = field.strip_prefix("revision:") {
+        return Some(revision_line(rev, value));
+    }
+    if unkey("ballot:", field).is_some() {
+        return Some(value.to_string());
+    }
+    if let Some((target, key)) = split_target(field) {
+        return Some(target_field_line(&target, &key, value));
+    }
+    if field == "retarget" {
+        return Some(retarget_line(value));
+    }
+    None
+}
+
+fn drop_observed(
     heading: &mut IssueHeading,
-    keep: usize,
-    matches: impl Fn(&str) -> bool,
-) -> bool {
+    field: &str,
+    tags: &mut Vec<OpId>,
+    ancestors: &HashSet<OpId>,
+) {
+    let Some(drawer) = drawer_of(field) else {
+        return;
+    };
+    edit_drawer(heading, drawer, |lines, end| {
+        let hits: Vec<usize> = (1..end)
+            .filter(|index| line_is_field(field, lines[*index].trim()))
+            .collect();
+        let mut keep = Vec::new();
+        let mut drop_at = Vec::new();
+        for (index, hit) in hits.iter().enumerate() {
+            let tag = tags.get(index).copied().unwrap_or(OpId([0xff; 32]));
+            if ancestors.contains(&tag) {
+                drop_at.push(*hit);
+            } else {
+                keep.push(tag);
+            }
+        }
+        *tags = keep;
+        for hit in drop_at.into_iter().rev() {
+            lines.remove(hit);
+        }
+    });
+}
+
+fn append_field_line(heading: &mut IssueHeading, field: &str, line: &str) {
+    let Some(drawer) = drawer_of(field) else {
+        return;
+    };
+    if !heading
+        .extra_drawers
+        .iter()
+        .any(|have| crate::ops::drawer_name_is(have, drawer))
+    {
+        place_drawer(heading, format!(":{drawer}:\n{line}\n:END:\n"));
+        return;
+    }
+    edit_drawer(heading, drawer, |lines, end| {
+        lines.insert(end, line.to_string());
+    });
+}
+
+fn edit_drawer(
+    heading: &mut IssueHeading,
+    drawer: &str,
+    edit: impl FnOnce(&mut Vec<String>, usize),
+) {
     let Some(at) = heading
         .extra_drawers
         .iter()
-        .position(|drawer| crate::ops::drawer_name_is(drawer, "LINKS"))
+        .position(|have| crate::ops::drawer_name_is(have, drawer))
     else {
-        return false;
+        return;
     };
     let mut lines: Vec<String> = heading.extra_drawers[at]
         .lines()
         .map(str::to_string)
         .collect();
     if lines.is_empty() {
-        return false;
+        return;
     }
     let end = lines
         .iter()
         .rposition(|line| line.trim().eq_ignore_ascii_case(":END:"))
         .unwrap_or(lines.len());
-    let hits: Vec<usize> = (1..end)
-        .filter(|index| matches(lines[*index].trim()))
-        .collect();
-    if hits.len() <= 1 {
-        return edit_first_drawer(heading, "LINKS", None, matches);
-    }
-    let drop_n = hits.len().saturating_sub(keep);
-    for index in hits.into_iter().take(drop_n).rev() {
-        lines.remove(index);
-    }
+    edit(&mut lines, end);
     let end = lines
         .iter()
         .rposition(|line| line.trim().eq_ignore_ascii_case(":END:"))
         .unwrap_or(lines.len());
     if end <= 1 {
         heading.extra_drawers.remove(at);
-        return true;
+        return;
     }
     let mut text = lines.join("\n");
     text.push('\n');
     heading.extra_drawers[at] = text;
-    true
+}
+
+fn drawer_of(field: &str) -> Option<&'static str> {
+    if unkey("link:", field).is_some() {
+        Some("LINKS")
+    } else if field.starts_with("revision:") {
+        Some("REVISIONS")
+    } else if unkey("ballot:", field).is_some() {
+        Some("VOTES")
+    } else if split_target(field).is_some() || field == "retarget" {
+        Some("TARGETS")
+    } else {
+        None
+    }
+}
+
+fn line_is_field(field: &str, line: &str) -> bool {
+    if let Some((kind, other)) = unkey("link:", field) {
+        return parse_link_line(line)
+            .is_some_and(|(have_kind, have_other)| have_kind == kind && have_other == other);
+    }
+    if let Some(rev) = field.strip_prefix("revision:") {
+        return parse_revision_line(line).is_some_and(|(id, _)| id == rev);
+    }
+    if let Some((voter, rev)) = unkey("ballot:", field) {
+        return crate::ops::parse_ballot(line)
+            .is_some_and(|ballot| ballot.agent == voter && ballot.rev.unwrap_or_default() == rev);
+    }
+    if let Some((target, key)) = split_target(field) {
+        return matches!(
+            parse_target_line(line),
+            Some(TargetLine::Field(id, name, _)) if id == target && name == key
+        );
+    }
+    if field == "retarget" {
+        return matches!(parse_target_line(line), Some(TargetLine::Retarget(_)));
+    }
+    false
+}
+
+fn field_hit_count(heading: &IssueHeading, field: &str) -> usize {
+    let Some(drawer) = drawer_of(field) else {
+        return 0;
+    };
+    drawer_content(heading, drawer)
+        .iter()
+        .filter(|line| line_is_field(field, line.trim()))
+        .count()
 }
 
 /// Replace or append one line in the first drawer named `name`.
@@ -1794,6 +1965,20 @@ fn genesis_round_trip(heading: &IssueHeading) -> Result<()> {
     if let Some(fault) = genesis_fault(heading) {
         return Err(bad(fault));
     }
+    let once = genesis_parse(heading)?;
+    if genesis_diff(heading, &once).is_none() {
+        return Ok(());
+    }
+    let twice = genesis_parse(&once)?;
+    if let Some(fault) = genesis_diff(&once, &twice) {
+        return Err(bad(fault));
+    }
+    Ok(())
+}
+
+/// Parse the heading the way a file would, after render has moved a legal
+/// type onto the headline. A second pass must agree with the first.
+fn genesis_parse(heading: &IssueHeading) -> Result<IssueHeading> {
     let mut text = String::new();
     if !heading.state.is_empty() && !crate::model::TODO_KEYWORDS.contains(&heading.state.as_str()) {
         text.push_str(&format!("#+TODO: {} | DONE\n", heading.state));
@@ -1806,11 +1991,7 @@ fn genesis_round_trip(heading: &IssueHeading) -> Result<()> {
             "a genesis heading does not round-trip".to_string()
         })));
     }
-    let parsed = &doc.headings[0];
-    if let Some(fault) = genesis_diff(heading, parsed) {
-        return Err(bad(fault));
-    }
-    Ok(())
+    Ok(doc.headings.into_iter().next().expect("one heading"))
 }
 
 fn genesis_fault(heading: &IssueHeading) -> Option<String> {
@@ -2308,14 +2489,19 @@ fn org(err: &str, heading: IssueHeading, same: impl Fn(&IssueHeading) -> bool) -
 impl Live {
     fn from_op(op: &Op, short_id: &str, heading: IssueHeading, id: OpId) -> Self {
         let dup_fields = duplicate_fields(&heading);
+        let mut line_tags = BTreeMap::new();
+        for field in &dup_fields {
+            let hits = field_hit_count(&heading, field);
+            line_tags.insert(field.clone(), vec![id; hits]);
+        }
         let order_fixed = heading.property_order.len();
         Self {
             project: op.project.clone(),
             short_id: short_id.to_string(),
             heading,
             dup_fields,
-            dup_later: Vec::new(),
-            kept_tail: BTreeMap::new(),
+            line_tags,
+            dup_ops: Vec::new(),
             born_lamport: op.lamport,
             born_id: id,
             order_fixed,
@@ -3231,8 +3417,8 @@ mod tests {
             short_id: "shared".to_string(),
             heading: fresh_heading("shared", title, "TODO", 'B'),
             dup_fields: Vec::new(),
-            dup_later: Vec::new(),
-            kept_tail: BTreeMap::new(),
+            line_tags: BTreeMap::new(),
+            dup_ops: Vec::new(),
             born_lamport: lamport,
             born_id: OpId([0; 32]),
             order_fixed: 1,
