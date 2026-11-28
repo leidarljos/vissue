@@ -712,6 +712,12 @@ impl Mem {
                     }
                     writers.sort();
                     writers.dedup();
+                    // Two lines from the birth are one writer. A clash names
+                    // every op that wrote the key, so a second writer is
+                    // what puts the key on the list. Both lines stay.
+                    if writers.len() < 2 {
+                        continue;
+                    }
                     conflicts.push(Conflict {
                         project: live.project.clone(),
                         id: live.short_id.clone(),

@@ -1810,7 +1810,6 @@ retarget zzz
 2 gamma
 :END:
 ";
-    let born_id = born.id().unwrap();
     both_ways(&[born, revision, vote], |folded| {
         let heading = heading_of(folded);
         assert_eq!(
@@ -1829,14 +1828,8 @@ retarget zzz
                 links.to_string(),
             ]
         );
-        for field in ["revision:1", "target:t1:status"] {
-            let clash = folded
-                .conflicts
-                .iter()
-                .find(|clash| clash.field == field)
-                .unwrap_or_else(|| panic!("{field} missing in {:?}", folded.conflicts));
-            assert!(clash.ops.contains(&born_id), "{field} {:?}", clash.ops);
-        }
+        // `1 alpha` / `1 beta` and the two `t1 status` lines are the birth.
+        assert!(folded.conflicts.is_empty(), "{:?}", folded.conflicts);
     });
 }
 
@@ -2831,5 +2824,34 @@ fn a_drawer_type_without_a_headline_tag_folds() {
     assert_eq!(
         typed_folded.issues[&("proj".to_string(), "proj-1".to_string())],
         typed_doc.headings[0]
+    );
+}
+
+/// Two copies of one key in a genesis heading are the birth's own lines.
+/// A clash is two writers. A later op on that key is listed with the birth.
+#[test]
+fn a_duplicated_birth_key_keeps_both_lines() {
+    let mut heading = plain_heading("proj-1", "Dup");
+    heading.extra_drawers = vec![
+        "\
+:VOTES:
+[2026-01-01 Thu] ann: yes
+[2026-01-01 Thu] ann: no
+:END:
+"
+        .to_string(),
+    ];
+    let born = genesis_of(heading);
+    let folded = fold(std::slice::from_ref(&born)).unwrap();
+    let text = heading_of(&folded).extra_drawers.concat();
+    assert!(line_is(&text, "[2026-01-01 Thu] ann: yes"), "{text}");
+    assert!(line_is(&text, "[2026-01-01 Thu] ann: no"), "{text}");
+    assert!(
+        folded
+            .conflicts
+            .iter()
+            .all(|clash| clash.ops.len() >= 2 && clash.field != "ballot:3:ann"),
+        "{:?}",
+        folded.conflicts
     );
 }

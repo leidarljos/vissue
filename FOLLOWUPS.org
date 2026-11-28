@@ -6,6 +6,3 @@ On d46b1201, append_log and absorb_logs sort the whole logbook, so a genesis log
 
 * NIT A zero byte in a title has no op id
 A title containing U+0000 round-trips through the org reader. Fold returns an error: Cap'n Proto text is NUL-terminated, so an interior zero is the end of the string. text_node rejects it. The same title with U+0001 folds.
-
-* NIT A duplicated key with only its birth is a one-op clash
-A genesis whose only extra lines are two copies of one key folds to one conflict, and that conflict's ops list is the birth alone. Both lines stay in the drawer. A key that still has more than one line lists every op that wrote it, and here the birth is the only writer.
