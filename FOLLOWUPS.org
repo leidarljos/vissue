@@ -6,3 +6,6 @@ On d46b1201, append_log and absorb_logs sort the whole logbook, so a genesis log
 
 * NIT A zero byte in a title has no op id
 A title containing U+0000 round-trips through the org reader. Fold returns an error: Cap'n Proto text is NUL-terminated, so an interior zero is the end of the string. text_node rejects it. The same title with U+0001 folds.
+
+* NIT Relate lines follow op id
+On 22ec2321, `add_link` stores a non-blocked link as its own field (oplog.rs:1782). Concurrent `relates proj-a` and `relates proj-z`, then `proj-m` on both, print the `proj-a` line or the `proj-z` line first according to op id. Base prints that same drawer for each id. `:DEEDS:` and `:BLOCKED_BY:` sort; this drawer stays queued.

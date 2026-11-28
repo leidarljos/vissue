@@ -566,10 +566,11 @@ struct Frontier {
 
 /// Add-tags for one set field. The tag's op is the add that introduced the
 /// element. A replacement drops tags it observed. A later union does not
-/// split an earlier element on whitespace.
+/// split an earlier element on whitespace. Tags stay in the order they were
+/// stored, which is the order `deed` cites them.
 #[derive(Clone, Default)]
 struct UnionSet {
-    tags: BTreeSet<(OpId, String)>,
+    tags: Vec<(OpId, String)>,
 }
 
 impl UnionSet {
@@ -582,13 +583,23 @@ impl UnionSet {
     }
 
     fn insert(&mut self, source: OpId, element: &str) {
-        if !element.is_empty() {
-            self.tags.insert((source, element.to_string()));
+        if element.is_empty() {
+            return;
         }
+        if self
+            .tags
+            .iter()
+            .any(|(id, have)| *id == source && have == element)
+        {
+            return;
+        }
+        self.tags.push((source, element.to_string()));
     }
 
     fn extend_set(&mut self, other: &Self) {
-        self.tags.extend(other.tags.iter().cloned());
+        for (source, element) in &other.tags {
+            self.insert(*source, element);
+        }
     }
 
     /// Tags whose adding op is in `sources` were observed and are gone.
@@ -596,25 +607,67 @@ impl UnionSet {
         let mut out = Self::default();
         for (source, element) in &self.tags {
             if !sources.contains(source) {
-                out.tags.insert((*source, element.clone()));
+                out.tags.push((*source, element.clone()));
             }
         }
         out
     }
 
-    fn canonical(&self) -> String {
-        let mut elements = BTreeSet::new();
+    /// Order tags by `prior` when that string lists every inherited token.
+    /// The token this op introduced stays after that list. Otherwise the
+    /// reference list is the elements in order, the same order a concurrent
+    /// display uses, and this op's token takes its place in that list.
+    fn adopt_prior(&mut self, prior: &str, introduced: OpId) {
+        let listed = list_elements(prior);
+        let covered = self.tags.iter().all(|(source, element)| {
+            *source == introduced || listed.iter().any(|have| have == element)
+        });
+        // One rank sort for both paths. The published string supplies the
+        // rank when it lists every inherited token. Otherwise the rank is
+        // element order.
+        let order = if covered {
+            listed
+        } else {
+            let mut elements: Vec<String> = self
+                .tags
+                .iter()
+                .map(|(_, element)| element.clone())
+                .collect();
+            elements.sort();
+            elements.dedup();
+            elements
+        };
+        let rank = |element: &str| {
+            order
+                .iter()
+                .position(|have| have == element)
+                .unwrap_or(usize::MAX)
+        };
+        let mut placed: Vec<(usize, usize, (OpId, String))> = self
+            .tags
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(index, tag)| (rank(&tag.1), index, tag))
+            .collect();
+        placed.sort_by_key(|(at, index, _)| (*at, *index));
+        self.tags = placed.into_iter().map(|(_, _, tag)| tag).collect();
+    }
+
+    /// Join the live tokens. Concurrent writers share no citation order, so
+    /// that display is sorted. A causal chain keeps the stored order.
+    fn render(&self, sort: bool) -> String {
+        let mut seen = HashSet::new();
+        let mut elements = Vec::new();
         for (_, element) in &self.tags {
-            elements.insert(element.as_str());
-        }
-        let mut out = String::new();
-        for (index, element) in elements.iter().enumerate() {
-            if index > 0 {
-                out.push(' ');
+            if seen.insert(element.as_str()) {
+                elements.push(element.as_str());
             }
-            out.push_str(element);
         }
-        out
+        if sort {
+            elements.sort_unstable();
+        }
+        elements.join(" ")
     }
 }
 
@@ -1174,11 +1227,28 @@ fn converge(
             union.extend_set(&carried(writer, &tombstones));
         }
         union.insert(id, value);
+        // A child that names every sibling has an empty concurrent set.
+        // The newest sibling string is the list to extend when it holds
+        // every inherited token. Otherwise the tags take element order.
+        // One causal writer is a citation chain.
+        if concurrent.is_empty() && causal.len() > 1 {
+            let prior = causal
+                .iter()
+                .max_by_key(|writer| (writer.lamport, writer.id))
+                .map(|writer| writer.value.as_str())
+                .unwrap_or("");
+            union.adopt_prior(prior, id);
+        }
         let mut display = union.clone();
         for writer in &concurrent {
             display.extend_set(&carried(writer, &tombstones));
         }
-        (display.canonical(), union, false, removed_by(&causal))
+        (
+            display.render(!concurrent.is_empty()),
+            union,
+            false,
+            removed_by(&causal),
+        )
     } else if replacing {
         let mut removed = ancestors.clone();
         removed.extend(removed_by(&causal));
@@ -1189,7 +1259,7 @@ fn converge(
         }
         let own = UnionSet::from_scalar(id, value);
         display.extend_set(&own);
-        (display.canonical(), own, true, removed)
+        (display.render(!concurrent.is_empty()), own, true, removed)
     } else {
         (
             value.to_string(),

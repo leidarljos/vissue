@@ -2810,6 +2810,416 @@ cites proj-9
     assert_eq!(pre_drawers[0], pre_drawers[1]);
 }
 
+/// A birth stores deed tokens in the order the file cited them. One later
+/// `AddDeed` appends. Concurrent union tests still expect a sorted display.
+#[test]
+fn an_added_deed_keeps_the_birth_token_order() {
+    let mut heading = plain_heading("proj-1", "Cited");
+    heading
+        .properties
+        .insert("DEEDS".to_string(), "z-deed a-deed".to_string());
+    heading.property_order.push("DEEDS".to_string());
+    let born = genesis_of(heading);
+    let alone = fold(std::slice::from_ref(&born)).unwrap();
+    assert_eq!(
+        heading_of(&alone)
+            .properties
+            .get("DEEDS")
+            .map(String::as_str),
+        Some("z-deed a-deed")
+    );
+    let added = wire(&spawned(
+        &born,
+        OpKind::AddDeed {
+            accession: "deed-new".to_string(),
+        },
+        1,
+    ));
+    let folded = fold(&[born, added]).unwrap();
+    assert_eq!(
+        heading_of(&folded)
+            .properties
+            .get("DEEDS")
+            .map(String::as_str),
+        Some("z-deed a-deed deed-new")
+    );
+}
+
+fn deed_token(token: &str) -> OpKind {
+    OpKind::AddDeed {
+        accession: token.to_string(),
+    }
+}
+
+fn block_token(token: &str) -> OpKind {
+    OpKind::Link {
+        kind: "blocked-by".to_string(),
+        other: token.to_string(),
+    }
+}
+
+fn cite_token(token: &str) -> OpKind {
+    OpKind::Link {
+        kind: "cites".to_string(),
+        other: token.to_string(),
+    }
+}
+
+/// Both op-id orders of two concurrent adds on `root`.
+fn id_orders(
+    root: &Op,
+    left_token: &str,
+    right_token: &str,
+    kind: fn(&str) -> OpKind,
+) -> [(Op, Op); 2] {
+    let mut left_first = None;
+    let mut right_first = None;
+    for left_wall in 0..40 {
+        for right_wall in 0..40 {
+            let left = child(&[root], root, kind(left_token), left_wall);
+            let right = child(&[root], root, kind(right_token), right_wall);
+            let left_id = left.id().unwrap();
+            let right_id = right.id().unwrap();
+            if left_id < right_id && left_first.is_none() {
+                left_first = Some((left, right));
+            } else if right_id < left_id && right_first.is_none() {
+                right_first = Some((left, right));
+            }
+            match (left_first.take(), right_first.take()) {
+                (Some(earlier), Some(later)) => return [earlier, later],
+                (left_pair, right_pair) => {
+                    left_first = left_pair;
+                    right_first = right_pair;
+                }
+            }
+        }
+    }
+    panic!("both op id orders of {left_token} and {right_token}");
+}
+
+fn property_list(key: &str, value: &str) -> Op {
+    let mut heading = plain_heading("proj-1", "Cited");
+    heading
+        .properties
+        .insert(key.to_string(), value.to_string());
+    heading.property_order.push(key.to_string());
+    genesis_of(heading)
+}
+
+/// The pair is the sorted tie-break. The child and a later add append.
+fn appends_in_both_id_orders(
+    root: &Op,
+    kind: fn(&str) -> OpKind,
+    read: fn(&Folded) -> Option<String>,
+    pair: &str,
+    joined: &str,
+    extended: &str,
+) {
+    for (left, right) in id_orders(root, "a", "z", kind) {
+        let mut ops = vec![root.clone(), left.clone(), right.clone()];
+        assert_folds_same(&mut ops, |folded| {
+            assert_eq!(read(folded).as_deref(), Some(pair));
+        });
+        let middle = child(&[&left, &right], root, kind("m"), 30);
+        let mut ops = vec![root.clone(), left.clone(), right.clone(), middle.clone()];
+        assert_folds_same(&mut ops, |folded| {
+            assert_eq!(read(folded).as_deref(), Some(joined));
+        });
+        let later = child(&[&middle], root, kind("e"), 31);
+        let mut ops = vec![root.clone(), left, right, middle, later];
+        assert_folds_same(&mut ops, |folded| {
+            assert_eq!(read(folded).as_deref(), Some(extended));
+        });
+    }
+}
+
+fn cite_lines(folded: &Folded) -> Vec<String> {
+    let mut lines: Vec<String> = drawers(folded, "proj-1")
+        .lines()
+        .filter(|line| line.starts_with("cites "))
+        .map(str::to_string)
+        .collect();
+    lines.sort();
+    lines
+}
+
+/// Concurrent `a` and `z`, then `m` on both, then `e` on `m`. Either id
+/// order appends. `:DEEDS:`, `:BLOCKED_BY:`, and a cite edge share the union.
+#[test]
+fn a_child_of_concurrent_adds_appends_the_sorted_pair() {
+    let root = wire(&Op::create("proj", "proj-1", "Title", "seat").unwrap());
+    appends_in_both_id_orders(&root, deed_token, deeds, "a z", "a z m", "a z m e");
+    appends_in_both_id_orders(&root, block_token, blocked, "a z", "a z m", "a z m e");
+    for (left, right) in id_orders(&root, "proj-a", "proj-z", cite_token) {
+        let middle = child(&[&left, &right], &root, cite_token("proj-m"), 30);
+        let mut ops = vec![root.clone(), left, right, middle];
+        assert_folds_same(&mut ops, |folded| {
+            assert_eq!(
+                cite_lines(folded),
+                vec![
+                    "cites proj-a".to_string(),
+                    "cites proj-m".to_string(),
+                    "cites proj-z".to_string(),
+                ]
+            );
+        });
+    }
+}
+
+/// Genesis `z a` plus concurrent `b` and `m` sorts once. Child `c` of both
+/// adds appends, on every delivery order and either op-id order.
+#[test]
+fn a_child_of_sorted_concurrent_tokens_appends() {
+    sorted_list_appends("DEEDS", deed_token, deeds, "deed");
+    sorted_list_appends("BLOCKED_BY", block_token, blocked, "id");
+}
+
+fn sorted_list_appends(
+    key: &str,
+    kind: fn(&str) -> OpKind,
+    read: fn(&Folded) -> Option<String>,
+    suffix: &str,
+) {
+    let z = format!("z-{suffix}");
+    let a = format!("a-{suffix}");
+    let b = format!("b-{suffix}");
+    let m = format!("m-{suffix}");
+    let c = format!("c-{suffix}");
+    let born = property_list(key, &format!("{z} {a}"));
+    let pair = format!("a-{suffix} b-{suffix} m-{suffix} z-{suffix}");
+    let joined = format!("{pair} {c}");
+    for (left, right) in id_orders(&born, &b, &m, kind) {
+        let mut pre = vec![born.clone(), left.clone(), right.clone()];
+        assert_folds_same(&mut pre, |folded| {
+            assert_eq!(read(folded).as_deref(), Some(pair.as_str()));
+        });
+        let child_op = child(&[&left, &right], &born, kind(&c), 30);
+        let mut ops = vec![born.clone(), left, right, child_op];
+        assert_folds_same(&mut ops, |folded| {
+            assert_eq!(read(folded).as_deref(), Some(joined.as_str()));
+        });
+    }
+}
+
+fn field_set(key: &str, value: &str) -> OpKind {
+    OpKind::SetField {
+        name: format!("property:{key}"),
+        value: value.to_string(),
+    }
+}
+
+fn deed_of(token: &str) -> OpKind {
+    OpKind::AddDeed {
+        accession: token.to_string(),
+    }
+}
+
+fn blocker_of(token: &str) -> OpKind {
+    OpKind::Link {
+        kind: "blocked-by".to_string(),
+        other: token.to_string(),
+    }
+}
+
+fn deeds_at(value: &str) -> Op {
+    let mut heading = plain_heading("proj-1", "Cited");
+    heading
+        .properties
+        .insert("DEEDS".to_string(), value.to_string());
+    heading.property_order.push("DEEDS".to_string());
+    genesis_of(heading)
+}
+
+/// Index of one permutation. `order` lists sibling indexes from low op id
+/// to high.
+fn fact(n: usize) -> usize {
+    match n {
+        0 | 1 => 1,
+        _ => (2..=n).product(),
+    }
+}
+
+fn perm_slot(order: &[usize]) -> usize {
+    let n = order.len();
+    let mut slot = 0;
+    for (index, item) in order.iter().enumerate() {
+        let smaller = order[index + 1..]
+            .iter()
+            .filter(|later| *later < item)
+            .count();
+        slot += smaller * fact(n - 1 - index);
+    }
+    slot
+}
+
+fn bump_walls(walls: &mut [i64], limit: i64) -> bool {
+    for wall in walls {
+        *wall += 1;
+        if *wall < limit {
+            return true;
+        }
+        *wall = 0;
+    }
+    false
+}
+
+/// One sibling set for every op-id permutation. Walls differ, lamports match.
+fn id_orders_of(root: &Op, kinds: &[OpKind]) -> Vec<Vec<Op>> {
+    let count = kinds.len();
+    let mut slots = 1usize;
+    for n in 2..=count {
+        slots *= n;
+    }
+    let mut found: Vec<Option<Vec<Op>>> = (0..slots).map(|_| None).collect();
+    let mut filled = 0usize;
+    let mut walls = vec![0i64; count];
+    loop {
+        let ops: Vec<Op> = walls
+            .iter()
+            .enumerate()
+            .map(|(index, wall)| child(&[root], root, kinds[index].clone(), *wall))
+            .collect();
+        let mut order: Vec<usize> = (0..count).collect();
+        order.sort_by_key(|&index| ops[index].id().unwrap());
+        let mut ids: Vec<_> = order
+            .iter()
+            .map(|&index| ops[index].id().unwrap())
+            .collect();
+        ids.dedup();
+        if ids.len() == count {
+            let slot = perm_slot(&order);
+            if found[slot].is_none() {
+                found[slot] = Some(ops);
+                filled += 1;
+                if filled == slots {
+                    return found
+                        .into_iter()
+                        .map(|item| item.expect("id order"))
+                        .collect();
+                }
+            }
+        }
+        if !bump_walls(&mut walls, 24) {
+            break;
+        }
+    }
+    panic!("id orders for {count} siblings, found {filled} of {slots}");
+}
+
+fn child_folds(
+    root: &Op,
+    siblings: Vec<Op>,
+    kind: OpKind,
+    read: fn(&Folded) -> Option<String>,
+    expect: &str,
+) {
+    let parents: Vec<&Op> = siblings.iter().collect();
+    let child_op = child(&parents, root, kind, 80);
+    let mut ops = vec![root.clone()];
+    ops.extend(siblings);
+    ops.push(child_op);
+    assert_folds_same(&mut ops, |folded| {
+        assert_eq!(read(folded).as_deref(), Some(expect));
+    });
+}
+
+/// Concurrent scalar `z-tok` and `a-tok`, then `m-tok` on both. Either id
+/// order sorts the union.
+#[test]
+fn scalar_deed_siblings_sort_for_both_id_orders() {
+    let root = wire(&Op::create("proj", "proj-1", "Title", "seat").unwrap());
+    let kinds = [field_set("DEEDS", "z-tok"), field_set("DEEDS", "a-tok")];
+    for siblings in id_orders_of(&root, &kinds) {
+        child_folds(
+            &root,
+            siblings,
+            deed_of("m-tok"),
+            deeds,
+            "a-tok m-tok z-tok",
+        );
+    }
+}
+
+/// Genesis `a  b` is one element. Concurrent `c-tok` and `m-tok`, then
+/// `e-tok` on both, sort for either id order.
+#[test]
+fn a_doubled_space_deed_sorts_for_both_id_orders() {
+    let root = deeds_at("a  b");
+    let kinds = [deed_of("c-tok"), deed_of("m-tok")];
+    for siblings in id_orders_of(&root, &kinds) {
+        child_folds(
+            &root,
+            siblings,
+            deed_of("e-tok"),
+            deeds,
+            "a  b c-tok e-tok m-tok",
+        );
+    }
+}
+
+/// Partial lists `c-deed a-deed` and `a-deed b-deed`, then `m-deed`.
+/// Genesis `z-deed a-deed` is replaced. Both id orders sort.
+#[test]
+fn partial_deed_lists_sort_for_both_id_orders() {
+    let root = deeds_at("z-deed a-deed");
+    let kinds = [
+        field_set("DEEDS", "c-deed a-deed"),
+        field_set("DEEDS", "a-deed b-deed"),
+    ];
+    for siblings in id_orders_of(&root, &kinds) {
+        child_folds(
+            &root,
+            siblings,
+            deed_of("m-deed"),
+            deeds,
+            "a-deed b-deed c-deed m-deed",
+        );
+    }
+}
+
+/// A third partial list makes six id orders. Each one sorts to the same
+/// string.
+#[test]
+fn three_partial_deed_lists_sort_for_every_id_order() {
+    let root = deeds_at("z-deed a-deed");
+    let kinds = [
+        field_set("DEEDS", "c-deed a-deed"),
+        field_set("DEEDS", "a-deed b-deed"),
+        field_set("DEEDS", "b-deed d-deed"),
+    ];
+    let orders = id_orders_of(&root, &kinds);
+    assert_eq!(orders.len(), 6);
+    for siblings in orders {
+        child_folds(
+            &root,
+            siblings,
+            deed_of("m-deed"),
+            deeds,
+            "a-deed b-deed c-deed d-deed m-deed",
+        );
+    }
+}
+
+/// `:BLOCKED_BY:` partial lists take the same element order in both id
+/// orders.
+#[test]
+fn partial_blocker_lists_sort_for_both_id_orders() {
+    let root = wire(&Op::create("proj", "proj-1", "Title", "seat").unwrap());
+    let kinds = [
+        field_set("BLOCKED_BY", "c-id a-id"),
+        field_set("BLOCKED_BY", "a-id b-id"),
+    ];
+    for siblings in id_orders_of(&root, &kinds) {
+        child_folds(
+            &root,
+            siblings,
+            blocker_of("m-id"),
+            blocked,
+            "a-id b-id c-id m-id",
+        );
+    }
+}
+
 fn a_drawer_type_without_a_headline_tag_folds() {
     let typed = "\
 * TODO [#B] Typed
