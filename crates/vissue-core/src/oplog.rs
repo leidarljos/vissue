@@ -535,6 +535,8 @@ struct Live {
     heading: IssueHeading,
     /// Keys that already have two lines in the first drawer of that name.
     dup_fields: Vec<String>,
+    /// Later ops that appended a line on one of those keys, with lamport.
+    dup_later: Vec<(String, u64, OpId)>,
     born_lamport: u64,
     born_id: OpId,
     /// Length of the `property_order` prefix fixed by create or genesis.
@@ -673,16 +675,28 @@ impl Mem {
                 .values()
                 .flatten()
                 .find(|live| live.born_id == *birth);
+            // A duplicated key is reported once, with every line's op.
+            if live.is_some_and(|live| live.dup_fields.iter().any(|name| name == field)) {
+                continue;
+            }
             push_conflict(&mut conflicts, frontier, live, field);
         }
         for lives in self.issues.values() {
             for live in lives {
                 for field in &live.dup_fields {
+                    let mut writers = vec![(live.born_lamport, live.born_id)];
+                    for (name, lamport, id) in &live.dup_later {
+                        if name == field {
+                            writers.push((*lamport, *id));
+                        }
+                    }
+                    writers.sort();
+                    writers.dedup();
                     conflicts.push(Conflict {
                         project: live.project.clone(),
                         id: live.short_id.clone(),
                         field: field.clone(),
-                        ops: vec![live.born_id],
+                        ops: writers.into_iter().map(|(_, id)| id).collect(),
                     });
                 }
             }
@@ -886,7 +900,21 @@ fn install_issue(
             .cloned()
             .unwrap_or_default();
         let display = converge(&mut slot, &ancestors, id, op.lamport, value, false);
-        if slot.writers.iter().any(|writer| writer.id != id) {
+        let duplicated = live.dup_fields.iter().any(|name| name == field);
+        if duplicated {
+            let mut extras: Vec<(u64, OpId, String)> = slot
+                .writers
+                .iter()
+                .filter(|writer| writer.id != id)
+                .map(|writer| (writer.lamport, writer.id, writer.value.clone()))
+                .collect();
+            extras.sort();
+            for (lamport, writer_id, written) in extras {
+                if project(&mut live, field, &written) {
+                    live.dup_later.push((field.clone(), lamport, writer_id));
+                }
+            }
+        } else if slot.writers.iter().any(|writer| writer.id != id) {
             project(&mut live, field, &display);
         }
         mem.frontiers.insert((id, field.clone()), slot);
@@ -904,13 +932,24 @@ fn absorb_pending(
     live: &mut Live,
     written: &HashSet<String>,
 ) {
-    let names: Vec<String> = mem
+    // Same tie-break as the post-birth walk: `(lamport, op id)`, then the
+    // field name. Pending lives in a HashMap, whose walk is not that order.
+    let mut names: Vec<(u64, OpId, String)> = mem
         .pending
-        .keys()
-        .filter(|(issue, name)| *issue == key && !written.contains(name))
-        .map(|(_, name)| name.clone())
+        .iter()
+        .filter(|((issue, name), _)| *issue == key && !written.contains(name))
+        .map(|((_, name), slot)| {
+            let (lamport, id) = slot
+                .writers
+                .iter()
+                .map(|writer| (writer.lamport, writer.id))
+                .min()
+                .unwrap_or((u64::MAX, OpId([0xff; 32])));
+            (lamport, id, name.clone())
+        })
         .collect();
-    for name in names {
+    names.sort();
+    for (_, _, name) in names {
         let Some(slot) = mem.pending.get(&(key, name.clone())).cloned() else {
             continue;
         };
@@ -1046,7 +1085,14 @@ fn write_field(
         if let Some(lives) = mem.issues.get_mut(&op.issue)
             && let Some(live) = lives.iter_mut().find(|live| live.born_id == birth)
         {
-            project(live, &field, &display);
+            let duplicated = live.dup_fields.iter().any(|name| name == &field);
+            let shown = if duplicated { value } else { display.as_str() };
+            if project(live, &field, shown) {
+                if !duplicated {
+                    live.dup_fields.push(field.clone());
+                }
+                live.dup_later.push((field.clone(), op.lamport, id));
+            }
         }
     }
     Ok(())
@@ -1168,14 +1214,29 @@ fn canonical_field(name: &str) -> Result<String> {
     Err(bad("unknown field"))
 }
 
-fn project(live: &mut Live, field: &str, value: &str) {
+/// Projects `value` into the heading. Returns whether a key that already
+/// had two lines gained this line without those lines being rewritten.
+fn project(live: &mut Live, field: &str, value: &str) -> bool {
     match field {
-        "title" => live.heading.title = value.to_string(),
-        "state" => live.heading.state = value.to_string(),
-        "priority" => live.heading.priority = value.chars().next().unwrap_or('C'),
-        "body" => live.heading.body = value.to_string(),
+        "title" => {
+            live.heading.title = value.to_string();
+            false
+        }
+        "state" => {
+            live.heading.state = value.to_string();
+            false
+        }
+        "priority" => {
+            live.heading.priority = value.chars().next().unwrap_or('C');
+            false
+        }
+        "body" => {
+            live.heading.body = value.to_string();
+            false
+        }
         "tags" => {
             live.heading.org_tags = value.split_whitespace().map(str::to_string).collect();
+            false
         }
         "statistics" => {
             live.heading.statistics = if value.is_empty() {
@@ -1183,31 +1244,33 @@ fn project(live: &mut Live, field: &str, value: &str) {
             } else {
                 Some(value.to_string())
             };
+            false
         }
         "retarget" => {
             let written = retarget_line(value);
             edit_first_drawer(&mut live.heading, "TARGETS", Some(written), |line| {
                 matches!(parse_target_line(line), Some(TargetLine::Retarget(_)))
-            });
+            })
         }
-        name if let Some(key) = name.strip_prefix("property:") => set_property(live, key, value),
-        name if let Some((voter, rev)) = unkey("ballot:", name) => {
-            edit_first_drawer(
-                &mut live.heading,
-                "VOTES",
-                Some(value.to_string()),
-                |line| {
-                    crate::ops::parse_ballot(line).is_some_and(|ballot| {
-                        ballot.agent == voter && ballot.rev.unwrap_or_default() == rev
-                    })
-                },
-            );
+        name if let Some(key) = name.strip_prefix("property:") => {
+            set_property(live, key, value);
+            false
         }
+        name if let Some((voter, rev)) = unkey("ballot:", name) => edit_first_drawer(
+            &mut live.heading,
+            "VOTES",
+            Some(value.to_string()),
+            |line| {
+                crate::ops::parse_ballot(line).is_some_and(|ballot| {
+                    ballot.agent == voter && ballot.rev.unwrap_or_default() == rev
+                })
+            },
+        ),
         name if let Some(rev) = name.strip_prefix("revision:") => {
             let written = revision_line(rev, value);
             edit_first_drawer(&mut live.heading, "REVISIONS", Some(written), |line| {
                 parse_revision_line(line).is_some_and(|(id, _)| id == rev)
-            });
+            })
         }
         name if let Some((target, key)) = split_target(name) => {
             let written = target_field_line(&target, &key, value);
@@ -1216,7 +1279,7 @@ fn project(live: &mut Live, field: &str, value: &str) {
                     parse_target_line(line),
                     Some(TargetLine::Field(id, field, _)) if id == target && field == key
                 )
-            });
+            })
         }
         name if let Some((kind, other)) = unkey("link:", name) => {
             let written = link_line(&kind, &other);
@@ -1228,9 +1291,9 @@ fn project(live: &mut Live, field: &str, value: &str) {
             edit_first_drawer(&mut live.heading, "LINKS", next, |line| {
                 parse_link_line(line)
                     .is_some_and(|(have_kind, have_other)| have_kind == kind && have_other == other)
-            });
+            })
         }
-        _ => {}
+        _ => false,
     }
 }
 
@@ -1265,15 +1328,15 @@ fn set_property(live: &mut Live, key: &str, value: &str) {
 
 /// Replace or append one line in the first drawer named `name`.
 ///
-/// A second drawer of that name is left where it is. Every line that does not
-/// match stays byte-identical. Two matching lines are a conflict: neither is
-/// rewritten and nothing is inserted for that key.
+/// A second drawer of that name is left where it is. Lines that do not match
+/// stay byte-identical, blank lines included. A key that already has two
+/// lines keeps those lines, and the new line is appended.
 fn edit_first_drawer(
     heading: &mut IssueHeading,
     name: &str,
     next: Option<String>,
     matches: impl Fn(&str) -> bool,
-) {
+) -> bool {
     let Some(at) = heading
         .extra_drawers
         .iter()
@@ -1282,14 +1345,14 @@ fn edit_first_drawer(
         if let Some(line) = next {
             place_drawer(heading, format!(":{name}:\n{line}\n:END:\n"));
         }
-        return;
+        return false;
     };
     let mut lines: Vec<String> = heading.extra_drawers[at]
         .lines()
         .map(str::to_string)
         .collect();
     if lines.is_empty() {
-        return;
+        return false;
     }
     let end = lines
         .iter()
@@ -1298,26 +1361,30 @@ fn edit_first_drawer(
     let hits: Vec<usize> = (1..end)
         .filter(|index| matches(lines[*index].trim()))
         .collect();
+    let duplicated = hits.len() > 1;
     match (hits.len(), next) {
         (0, Some(line)) => lines.insert(end, line),
         (1, Some(line)) => lines[hits[0]] = line,
         (1, None) => {
             lines.remove(hits[0]);
         }
-        _ => return,
+        (n, Some(line)) if n > 1 => lines.insert(end, line),
+        _ => return false,
     }
     let end = lines
         .iter()
         .rposition(|line| line.trim().eq_ignore_ascii_case(":END:"))
         .unwrap_or(lines.len());
-    let any = (1..end).any(|index| !lines[index].trim().is_empty());
-    if !any {
+    // A blank line is still a line. Drop the drawer only when nothing is left
+    // between its name and `:END:`.
+    if end <= 1 {
         heading.extra_drawers.remove(at);
-        return;
+        return false;
     }
     let mut text = lines.join("\n");
     text.push('\n');
     heading.extra_drawers[at] = text;
+    duplicated
 }
 
 fn place_drawer(heading: &mut IssueHeading, drawer: String) {
@@ -1633,6 +1700,25 @@ fn check_op(op: &Op) -> Result<()> {
         }
         OpKind::GenesisImport { heading, .. } => {
             stores("id", &heading.id, "")?;
+            stores("title", &heading.title, "")?;
+            stores("state", &heading.state, "")?;
+            one_char(&heading.priority.to_string())?;
+            stores("body", &heading.body, "")?;
+            stores("tags", &heading.org_tags.join(" "), "")?;
+            stores(
+                "statistics",
+                heading.statistics.as_deref().unwrap_or(""),
+                "",
+            )?;
+            for (key, value) in &heading.properties {
+                if key == "ID" {
+                    continue;
+                }
+                stores("property", key, value)?;
+            }
+            for entry in &heading.logbook {
+                log_ok(entry)?;
+            }
             require_derived(&op.project, &heading.id, op.issue)
         }
         OpKind::SetField { name, value } | OpKind::Resolve { field: name, value } => {
@@ -2039,6 +2125,7 @@ impl Live {
             short_id: short_id.to_string(),
             heading,
             dup_fields,
+            dup_later: Vec::new(),
             born_lamport: op.lamport,
             born_id: id,
             order_fixed,
@@ -2954,6 +3041,7 @@ mod tests {
             short_id: "shared".to_string(),
             heading: fresh_heading("shared", title, "TODO", 'B'),
             dup_fields: Vec::new(),
+            dup_later: Vec::new(),
             born_lamport: lamport,
             born_id: OpId([0; 32]),
             order_fixed: 1,

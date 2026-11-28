@@ -1939,6 +1939,179 @@ retarget zzz
         },
     );
 
+    let mut duplicated = plain_heading("proj-1", "Dup");
+    let dup_votes = "\
+:VOTES:
+[2026-01-01 Thu] ann: yes
+[2026-01-01 Thu] ann: no
+:END:
+";
+    let dup_revisions = "\
+:REVISIONS:
+1 alpha
+1 beta
+:END:
+";
+    duplicated.extra_drawers = vec![dup_votes.to_string(), dup_revisions.to_string()];
+    let dup_born = wire(&genesis_of(duplicated));
+    let recast = wire(&spawned(
+        &dup_born,
+        OpKind::Ballot {
+            voter: "ann".to_string(),
+            rev: String::new(),
+            choice: "later".to_string(),
+            stamp: "[2026-01-02 Fri]".to_string(),
+        },
+        1,
+    ));
+    let nine = wire(&spawned(
+        &dup_born,
+        OpKind::AddRevision {
+            rev_id: "1".to_string(),
+            summary: "nine".to_string(),
+        },
+        2,
+    ));
+    let dup_born_id = dup_born.id().unwrap();
+    let recast_id = recast.id().unwrap();
+    let nine_id = nine.id().unwrap();
+    both_ways(&[dup_born, recast, nine], |folded| {
+        let heading = heading_of(folded);
+        assert_eq!(
+            heading
+                .extra_drawers
+                .iter()
+                .find(|drawer| drawer.starts_with(":VOTES:"))
+                .map(String::as_str),
+            Some(
+                "\
+:VOTES:
+[2026-01-01 Thu] ann: yes
+[2026-01-01 Thu] ann: no
+[2026-01-02 Fri] ann: later
+:END:
+"
+            )
+        );
+        assert_eq!(
+            heading
+                .extra_drawers
+                .iter()
+                .find(|drawer| drawer.starts_with(":REVISIONS:"))
+                .map(String::as_str),
+            Some(
+                "\
+:REVISIONS:
+1 alpha
+1 beta
+1 nine
+:END:
+"
+            )
+        );
+        let revision = folded
+            .conflicts
+            .iter()
+            .find(|clash| clash.field == "revision:1")
+            .unwrap_or_else(|| panic!("{:?}", folded.conflicts));
+        assert_eq!(
+            revision.ops,
+            vec![dup_born_id, nine_id],
+            "revision:1 {:?}",
+            revision.ops
+        );
+        let ballot = folded
+            .conflicts
+            .iter()
+            .find(|clash| clash.field == "ballot:3:ann")
+            .unwrap_or_else(|| panic!("{:?}", folded.conflicts));
+        assert_eq!(
+            ballot.ops,
+            vec![dup_born_id, recast_id],
+            "ballot {:?}",
+            ballot.ops
+        );
+    });
+
+    let anchor = wire(&Op::create("proj", "proj-0", "Anchor", "seat").unwrap());
+    let template = Op::create("proj", "proj-1", "Born", "seat").unwrap();
+    let ann = child(
+        &[&anchor],
+        &template,
+        OpKind::Ballot {
+            voter: "ann".to_string(),
+            rev: String::new(),
+            choice: "yes".to_string(),
+            stamp: "[2026-01-01 Thu]".to_string(),
+        },
+        1,
+    );
+    let bob = child(
+        &[&anchor],
+        &template,
+        OpKind::Ballot {
+            voter: "bob".to_string(),
+            rev: String::new(),
+            choice: "no".to_string(),
+            stamp: "[2026-01-01 Thu]".to_string(),
+        },
+        2,
+    );
+    let alpha = child(
+        &[&anchor],
+        &template,
+        OpKind::AddRevision {
+            rev_id: "1".to_string(),
+            summary: "alpha".to_string(),
+        },
+        3,
+    );
+    let beta = child(
+        &[&anchor],
+        &template,
+        OpKind::AddRevision {
+            rev_id: "2".to_string(),
+            summary: "beta".to_string(),
+        },
+        4,
+    );
+    let birth = child(
+        &[&ann, &bob, &alpha, &beta],
+        &template,
+        template.kind.clone(),
+        5,
+    );
+    let mut ballot_lines = vec![
+        (ann.lamport, ann.id().unwrap(), "[2026-01-01 Thu] ann: yes"),
+        (bob.lamport, bob.id().unwrap(), "[2026-01-01 Thu] bob: no"),
+    ];
+    let mut revision_lines = vec![
+        (alpha.lamport, alpha.id().unwrap(), "1 alpha"),
+        (beta.lamport, beta.id().unwrap(), "2 beta"),
+    ];
+    ballot_lines.sort();
+    revision_lines.sort();
+    let expect_drawers = format!(
+        ":REVISIONS:\n{}\n{}\n:END:\n:VOTES:\n{}\n{}\n:END:\n",
+        revision_lines[0].2, revision_lines[1].2, ballot_lines[0].2, ballot_lines[1].2
+    );
+    let early = vec![anchor, ann, bob, alpha, beta, birth];
+    let mut seen = None;
+    for _ in 0..40 {
+        let folded = fold(&early).expect("pre-birth fold");
+        let text = drawers(&folded, "proj-1");
+        assert!(folded.conflicts.is_empty(), "{:?}", folded.conflicts);
+        match &seen {
+            None => seen = Some(text),
+            Some(first) => assert_eq!(first, &text, "fold order changed the drawers"),
+        }
+    }
+    let mut reversed = early.clone();
+    reversed.reverse();
+    let backward = drawers(&fold(&reversed).expect("reversed"), "proj-1");
+    assert_eq!(seen.as_deref(), Some(backward.as_str()));
+    assert_eq!(seen.as_deref(), Some(expect_drawers.as_str()));
+
     let before = folded_bytes(&fold(std::slice::from_ref(&root)).unwrap());
     let refused: &[(&str, OpKind)] = &[
         (
@@ -1981,6 +2154,41 @@ retarget zzz
     ];
     for (snippet, kind) in refused {
         let op = spawned(&root, kind.clone(), 9);
+        let err = Op::from_message_bytes(&op.message_bytes().expect(snippet)).expect_err(snippet);
+        let text = err.to_string();
+        assert!(text.contains(snippet), "{snippet} not in {text}");
+        assert!(
+            fold(&[root.clone(), op]).is_err(),
+            "{snippet} changed the tracker"
+        );
+    }
+    let mut note_heading = plain_heading("proj-1", "Genesis");
+    note_heading
+        .properties
+        .insert("NOTE".to_string(), "hello\n:DEEDS:    stolen".to_string());
+    note_heading.property_order.push("NOTE".to_string());
+    let title_heading = plain_heading("proj-1", "Hello\n* DONE [#A] other");
+    let mut log_heading = plain_heading("proj-1", "Genesis");
+    log_heading
+        .logbook
+        .push(note("keep\n:DEEDS:    stolen", "[2026-01-01 Thu 00:00]"));
+    for (snippet, heading) in [
+        ("property:NOTE", note_heading),
+        ("title", title_heading),
+        ("note", log_heading),
+    ] {
+        let op = Op {
+            parents: vec![root.id().unwrap()],
+            lamport: root.lamport + 1,
+            seat: root.seat.clone(),
+            project: root.project.clone(),
+            issue: root.issue,
+            kind: OpKind::GenesisImport {
+                heading: Box::new(heading),
+                residue: String::new(),
+            },
+            wall: 9,
+        };
         let err = Op::from_message_bytes(&op.message_bytes().expect(snippet)).expect_err(snippet);
         let text = err.to_string();
         assert!(text.contains(snippet), "{snippet} not in {text}");
