@@ -537,6 +537,8 @@ struct Live {
     dup_fields: Vec<String>,
     /// Later ops that appended a line on one of those keys, with lamport.
     dup_later: Vec<(String, u64, OpId)>,
+    /// Lines appended on a duplicated key. A clear leaves this many matches.
+    kept_tail: BTreeMap<String, usize>,
     born_lamport: u64,
     born_id: OpId,
     /// Length of the `property_order` prefix fixed by create or genesis.
@@ -546,6 +548,9 @@ struct Live {
 #[derive(Clone, Default)]
 struct Frontier {
     writers: Vec<Writer>,
+    /// First write of this field: `(lamport, op id, sequence in that op)`.
+    /// A later replace does not move the field.
+    introduced: Option<(u64, OpId, u32)>,
 }
 
 /// Add-tags for one set field. The tag's op is the add that introduced the
@@ -607,6 +612,8 @@ struct Writer {
     id: OpId,
     lamport: u64,
     value: String,
+    /// The text the op named. `value` is the merged display after a replace.
+    raw: String,
     /// Pure unions are not a clash. Elements live in `union`.
     unite: bool,
     /// When set, `union` is this writer's own elements and `value` is the merged display.
@@ -688,6 +695,13 @@ impl Mem {
                     for (name, lamport, id) in &live.dup_later {
                         if name == field {
                             writers.push((*lamport, *id));
+                        }
+                    }
+                    // The frontier is the folded set of writers. Walk order
+                    // drops a clear and a write that arrived before the birth.
+                    if let Some(frontier) = self.frontiers.get(&(live.born_id, field.clone())) {
+                        for writer in &frontier.writers {
+                            writers.push((writer.lamport, writer.id));
                         }
                     }
                     writers.sort();
@@ -815,8 +829,16 @@ fn apply(mem: &mut Mem, id: OpId, op: &Op) -> Result<()> {
             if fields.is_empty() {
                 return write_named(mem, id, op, &format!("target:{target_id}:id"), target_id);
             }
-            for (name, value) in fields {
-                write_named(mem, id, op, &format!("target:{target_id}:{name}"), value)?;
+            for (seq, (name, value)) in fields.iter().enumerate() {
+                write_field(
+                    mem,
+                    id,
+                    op,
+                    &format!("target:{target_id}:{name}"),
+                    value,
+                    false,
+                    seq as u32,
+                )?;
             }
             Ok(())
         }
@@ -906,7 +928,7 @@ fn install_issue(
                 .writers
                 .iter()
                 .filter(|writer| writer.id != id)
-                .map(|writer| (writer.lamport, writer.id, writer.value.clone()))
+                .map(|writer| (writer.lamport, writer.id, writer.raw.clone()))
                 .collect();
             extras.sort();
             for (lamport, writer_id, written) in extras {
@@ -932,28 +954,33 @@ fn absorb_pending(
     live: &mut Live,
     written: &HashSet<String>,
 ) {
-    // Same tie-break as the post-birth walk: `(lamport, op id)`, then the
-    // field name. Pending lives in a HashMap, whose walk is not that order.
-    let mut names: Vec<(u64, OpId, String)> = mem
+    // Place is the first write, then the order that op named its fields.
+    // The surviving writer's stamp is later, and sorting by it moves the line.
+    let mut names: Vec<(u64, OpId, u32, String)> = mem
         .pending
         .iter()
         .filter(|((issue, name), _)| *issue == key && !written.contains(name))
         .map(|((_, name), slot)| {
-            let (lamport, id) = slot
-                .writers
-                .iter()
-                .map(|writer| (writer.lamport, writer.id))
-                .min()
-                .unwrap_or((u64::MAX, OpId([0xff; 32])));
-            (lamport, id, name.clone())
+            let (lamport, id, seq) =
+                slot.introduced
+                    .unwrap_or((u64::MAX, OpId([0xff; 32]), u32::MAX));
+            (lamport, id, seq, name.clone())
         })
         .collect();
     names.sort();
-    for (_, _, name) in names {
+    for (_, _, _, name) in names {
         let Some(slot) = mem.pending.get(&(key, name.clone())).cloned() else {
             continue;
         };
-        project(live, &name, &frontier_display(&slot));
+        if live.dup_fields.iter().any(|have| have == &name) {
+            let mut writers = slot.writers.clone();
+            writers.sort_by_key(|writer| (writer.lamport, writer.id));
+            for writer in writers {
+                project(live, &name, &writer.raw);
+            }
+        } else {
+            project(live, &name, &frontier_display(&slot));
+        }
         mem.frontiers.insert((id, name), slot);
     }
 }
@@ -1035,11 +1062,11 @@ fn heading_writes(heading: &IssueHeading) -> Vec<(String, String)> {
 }
 
 fn write_named(mem: &mut Mem, id: OpId, op: &Op, name: &str, value: &str) -> Result<()> {
-    write_field(mem, id, op, name, value, false)
+    write_field(mem, id, op, name, value, false, 0)
 }
 
 fn write_union(mem: &mut Mem, id: OpId, op: &Op, name: &str, element: &str) -> Result<()> {
-    write_field(mem, id, op, name, element, true)
+    write_field(mem, id, op, name, element, true, 0)
 }
 
 /// One path for every property write, including births and revisions.
@@ -1056,6 +1083,7 @@ fn write_field(
     name: &str,
     value: &str,
     unite: bool,
+    seq: u32,
 ) -> Result<()> {
     let field = canonical_field(name)?;
     if field == "priority" {
@@ -1074,6 +1102,9 @@ fn write_field(
         .collect();
     if causal.is_empty() {
         let slot = mem.pending.entry((op.issue, field.clone())).or_default();
+        if slot.introduced.is_none() {
+            slot.introduced = Some((op.lamport, id, seq));
+        }
         converge(slot, &ancestors, id, op.lamport, value, unite);
     }
     let targets = if causal.is_empty() { births } else { causal };
@@ -1159,6 +1190,7 @@ fn converge(
         id,
         lamport,
         value: stored,
+        raw: value.to_string(),
         unite,
         owned,
         union,
@@ -1282,16 +1314,24 @@ fn project(live: &mut Live, field: &str, value: &str) -> bool {
             })
         }
         name if let Some((kind, other)) = unkey("link:", name) => {
-            let written = link_line(&kind, &other);
-            let next = if value.is_empty() {
-                None
-            } else {
-                Some(written)
-            };
-            edit_first_drawer(&mut live.heading, "LINKS", next, |line| {
+            let hit = |line: &str| {
                 parse_link_line(line)
                     .is_some_and(|(have_kind, have_other)| have_kind == kind && have_other == other)
-            })
+            };
+            if value.is_empty() {
+                let keep = live.kept_tail.get(name).copied().unwrap_or(0);
+                return clear_link_lines(&mut live.heading, keep, hit);
+            }
+            let appended = edit_first_drawer(
+                &mut live.heading,
+                "LINKS",
+                Some(link_line(&kind, &other)),
+                hit,
+            );
+            if appended {
+                *live.kept_tail.entry(name.to_string()).or_default() += 1;
+            }
+            appended
         }
         _ => false,
     }
@@ -1324,6 +1364,55 @@ fn set_property(live: &mut Live, key: &str, value: &str) {
     if start < live.heading.property_order.len() {
         live.heading.property_order[start..].sort();
     }
+}
+
+/// Remove the matches a clear observed. Appended lines sit at the end;
+/// `keep` of them stay. One match uses the same remove as a unique key.
+fn clear_link_lines(
+    heading: &mut IssueHeading,
+    keep: usize,
+    matches: impl Fn(&str) -> bool,
+) -> bool {
+    let Some(at) = heading
+        .extra_drawers
+        .iter()
+        .position(|drawer| crate::ops::drawer_name_is(drawer, "LINKS"))
+    else {
+        return false;
+    };
+    let mut lines: Vec<String> = heading.extra_drawers[at]
+        .lines()
+        .map(str::to_string)
+        .collect();
+    if lines.is_empty() {
+        return false;
+    }
+    let end = lines
+        .iter()
+        .rposition(|line| line.trim().eq_ignore_ascii_case(":END:"))
+        .unwrap_or(lines.len());
+    let hits: Vec<usize> = (1..end)
+        .filter(|index| matches(lines[*index].trim()))
+        .collect();
+    if hits.len() <= 1 {
+        return edit_first_drawer(heading, "LINKS", None, matches);
+    }
+    let drop_n = hits.len().saturating_sub(keep);
+    for index in hits.into_iter().take(drop_n).rev() {
+        lines.remove(index);
+    }
+    let end = lines
+        .iter()
+        .rposition(|line| line.trim().eq_ignore_ascii_case(":END:"))
+        .unwrap_or(lines.len());
+    if end <= 1 {
+        heading.extra_drawers.remove(at);
+        return true;
+    }
+    let mut text = lines.join("\n");
+    text.push('\n');
+    heading.extra_drawers[at] = text;
+    true
 }
 
 /// Replace or append one line in the first drawer named `name`.
@@ -1563,11 +1652,24 @@ fn parse_revision_line(line: &str) -> Option<(String, String)> {
     if line.is_empty() || line.contains('\n') {
         return None;
     }
+    // A summary with a space is not an id split. `1 2 3` stays a raw line,
+    // the way a line the base reader does not structure stays a raw line.
     let (id, summary) = match line.split_once(' ') {
-        Some((id, summary)) => (id, summary),
+        Some((id, summary)) => {
+            if summary
+                .chars()
+                .any(|ch| ch.is_whitespace() || ch.is_control())
+            {
+                return None;
+            }
+            (id, summary)
+        }
         None => (line, ""),
     };
-    if id.is_empty() || revision_line(id, summary) != line {
+    if id.is_empty()
+        || id.chars().any(|ch| ch.is_whitespace() || ch.is_control())
+        || revision_line(id, summary) != line
+    {
         return None;
     }
     Some((id.to_string(), summary.to_string()))
@@ -1684,6 +1786,112 @@ fn require_derived(project: &str, short_id: &str, key: IssueKey) -> Result<()> {
     Ok(())
 }
 
+/// Render the heading and read it back. One issue, the same fields.
+///
+/// A file-local TODO keyword is not stored on the heading. The preamble
+/// that declares it is what the base reader needs in order to see the state.
+fn genesis_round_trip(heading: &IssueHeading) -> Result<()> {
+    if let Some(fault) = genesis_fault(heading) {
+        return Err(bad(fault));
+    }
+    let mut text = String::new();
+    if !heading.state.is_empty() && !crate::model::TODO_KEYWORDS.contains(&heading.state.as_str()) {
+        text.push_str(&format!("#+TODO: {} | DONE\n", heading.state));
+    }
+    text.push_str(&heading.render());
+    let doc = crate::store::IssueDoc::parse("proj", std::path::PathBuf::from("issues.org"), &text)
+        .map_err(|_| bad(genesis_fault(heading).unwrap_or_else(|| "title".to_string())))?;
+    if doc.headings.len() != 1 {
+        return Err(bad(genesis_fault(heading).unwrap_or_else(|| {
+            "a genesis heading does not round-trip".to_string()
+        })));
+    }
+    let parsed = &doc.headings[0];
+    if let Some(fault) = genesis_diff(heading, parsed) {
+        return Err(bad(fault));
+    }
+    Ok(())
+}
+
+fn genesis_fault(heading: &IssueHeading) -> Option<String> {
+    if heading.title.contains('\n') || heading.title.contains('\r') {
+        return Some(format!("title {:?}", heading.title));
+    }
+    for (key, value) in &heading.properties {
+        if key != "ID" && (value.contains('\n') || value.contains('\r')) {
+            return Some(format!("property:{key} {value:?}"));
+        }
+    }
+    for entry in &heading.logbook {
+        let note = entry.note.as_deref().unwrap_or("");
+        let raw_breaks = entry
+            .raw
+            .as_ref()
+            .is_some_and(|line| line.contains('\n') || line.contains('\r'));
+        if note.contains('\n') || note.contains('\r') || raw_breaks {
+            return Some(format!("note {note:?}"));
+        }
+    }
+    None
+}
+
+fn genesis_diff(heading: &IssueHeading, parsed: &IssueHeading) -> Option<String> {
+    if parsed.id != heading.id {
+        return Some(format!("id {:?}", heading.id));
+    }
+    if parsed.title != heading.title {
+        return Some(format!("title {:?}", heading.title));
+    }
+    if parsed.state != heading.state {
+        return Some(format!("state {:?}", heading.state));
+    }
+    if parsed.priority != heading.priority {
+        return Some(format!("priority {}", heading.priority));
+    }
+    if parsed.properties != heading.properties {
+        for (key, value) in &heading.properties {
+            if parsed.properties.get(key) != Some(value) {
+                return Some(format!("property:{key} {value:?}"));
+            }
+        }
+        for (key, value) in &parsed.properties {
+            if !heading.properties.contains_key(key) {
+                return Some(format!("property:{key} {value:?}"));
+            }
+        }
+    }
+    if parsed.body != heading.body {
+        return Some(format!("body {:?}", heading.body));
+    }
+    if parsed.org_tags != heading.org_tags {
+        return Some(format!("tags {}", heading.org_tags.join(" ")));
+    }
+    if parsed.statistics != heading.statistics {
+        return Some(format!(
+            "statistics {:?}",
+            heading.statistics.as_deref().unwrap_or("")
+        ));
+    }
+    if parsed.extra_drawers != heading.extra_drawers {
+        return Some("a genesis heading does not round-trip".to_string());
+    }
+    let same_log = parsed.logbook.len() == heading.logbook.len()
+        && parsed
+            .logbook
+            .iter()
+            .zip(&heading.logbook)
+            .all(|(left, right)| left.render() == right.render());
+    if !same_log {
+        let note = heading
+            .logbook
+            .iter()
+            .find_map(|entry| entry.note.clone())
+            .unwrap_or_default();
+        return Some(format!("note {note:?}"));
+    }
+    None
+}
+
 fn check_op(op: &Op) -> Result<()> {
     match &op.kind {
         OpKind::Create {
@@ -1699,26 +1907,7 @@ fn check_op(op: &Op) -> Result<()> {
             require_derived(&op.project, short_id, op.issue)
         }
         OpKind::GenesisImport { heading, .. } => {
-            stores("id", &heading.id, "")?;
-            stores("title", &heading.title, "")?;
-            stores("state", &heading.state, "")?;
-            one_char(&heading.priority.to_string())?;
-            stores("body", &heading.body, "")?;
-            stores("tags", &heading.org_tags.join(" "), "")?;
-            stores(
-                "statistics",
-                heading.statistics.as_deref().unwrap_or(""),
-                "",
-            )?;
-            for (key, value) in &heading.properties {
-                if key == "ID" {
-                    continue;
-                }
-                stores("property", key, value)?;
-            }
-            for entry in &heading.logbook {
-                log_ok(entry)?;
-            }
+            genesis_round_trip(heading)?;
             require_derived(&op.project, &heading.id, op.issue)
         }
         OpKind::SetField { name, value } | OpKind::Resolve { field: name, value } => {
@@ -2126,6 +2315,7 @@ impl Live {
             heading,
             dup_fields,
             dup_later: Vec::new(),
+            kept_tail: BTreeMap::new(),
             born_lamport: op.lamport,
             born_id: id,
             order_fixed,
@@ -3042,6 +3232,7 @@ mod tests {
             heading: fresh_heading("shared", title, "TODO", 'B'),
             dup_fields: Vec::new(),
             dup_later: Vec::new(),
+            kept_tail: BTreeMap::new(),
             born_lamport: lamport,
             born_id: OpId([0; 32]),
             order_fixed: 1,

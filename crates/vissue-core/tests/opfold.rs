@@ -2112,6 +2112,285 @@ retarget zzz
     assert_eq!(seen.as_deref(), Some(backward.as_str()));
     assert_eq!(seen.as_deref(), Some(expect_drawers.as_str()));
 
+    let anchor = wire(&Op::create("proj", "proj-0", "Anchor", "seat").unwrap());
+    let template = Op::create("proj", "proj-1", "Dup", "seat").unwrap();
+    let mut dup_links = plain_heading("proj-1", "Dup");
+    dup_links.extra_drawers = vec![
+        "\
+:LINKS:
+# link-note
+cites proj-2
+cites proj-2
+:END:
+"
+        .to_string(),
+    ];
+    let birth_kind = OpKind::GenesisImport {
+        heading: Box::new(dup_links),
+        residue: String::new(),
+    };
+    let link_kind = OpKind::Link {
+        kind: "cites".to_string(),
+        other: "proj-2".to_string(),
+    };
+    let mut link_first = None;
+    let mut birth_first = None;
+    for birth_wall in 0..24 {
+        for link_wall in 0..24 {
+            let birth = child(&[&anchor], &template, birth_kind.clone(), birth_wall);
+            let link = child(&[&anchor], &template, link_kind.clone(), link_wall);
+            let birth_id = birth.id().unwrap();
+            let link_id = link.id().unwrap();
+            if link_id < birth_id && link_first.is_none() {
+                link_first = Some((birth.clone(), link.clone()));
+            }
+            if birth_id < link_id && birth_first.is_none() {
+                birth_first = Some((birth, link));
+            }
+            if link_first.is_some() && birth_first.is_some() {
+                break;
+            }
+        }
+        if link_first.is_some() && birth_first.is_some() {
+            break;
+        }
+    }
+    let mut link_drawers = Vec::new();
+    for (birth, link) in [link_first.unwrap(), birth_first.unwrap()] {
+        let birth_id = birth.id().unwrap();
+        let link_id = link.id().unwrap();
+        both_ways(&[anchor.clone(), birth, link], |folded| {
+            let text = drawers(folded, "proj-1");
+            assert_eq!(
+                text.lines().filter(|line| *line == "cites proj-2").count(),
+                3,
+                "{text}"
+            );
+            assert!(line_is(&text, "# link-note"), "{text}");
+            let clash = clash_ids(folded, "link:5:citesproj-2");
+            assert!(clash.contains(&birth_id), "{clash:?}");
+            assert!(clash.contains(&link_id), "{clash:?}");
+            assert_eq!(clash.len(), 2, "{clash:?}");
+            link_drawers.push(text);
+        });
+    }
+    assert_eq!(
+        link_drawers[0], link_drawers[1],
+        "delivery order changed the drawer"
+    );
+
+    let mut cleared = plain_heading("proj-1", "Dup");
+    cleared.extra_drawers = vec![
+        "\
+:LINKS:
+# link-note
+cites proj-2
+cites proj-2
+cites proj-9
+:END:
+"
+        .to_string(),
+    ];
+    let clear_birth = genesis_of(cleared);
+    let clear_kind = OpKind::SetField {
+        name: "link:5:citesproj-2".to_string(),
+        value: String::new(),
+    };
+    let mut clear_first = None;
+    let mut add_first = None;
+    for clear_wall in 0..24 {
+        for add_wall in 0..24 {
+            let clear = child(&[&clear_birth], &template, clear_kind.clone(), clear_wall);
+            let add = child(&[&clear_birth], &template, link_kind.clone(), add_wall);
+            let clear_id = clear.id().unwrap();
+            let add_id = add.id().unwrap();
+            if clear_id < add_id && clear_first.is_none() {
+                clear_first = Some((clear.clone(), add.clone()));
+            }
+            if add_id < clear_id && add_first.is_none() {
+                add_first = Some((clear, add));
+            }
+            if clear_first.is_some() && add_first.is_some() {
+                break;
+            }
+        }
+        if clear_first.is_some() && add_first.is_some() {
+            break;
+        }
+    }
+    let clear_lines = "\
+:LINKS:
+# link-note
+cites proj-9
+cites proj-2
+:END:
+";
+    for (clear, add) in [clear_first.unwrap(), add_first.unwrap()] {
+        let birth_id = clear_birth.id().unwrap();
+        let clear_id = clear.id().unwrap();
+        let add_id = add.id().unwrap();
+        both_ways(&[clear_birth.clone(), clear, add], |folded| {
+            let links = folded.issues[&("proj".to_string(), "proj-1".to_string())]
+                .extra_drawers
+                .iter()
+                .find(|drawer| drawer.starts_with(":LINKS:"))
+                .map(String::as_str);
+            assert_eq!(links, Some(clear_lines));
+            let clash = clash_ids(folded, "link:5:citesproj-2");
+            assert!(clash.contains(&birth_id), "{clash:?}");
+            assert!(clash.contains(&clear_id), "{clash:?}");
+            assert!(clash.contains(&add_id), "{clash:?}");
+            assert_eq!(clash.len(), 3, "{clash:?}");
+        });
+    }
+
+    let post_birth = wire(&Op::create("proj", "proj-1", "Title", "seat").unwrap());
+    let old_rev = OpKind::AddRevision {
+        rev_id: "5".to_string(),
+        summary: "old".to_string(),
+    };
+    let other_rev = OpKind::AddRevision {
+        rev_id: "7".to_string(),
+        summary: "other".to_string(),
+    };
+    let new_rev = OpKind::AddRevision {
+        rev_id: "5".to_string(),
+        summary: "new".to_string(),
+    };
+    let mut post_pair = None;
+    for left_wall in 0..20 {
+        for right_wall in 0..20 {
+            let left = spawned(&post_birth, old_rev.clone(), left_wall);
+            let right = spawned(&post_birth, other_rev.clone(), right_wall);
+            if left.id().unwrap() < right.id().unwrap() {
+                post_pair = Some((left, right));
+                break;
+            }
+        }
+        if post_pair.is_some() {
+            break;
+        }
+    }
+    let (left, right) = post_pair.unwrap();
+    let replaced = spawned(&left, new_rev.clone(), 40);
+    let post = fold(&[
+        post_birth.clone(),
+        left.clone(),
+        right.clone(),
+        replaced.clone(),
+    ])
+    .unwrap();
+    let post_rev = post.issues[&("proj".to_string(), "proj-1".to_string())]
+        .extra_drawers
+        .iter()
+        .find(|drawer| drawer.starts_with(":REVISIONS:"))
+        .cloned()
+        .unwrap();
+    assert_eq!(post_rev, ":REVISIONS:\n5 new\n7 other\n:END:\n");
+    let mut spaced_rev = plain_heading("proj-1", "Legacy");
+    spaced_rev.extra_drawers = vec![
+        "\
+:REVISIONS:
+1 2 3
+:END:
+"
+        .to_string(),
+    ];
+    let spaced_birth = genesis_of(spaced_rev);
+    let gamma = spawned(
+        &spaced_birth,
+        OpKind::AddRevision {
+            rev_id: "1".to_string(),
+            summary: "gamma".to_string(),
+        },
+        1,
+    );
+    let spaced = drawers(&fold(&[spaced_birth, gamma]).unwrap(), "proj-1");
+    assert!(line_is(&spaced, "1 2 3"), "{spaced}");
+    assert!(line_is(&spaced, "1 gamma"), "{spaced}");
+    let mut pre_pair = None;
+    for left_wall in 0..20 {
+        for right_wall in 0..20 {
+            let left = child(&[&anchor], &template, old_rev.clone(), left_wall);
+            let right = child(&[&anchor], &template, other_rev.clone(), right_wall);
+            if left.id().unwrap() < right.id().unwrap() {
+                pre_pair = Some((left, right));
+                break;
+            }
+        }
+        if pre_pair.is_some() {
+            break;
+        }
+    }
+    let (pre_left, pre_right) = pre_pair.unwrap();
+    let pre_replaced = child(&[&pre_left], &template, new_rev, 41);
+    let pre_birth = child(
+        &[&pre_left, &pre_right, &pre_replaced],
+        &template,
+        template.kind.clone(),
+        42,
+    );
+    let pre = fold(&[anchor.clone(), pre_left, pre_right, pre_replaced, pre_birth]).unwrap();
+    let pre_rev = pre.issues[&("proj".to_string(), "proj-1".to_string())]
+        .extra_drawers
+        .iter()
+        .find(|drawer| drawer.starts_with(":REVISIONS:"))
+        .cloned()
+        .unwrap();
+    assert_eq!(pre_rev, post_rev);
+
+    let target_kind = OpKind::SetTarget {
+        target_id: "t1".to_string(),
+        fields: vec![
+            ("z".to_string(), "1".to_string()),
+            ("a".to_string(), "2".to_string()),
+        ],
+    };
+    let targeted = spawned(&post_birth, target_kind.clone(), 3);
+    let after_birth = drawers(&fold(&[post_birth, targeted]).unwrap(), "proj-1");
+    let early_target = child(&[&anchor], &template, target_kind.clone(), 3);
+    let early_birth = child(&[&early_target], &template, template.kind.clone(), 4);
+    let before_birth = drawers(
+        &fold(&[anchor.clone(), early_target, early_birth]).unwrap(),
+        "proj-1",
+    );
+    assert_eq!(before_birth, after_birth);
+    assert!(
+        after_birth.find("t1 z 1").unwrap() < after_birth.find("t1 a 2").unwrap(),
+        "{after_birth}"
+    );
+    let mut between = None;
+    for first_wall in 0..16 {
+        for set_wall in 0..16 {
+            for second_wall in 0..16 {
+                let first = child(&[&anchor], &template, template.kind.clone(), first_wall);
+                let set = child(&[&anchor], &template, target_kind.clone(), set_wall);
+                let second = child(&[&anchor], &template, template.kind.clone(), second_wall);
+                let first_id = first.id().unwrap();
+                let set_id = set.id().unwrap();
+                let second_id = second.id().unwrap();
+                if first_id < set_id && set_id < second_id {
+                    between = Some((first, set, second));
+                    break;
+                }
+            }
+            if between.is_some() {
+                break;
+            }
+        }
+        if between.is_some() {
+            break;
+        }
+    }
+    let (first, set, second) = between.expect("a SetTarget between two births");
+    let both = fold(&[anchor, first, set, second]).unwrap();
+    for id in ["proj-1", "proj-1~2"] {
+        let text = drawers(&both, id);
+        let zed = text.find("t1 z 1").unwrap_or_else(|| panic!("{id} {text}"));
+        let ay = text.find("t1 a 2").unwrap_or_else(|| panic!("{id} {text}"));
+        assert!(zed < ay, "{id} {text}");
+    }
+
     let before = folded_bytes(&fold(std::slice::from_ref(&root)).unwrap());
     let refused: &[(&str, OpKind)] = &[
         (
@@ -2197,6 +2476,76 @@ retarget zzz
             "{snippet} changed the tracker"
         );
     }
+    let round_trip = |heading: IssueHeading| {
+        let ops = describe("proj", std::slice::from_ref(&heading)).expect("describe");
+        fold(&ops).expect("fold").issues[&("proj".to_string(), "proj-1".to_string())].clone()
+    };
+    let mut waiting = plain_heading("proj-1", "Gate");
+    waiting.state = "WAITING".to_string();
+    waiting.priority = 'A';
+    assert_eq!(round_trip(waiting).state, "WAITING");
+    let idea = "\
+#+TODO: IDEA WAIT | DONE CANCELLED
+
+* IDEA [#A] Gate
+:PROPERTIES:
+:ID:         proj-1
+:OWNER:      ada
+:END:
+";
+    let idea_doc = IssueDoc::parse("proj", PathBuf::from("issues.org"), idea).unwrap();
+    let idea_folded = fold(&describe("proj", &idea_doc.headings).unwrap()).unwrap();
+    assert_eq!(
+        idea_folded.issues[&("proj".to_string(), "proj-1".to_string())].state,
+        "IDEA"
+    );
+    let mut empty_note = plain_heading("proj-1", "Gate");
+    empty_note
+        .properties
+        .insert("NOTE".to_string(), String::new());
+    empty_note.property_order.push("NOTE".to_string());
+    assert_eq!(
+        round_trip(empty_note)
+            .properties
+            .get("NOTE")
+            .map(String::as_str),
+        Some("")
+    );
+    let mut spaced = plain_heading("proj-1", "Gate");
+    spaced
+        .properties
+        .insert("MY KEY".to_string(), "kept".to_string());
+    spaced.property_order.push("MY KEY".to_string());
+    assert_eq!(
+        round_trip(spaced)
+            .properties
+            .get("MY KEY")
+            .map(String::as_str),
+        Some("kept")
+    );
+    assert_eq!(round_trip(plain_heading("proj-1", "")).title, "");
+    assert_eq!(
+        round_trip(plain_heading("proj-1", "a\u{0001}b")).title,
+        "a\u{0001}b"
+    );
+    let mut injected = plain_heading("proj-1", "Gate");
+    injected.extra_drawers = vec![
+        "\
+:NOTES:
+ok
+:END:
+* DONE [#A] Injected
+:PROPERTIES:
+:ID:         proj-stolen
+:DEEDS:      stolen
+:END:
+"
+        .to_string(),
+    ];
+    assert!(
+        describe("proj", &[injected]).is_err(),
+        "a drawer past :END: folded"
+    );
     let after = folded_bytes(&fold(std::slice::from_ref(&root)).unwrap());
     assert_eq!(before, after);
 }
